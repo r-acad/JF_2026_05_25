@@ -430,6 +430,7 @@ function mesh_payload(m::Model; progress = stage -> nothing)
         "title" => String(m.params["output.title"]),
         "model_params" => copy(m.params),
         "geometry_warnings" => planform_endpoint_warnings(m.params,m.wing),
+        "mesh_quality" => deepcopy(m.mesh_quality),
         "stiffened_panels" => stiffened_panels_payload(m),
         "component_buckling" => component_buckling_payload(m),
         "planform" => Dict{String,Any}(

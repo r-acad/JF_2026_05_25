@@ -94,6 +94,12 @@ function structural_element_mass_moments(m::Model,gr::ElemGroup,e::Int;
     (mass=mass,first=first_moment,second=second)
 end
 
+"""Whether all GRID positions actually lie on the named main-box rib plane."""
+function structural_nodes_on_rib(m,nodes,j)
+    plane=main_rib_plane(m.grid,m.params,j)
+    all(node->abs(sum(plane.normal.*(Tuple(m.xyz[3node-2:3node]).-plane.origin)))<=2e-11*plane.scale,nodes)
+end
+
 """Physical bay ownership, using mesh topology even for swept or angled ribs.
 An interior rib's web/stiffeners contribute half to each neighboring bay;
 root/tip ribs contribute fully inward. A property is never used as a bay ID.
@@ -105,10 +111,19 @@ function structural_element_bay_weights(m::Model,gr::ElemGroup,e::Int)
         center=sum(etas[node] for node in nodes)/n;ribetas=m.grid.etas[m.grid.ribs.+1]
         return [(clamp(searchsortedlast(ribetas,center),1,length(ribetas)-1),1.)]
     end
-    rows=[m.node_keys[node][2] for node in gr.conn[n*(e-1)+1:n*e]]
+    nodes=view(gr.conn,n*(e-1)+1:n*e)
+    rows=[m.node_keys[node][2] for node in nodes]
     lo,hi=extrema(rows);ribs=m.grid.ribs;nbays=length(ribs)-1
     rib=findfirst(==(lo),ribs)
-    if lo==hi&&rib!==nothing
+    on_rib=lo==hi&&rib!==nothing
+    if on_rib&&any(node->m.node_keys[node][3]<0,nodes)
+        # A local kink GRID keeps its inboard row for bay ownership, while a
+        # negative height marks its independent position. A longitudinal bar
+        # or triangle can therefore have identical row keys without lying on
+        # that rib. Share mass only for an actual rib-plane element.
+        on_rib=structural_nodes_on_rib(m,nodes,lo)
+    end
+    if on_rib
         rib==1&&return [(1,1.)]
         rib==length(ribs)&&return [(nbays,1.)]
         return [(rib-1,.5),(rib,.5)]

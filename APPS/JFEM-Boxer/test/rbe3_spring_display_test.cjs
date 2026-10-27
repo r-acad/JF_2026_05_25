@@ -1,6 +1,8 @@
 'use strict';
 const assert=require('node:assert/strict'),R=require('../web/rbe3_labels.js'),E=require('../web/model_entities.js'),B=require('../web/vendor/babylon.js'),W=require('../web/workspace.js');
 const plain={reference_grid:10,reference_components:'123456',connected_grids:[20,30],connected_components:'123',weight:1};
+assert.equal(E.kind('RBE3'),'rbe3');assert.equal(E.kind('RBE2'),'connection');
+const archived=R.definitions({...plain,interpolation_details_available:false});assert(archived.every(row=>row.independent===''&&row.dependent===''));assert.match(archived[1].label,/unavailable/);assert(!archived.some(row=>/W 1/.test(row.label)));
 let rows=R.definitions(plain);assert.equal(rows[0].dependent,'123456');assert.equal(rows[1].independent,'123');assert.match(rows[1].label,/W 1 \/ 123/);
 const um={...plain,weight_groups:[{wt:2,comps:123,grids:[20]},{wt:.5,comps:13,grids:[30]}],source_properties:{UM:[{grid:20,comps:123},{grid:30,comps:13},{grid:10,comps:6}],ALPHA:1.2e-5,TREF:273.15}};
 rows=R.definitions(um);assert.equal(rows[0].dependent,'6');assert.equal(rows[0].independent,'12345');assert.match(rows[0].label,/REFGRID 123456.*UM.*ALPHA/);assert.equal(rows[1].dependent,'123');assert.equal(rows[1].independent,'');assert.match(rows[2].label,/UM.*dep 13/);
@@ -16,6 +18,9 @@ layer.visible=false;E.syncSpringStyle({BABYLON:B,state:model,positions,enabled:t
 layer.visible=true;E.syncSpringStyle({BABYLON:B,state:model,positions,enabled:false,radius:.02});assert(layer.meshes.every(mesh=>!mesh.isEnabled()));
 E.syncSpringStyle({BABYLON:B,state:model,positions,enabled:true,radius:.04});assert.equal(model.deformable.length,3);assert.equal(layer.meshes.length,3);assert(first.isDisposed());
 const controls={'show-rbe3-dofs':true,'show-celas-cylinders':true,'celas-radius':'.04'};W.validateView({controls,layers:{},camera:{target:[0,0,0],alpha:0,beta:1,radius:2,mode:0},activeCase:1,workspace:{activeTab:'display',width:360,collapsed:false,maximizedTab:null}});
+Object.assign(controls,{'show-global-axis-labels':true,'show-constraint-glow':true,'constraint-marker-size':'2.5'});
+W.validateView({controls,layers:{},camera:{target:[0,0,0],alpha:0,beta:1,radius:2},activeCase:1,workspace:{activeTab:'display',width:360,collapsed:false}});
+for(const size of ['', '0', '-1', '11', 'NaN'])assert.throws(()=>W.validateView({controls:{'constraint-marker-size':size},layers:{},camera:{target:[0,0,0],alpha:0,beta:1,radius:2},workspace:{activeTab:'display',width:360,collapsed:false}}));
 assert.throws(()=>W.validateView({controls:{'show-rbe3-dofs':'true'},layers:{},camera:{target:[0,0,0],alpha:0,beta:1,radius:2,mode:0},activeCase:1,workspace:{activeTab:'display',width:360,collapsed:false,maximizedTab:null}}));
 const view={controls,layers:{},camera:{target:[0,0,0],alpha:0,beta:1,radius:2},activeCase:1,workspace:{activeTab:'display',width:360,collapsed:false}};
 for(const value of ['', '0', '-1', 'NaN', 'Infinity', '1e13', '1e-13']){

@@ -6,6 +6,13 @@
 .rf-property-editor button:disabled{opacity:.5;cursor:default}
 .rf-property-editor button.rf-property-close{padding:0 8px;font-size:24px;line-height:1.25}
 .rf-property-note{margin:8px 0 14px;color:#b8cddd}
+.rf-property-assessment{margin:12px 0;padding:12px;border:1px solid #54768f;border-radius:8px;background:#102031}
+.rf-property-assessment h3{margin:0 0 6px;font-size:16px}
+.rf-property-assessment p{margin:6px 0}
+.rf-property-assessment table{width:100%;border-collapse:collapse;margin-top:10px;font-size:13px}
+.rf-property-assessment caption{text-align:left;font-weight:600;margin-bottom:6px}
+.rf-property-assessment th,.rf-property-assessment td{padding:7px;text-align:left;border-bottom:1px solid #54768f;vertical-align:top}
+.rf-property-assessment td:first-child{background:#843443;color:#fff;font-weight:700;white-space:nowrap}
 .rf-property-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .rf-property-cell{display:flex;flex-direction:column;gap:5px;padding:10px;border:1px solid #47637a;border-radius:7px;background:#192f42;min-width:0}
 .rf-property-label{font-weight:600}

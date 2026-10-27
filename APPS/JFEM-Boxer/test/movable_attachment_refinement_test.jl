@@ -11,7 +11,7 @@ function refinement_parameters(kind="aileron")
         "hinge_start"=>.7,"hinge_end"=>.72,"front_spar_start"=>.78,"front_spar_end"=>.8,"hinge_z_start"=>-.3,"hinge_z_end"=>.15,"deflection"=>15.,"color"=>"#29b6d1")]
     p["movable_structure.surfaces"]=[merge(W.MOVABLE_STRUCTURE_DEFAULTS,Dict("surface"=>"Control","span_bays"=>3,"span_elements"=>2,"chord_elements"=>2,"height_elements"=>2))]
     p["movable_structure.attachments"]=[merge(W.MOVABLE_ATTACHMENT_DEFAULTS,Dict("surface"=>"Control","eta"=>eta,"rib"=>99,
-        "fitting"=>"shell_lugs","lateral_stay"=>true,"actuator"=>true)) for eta in (.26,.74)]
+        "fitting"=>"shell_lugs","actuator"=>true)) for eta in (.26,.74)]
     first(W.normalize_params(p))
 end
 function solve_patch(m,path)

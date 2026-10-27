@@ -10,7 +10,7 @@ function hinge_parameters()
         "hinge_start"=>.7,"hinge_end"=>.7,"front_spar_start"=>.75,"front_spar_end"=>.75,"deflection"=>20.,"color"=>"#29b6d1")]
     p["movable_structure.surfaces"]=[merge(W.MOVABLE_STRUCTURE_DEFAULTS,Dict("surface"=>"Flap","span_bays"=>2,"span_elements"=>1,"chord_elements"=>2,"height_elements"=>2,"end_eta"=>.8))]
     p["movable_structure.attachments"]=[merge(W.MOVABLE_ATTACHMENT_DEFAULTS,Dict("surface"=>"Flap","eta"=>eta,"rib"=>rib,
-        "fitting"=>"shell_lugs","lateral_stay"=>true,"actuator"=>true)) for (eta,rib) in ((.25,2),(.75,4))]
+        "fitting"=>"shell_lugs","actuator"=>true,"box_lateral_stay"=>false,"movable_lateral_stay"=>false)) for (eta,rib) in ((.25,2),(.75,4))]
     first(W.normalize_params(p))
 end
 @testset "Separate control spar, true hinge and physical lugs" begin
@@ -29,10 +29,8 @@ end
     @test all(g->W.movable_shell_property(p,g.pid)["thickness_m"]==.003,lugs)
     @test all(g->W.property_minimum_gauge(p,g.pid)["at_minimum"],lugs)
     @test all(g->all(isfinite,Iterators.flatten(W.shell_material_frame(m,g,1))),lugs)
-    links=[r for a in d["attachments"] for r in a["lateral_links"]]
-    @test length(links)==4
-    @test length(unique(r["node"] for r in links))==4
-    @test all(r->r["components"]==123,links)
+    @test all(a->!haskey(a,"lateral_links")&&!haskey(a,"lateral_stay"),d["attachments"])
+    @test !any(c->occursin("LATERAL_STAYS",c["name"]),W.movable_connection_payload(m))
     @test all(r->!(r["ref"] in r["nodes"]),d["load_references"])
     @test all(r->length(r["nodes"])>=4,d["load_references"])
     @test isfinite(W.weights_payload(m)["totals"]["structure_mass_kg"])
@@ -65,11 +63,9 @@ end
         @test rigid[a["joint_eid"]]["CM"]==12356
         @test rigid[a["joint_eid"]]["GN"]==m.node_ids[a["box_ref"]]
         @test rigid[a["joint_eid"]]["GM"]==[m.node_ids[a["surface_ref"]]]
-        for link in a["lateral_links"]
-            @test rigid[link["eid"]]["CM"]==123
-            @test grids[m.node_ids[link["node"]]]["CD"]==0
-        end
+
     end
+    @test length(deck["RBE2s"])==length(data["attachments"])
     @test length(deck["CBUSHs"])==1
     @test only(values(deck["PBUSHs"]))["K"]==[1e7,0.,0.,0.,0.,0.]
     @test only(filter(r->r["id"]==first(data["attachments"])["cid"],W.movable_coordinate_records(m)))["usage"]["grid_cd"]==4
@@ -91,12 +87,12 @@ end
 
 @testset "Physical torque arm and free-hinge run preflight" begin
     p=hinge_parameters()
-    q=deepcopy(p);q["movable_structure.attachments"][1]["lateral_stay"]=false
+    q=deepcopy(p)
     @test W.all_checks_pass(W.build_model(q)) # cap-to-cap actuator has a physical torque arm without a stay
     q["movable_structure.attachments"][1]["kind"]="rigid";q["movable_structure.attachments"][1]["actuator"]=false
-    @test_throws ArgumentError W.build_model(q)
+    @test W.all_checks_pass(W.build_model(q))
     free=deepcopy(p)
-    for a in free["movable_structure.attachments"];a["actuator"]=false;a["lateral_stay"]=false;end
+    for a in free["movable_structure.attachments"];a["actuator"]=false;end
     m=W.build_model(free);@test W.all_checks_pass(m)
     for solution in ("101","105","106");@test_throws ArgumentError W.validate_movable_run(free;solution);end
     @test W.validate_movable_run(free;solution="103")===nothing

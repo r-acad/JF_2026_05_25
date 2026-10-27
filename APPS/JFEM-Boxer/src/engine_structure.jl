@@ -4,7 +4,7 @@ const ENGINE_DEFAULTS=Dict{String,Any}("name"=>"Engine 1","enabled"=>true,
     "x"=>0.,"y"=>1.,"z"=>-1.,"mass"=>1000.,"length"=>3.,
     "front_rib"=>2,"aft_rib"=>2,"aft_xc"=>.55,
     "E"=>70e9,"G"=>26e9,"A"=>.01,"I1"=>1e-4,"I2"=>1e-4,"J"=>2e-4)
-const ENGINE_MODEL_NOTE="Two elastic CBAR halves lie along BASIC X, centered at the entered CG, with editable E, G, A, I1, I2 and J. Example stiffness values must be replaced with engine data. The beam material has zero density and NSM: a single CONM2 carries the complete mass at the CG, with uniform slender-line inertia Iy=Iz=mL^2/12 and Ix=0. The CG is the front RBE3 reference, using the first two upper front-spar cap nodes inboard and outboard of the selected front rib. The aft beam end is the aft RBE3 reference, using the equivalent lower cap nodes about its selected rib plus the nearest existing lower-rib node to the requested x/c. A collinear or nearly collinear patch also uses one cap-direction rotation to preserve every rigid motion and transfer moments. No intermediate mount nodes or RBE2 arms are added. The forward half remains an elastic overhang; pylon flexibility and distributed engine deformation inertia are not inferred from mass or length."
+const ENGINE_MODEL_NOTE="Two elastic CBAR halves lie along BASIC X, centered at the entered CG, with editable E, G, A, I1, I2 and J. Example stiffness values must be replaced with engine data. The beam material has zero density and NSM: a single CONM2 carries the complete mass at the CG, with uniform slender-line inertia Iy=Iz=mL^2/12 and Ix=0. The CG is the front RBE3 reference, using the upper front-spar cap nodes at the physical ribs immediately inboard and outboard of the selected front rib. The aft beam end is the aft RBE3 reference, using the equivalent lower cap nodes at the adjacent physical ribs about its selected rib plus the nearest existing lower-rib node to the requested x/c. A collinear or nearly collinear patch also uses one cap-direction rotation to preserve every rigid motion and transfer moments. No intermediate mount nodes or RBE2 arms are added. The forward half remains an elastic overhang; pylon flexibility and distributed engine deformation inertia are not inferred from mass or length."
 
 function normalize_engines(value)
     value isa AbstractVector&&length(value)<=100||throw(ArgumentError("engines.items must be a table of at most 100 engines"))
@@ -84,7 +84,7 @@ hinge GRIDs receive a CD), so the largest BASIC component of the line direction
 completes its rank without adding other wing nodes or all three rotations.
 """
 function engine_patch_rotation(reg,nodes,label)
-    length(nodes)>=3||throw(ArgumentError("$label needs at least three distinct wing nodes"))
+    length(nodes)>=2||throw(ArgumentError("$label needs at least two distinct wing nodes"))
     points=[reg.xyz[3n-2:3n] for n in nodes];center=sum(points)/length(points)
     offsets=[p-center for p in points];scale=maximum(norm3(v) for v in offsets)
     scale>1e-12||throw(ArgumentError("$label collapses to one position"))
@@ -101,15 +101,15 @@ function engine_patch_rotation(reg,nodes,label)
     rotation,spread
 end
 
-"""The two existing cap FE nodes on each side, excluding the nominal rib."""
+"""Cap intersections at the immediately adjacent physical ribs, never FE rows."""
 function engine_cap_nodes(reg,g,row,kind,upper)
-    ri=row[kind*"_rib"];j=g.ribs[ri];last_j=nj(g);side=upper ? "upper" : "lower"
-    j>=2&&last_j-j>=2||throw(ArgumentError(
-        "$(row["name"]): $kind attachment at R$ri needs two existing $side front-spar cap FE nodes on each side of the rib; only $(min(j,2)) inboard and $(min(last_j-j,2)) outboard are available. Choose an interior rib or increase the spanwise mesh density. The nominal-rib node is not substituted."))
-    rows=Int[j-2,j-1,j+1,j+2];k=upper ? g.nh : 0
+    ri=row[kind*"_rib"];side=upper ? "upper" : "lower"
+    1<ri<length(g.ribs)||throw(ArgumentError(
+        "$(row["name"]): $kind attachment at R$ri needs one physical rib inboard and one outboard. Choose an interior rib: intermediate mesh nodes and the nominal-rib cap node are not substituted for adjacent ribs."))
+    rows=Int[g.ribs[ri-1],g.ribs[ri+1]];k=upper ? g.nh : 0
     nodes=Int[get(reg.index,(0,jj,k),0) for jj in rows]
-    all(>(0),nodes)&&length(unique(nodes))==4||throw(ArgumentError(
-        "$(row["name"]): $kind attachment at R$ri cannot find four distinct existing $side front-spar cap FE nodes. Check the spar mesh before defining this attachment."))
+    all(>(0),nodes)&&length(unique(nodes))==2||throw(ArgumentError(
+        "$(row["name"]): $kind attachment at R$ri cannot find distinct $side front-spar cap nodes at physical ribs R$(ri-1) and R$(ri+1). Check the spar mesh before defining this attachment."))
     nodes,rows
 end
 
@@ -121,7 +121,7 @@ function engine_mount_interpolation!(mount,reg,row)
     rotation>0&&push!(groups,Dict{String,Any}("weight"=>1.,"components"=>rotation,"nodes"=>copy(mount["cap_nodes"])))
     mount["components"]=123;mount["rotation_component"]=rotation
     mount["transverse_spread_ratio"]=spread;mount["weight_groups"]=groups
-    mount["patch_note"]*=rotation>0 ? "; translations plus BASIC rotation $(rotation-3) on the four cap nodes to resolve a collinear/near-collinear cap line" : "; translations only"
+    mount["patch_note"]*=rotation>0 ? "; translations plus BASIC rotation $(rotation-3) on the two adjacent-rib cap nodes to resolve a collinear/near-collinear cap line" : "; translations only"
     mount
 end
 
@@ -130,8 +130,8 @@ function engine_front_mount!(reg,g,row)
     mount=Dict{String,Any}("kind"=>"front","rib"=>ri,"eta"=>g.etas[j+1],
         "xc"=>g.upper_xcs[1,j+1],"actual_xc"=>g.upper_xcs[1,j+1],
         "position_m"=>collect(grid_point(g,0,j,g.nh)),"nodes"=>nodes,"cap_nodes"=>copy(nodes),
-        "cap_span_indices"=>rows,"inboard_cap_nodes"=>nodes[[2,1]],"outboard_cap_nodes"=>nodes[[3,4]],
-        "patch_note"=>"First two upper front-spar cap FE nodes inboard and outboard of the nominal rib, excluding the rib itself")
+        "cap_span_indices"=>rows,"cap_ribs"=>[ri-1,ri+1],"inboard_cap_nodes"=>nodes[1:1],"outboard_cap_nodes"=>nodes[2:2],
+        "patch_note"=>"Upper front-spar cap nodes at the immediately adjacent physical ribs R$(ri-1) and R$(ri+1); intermediate mesh nodes and the nominal-rib node are excluded")
     engine_mount_interpolation!(mount,reg,row)
 end
 
@@ -151,9 +151,9 @@ function engine_aft_mount!(reg,g,row)
     node,column,actual_xc=chosen;nodes=unique(vcat(cap_nodes,node))
     mount=Dict{String,Any}("kind"=>"aft","rib"=>ri,"eta"=>g.etas[j+1],"xc"=>xc,"actual_xc"=>actual_xc,
         "position_m"=>reg.xyz[3node-2:3node],"nodes"=>nodes,"cap_nodes"=>copy(cap_nodes),
-        "cap_span_indices"=>rows,"inboard_cap_nodes"=>cap_nodes[[2,1]],"outboard_cap_nodes"=>cap_nodes[[3,4]],
+        "cap_span_indices"=>rows,"cap_ribs"=>[ri-1,ri+1],"inboard_cap_nodes"=>cap_nodes[1:1],"outboard_cap_nodes"=>cap_nodes[2:2],
         "rib_node"=>node,"rib_column"=>column,
-        "patch_note"=>"First two lower front-spar cap FE nodes on each side of the nominal rib plus its existing lower-surface node nearest the requested x/c")
+        "patch_note"=>"Lower front-spar cap nodes at the immediately adjacent physical ribs R$(ri-1) and R$(ri+1), plus the nominal rib's existing lower-surface node nearest the requested x/c; intermediate cap mesh nodes are excluded")
     engine_mount_interpolation!(mount,reg,row)
 end
 
@@ -222,8 +222,10 @@ function engine_connection_payload(m)
             "PID"=>r["pid"],"MID"=>r["mid"],"E Pa"=>r["E"],"G Pa"=>r["G"],"Area m2"=>r["A"],"I1 m4"=>r["I1"],"I2 m4"=>r["I2"],"J m4"=>r["J"]))
         for mount in r["mounts"]
             add(1,mount["eid"],vcat(mount["ref"],mount["nodes"]),merge(properties,Dict("Attachment"=>mount["kind"],"Rib"=>mount["rib"],
-                "Requested x/c"=>mount["xc"],"Actual x/c"=>mount["actual_xc"],"Reference"=>(mount["kind"]=="front" ? "Engine CG" : "Aft beam end"),
+                "Requested x/c"=>mount["xc"],"Actual x/c"=>mount["actual_xc"],"Reference"=>(mount["kind"]=="front" ? "Engine CG" : "Aft beam end"),"Adjacent cap ribs"=>mount["cap_ribs"],
                 "Independent translation components"=>123,
+                "reference_grid"=>m.node_ids[mount["ref"]],"reference_components"=>123456,
+                "weight_groups"=>[Dict("wt"=>group["weight"],"comps"=>group["components"],"grids"=>m.node_ids[group["nodes"]]) for group in mount["weight_groups"]],
                 "Supplemental rotation component"=>mount["rotation_component"],"Interpolation"=>mount["patch_note"])))
         end
         for (eid,a,b) in zip(r["beam_eids"],r["beam_nodes"][1:2],r["beam_nodes"][2:3])

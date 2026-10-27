@@ -507,7 +507,8 @@ function _pcomp_response_update_ply_data!(
     Bmb = maximum(abs.(B)) > 1e-10 * maximum(abs.(A)) ? B : nothing
     builder = parentmodule(@__MODULE__)
     Cs = if prop["PCOMP_WHITNEY_SHEAR"]
-        builder.pcomp_energy_shear(updated_ply_data, total_t)
+        builder.pcomp_shear_for_convention(updated_ply_data, total_t,
+            get(prop,"PCOMP_SHEAR_CONVENTION","material_frame"))
     else
         (5.0/6.0) .* Ash
     end
@@ -2121,6 +2122,7 @@ function _adjoint_pcomp_zero_limit_supported(results, pid)
     snorm = get(model, "PARAM_SNORM", 0.0)
     snorm_value = snorm isa Real ? Float64(snorm) : something(tryparse(Float64,string(snorm)), NaN)
     iszero(snorm_value) || return false
+    isempty(get(model,"SNORMs",Dict())) || return false
     override = strip(get(ENV,"JFEM_PARAM_SNORM_OVERRIDE_STATIC",get(ENV,"JFEM_PARAM_SNORM_OVERRIDE","")))
     isempty(override) || iszero(something(tryparse(Float64,override),NaN)) || return false
     kernel = lowercase(strip(get(ENV,"JFEM_Q4_KERNEL_STATIC",get(ENV,"JFEM_Q4_KERNEL","macneal"))))

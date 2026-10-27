@@ -174,8 +174,8 @@ function _guard_mapped_quad4_local_dkdx!(dv, model, id_map, node_coords; respons
     snorm_angle = isempty(override_raw) ? base_angle :
         something(tryparse(Float64, override_raw), base_angle)
     snorm_normals =
-        (snorm_curvature_enabled() || tria3_snorm_normal_moment_enabled()) && snorm_angle > 0.0 ?
-        compute_shell_nodal_normals(model, id_map, node_coords, snorm_angle) :
+        (snorm_curvature_enabled() || tria3_snorm_normal_moment_enabled()) ?
+        compute_snorm_normals(model,id_map,node_coords;angle_deg=snorm_angle) :
         Dict{Int,SVector{3,Float64}}()
     frame_mode = q4_frame_mode_from_env("JFEM_Q4_FRAME_MODE_STATIC")
     warp_on = solver_env_bool("JFEM_Q4_WARP_TRANSFORM", true)
@@ -1070,6 +1070,27 @@ end
 # Node coordinate: dK/dx via full-model reassembly FD
 # ============================================================================
 
+# Record only discrete generated-normal choices. Continuous normal changes are
+# part of the full reassembly derivative and must not be compared here.
+function _node_coord_snorm_branch_signature(model)
+    isempty(get(model,"CSHELLs",Dict())) && return Dict{Int,Any}()
+    ids=sort(collect(keys(model["GRIDs"])),by=x->parse(Int,x))
+    id_map=Dict(parse(Int,k)=>i for (i,k) in enumerate(ids))
+    X=zeros(length(ids),3)
+    for (i,key) in enumerate(ids);X[i,:].=model["GRIDs"][key]["X"];end
+    raw=get(ENV,"JFEM_PARAM_SNORM_OVERRIDE_STATIC",get(ENV,"JFEM_PARAM_SNORM_OVERRIDE",""))
+    selected=model
+    if !isempty(strip(raw))
+        selected=copy(model)
+        selected["PARAM_SNORM"]=something(tryparse(Float64,raw),get(model,"PARAM_SNORM",0.0))
+    end
+    trace=Dict{Int,Any}()
+    # The common provider reapplies the generic override, just as forward
+    # assembly does, and removes explicit-overridden GRID entries.
+    compute_snorm_normals(selected,id_map,X;branch_trace=trace)
+    return trace
+end
+
 """
 Compute dK/dx · u where x is a node coordinate (grid, component 1/2/3).
 Uses full model reassembly FD: perturb the GRID coordinate, call assemble_stiffness,
@@ -1088,7 +1109,16 @@ function _dKdx_u_node_coord(dv, model, u_global, ndof)
     x0 = Float64(coords[comp])
     delta = max(abs(x0) * 1e-6, 1e-8)
 
+    branch_base = _node_coord_snorm_branch_signature(model)
     try
+        coords[comp] = x0 + delta
+        branch_plus = _node_coord_snorm_branch_signature(model)
+        coords[comp] = x0 - delta
+        branch_minus = _node_coord_snorm_branch_signature(model)
+        branch_base == branch_plus == branch_minus || throw(ArgumentError(
+            "[ADJOINT] node_coord GRID $grid component $comp crosses a generated SNORM " *
+            "acceptance or normal-axis branch. A central secant is not a geometry " *
+            "derivative at this transition; use an interior design state."))
         coords[comp] = x0 + delta
         K_plus, = assemble_stiffness(model)
         Ku_plus = K_plus * u_global

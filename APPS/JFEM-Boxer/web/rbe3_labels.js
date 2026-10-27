@@ -6,6 +6,9 @@
   const compact=value=>Number.isFinite(Number(value))?String(Number(Number(value).toPrecision(5))):String(value);
   function definitions(properties){
     const source=properties.source_properties||{},ref=Number(properties.reference_grid??source.REFGRID),refc=components(properties.reference_components??source.REFC);
+    if(properties.interpolation_details_available===false)return[
+      {grid:ref,ref:true,dependent:'',independent:'',label:'REFGRID '+refc+' · original dependent set unavailable'},
+      ...(properties.connected_grids||[]).map(grid=>({grid:Number(grid),ref:false,dependent:'',independent:'',label:'Connected GRID · original DOFs / weights unavailable'}))];
     const groups=properties.weight_groups||source.WT_GROUPS||[{comps:properties.connected_components||'123',wt:properties.weight??1,grids:properties.connected_grids||[]}];
     const um=(source.UM||properties.um||[]).map(row=>({grid:Number(row.grid??row[0]),comps:components(row.comps??row[1])})).filter(row=>row.grid>0&&row.comps);
     const nodes=new Map(),entry=grid=>{if(!nodes.has(grid))nodes.set(grid,{grid,ref:false,pool:new Set(),dependent:new Set(),weights:[]});return nodes.get(grid);};

@@ -1,0 +1,25 @@
+.mesh-quality-button { background:#704509; border:1px solid #daa04d; color:#fff2d8; white-space:nowrap; }
+.mesh-quality-button:hover { background:#8a5710; }
+#workspace-header:has(.mesh-quality-button:not([hidden])) { height:auto; min-height:40px; flex-wrap:wrap; }
+.workspace-live:has(.mesh-quality-button:not([hidden])) { flex-basis:560px; flex-wrap:wrap; gap:8px; }
+.workspace-live .mesh-quality-button { flex:0 0 auto; font-size:11px; padding:5px 9px; }
+.workspace-live:has(.mesh-quality-button:not([hidden])) #mesh-status { flex:1 1 60px; }
+@media(max-width:900px) { .workspace-live:has(.mesh-quality-button:not([hidden])) { flex:1 1 360px; } }
+.mesh-quality-dialog { width:min(920px,calc(100vw - 32px)); max-height:85vh; box-sizing:border-box; overflow:auto; padding:20px; color:var(--text,#e1ebf3); background:var(--panel,#17212b); border:1px solid var(--border,#526675); border-radius:10px; }
+.mesh-quality-dialog::backdrop { background:#030910aa; }
+.mesh-quality-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+.mesh-quality-heading h2 { margin:0; font-size:1.2rem; }
+.mesh-quality-dialog p { line-height:1.5; }
+.mesh-quality-note { padding:10px 12px; border-left:3px solid #e7aa50; background:#6e451c35; }
+.mesh-quality-actions { padding-left:24px; }
+.mesh-quality-actions li { padding:8px 0 12px; }
+.mesh-quality-actions p { margin:5px 0; }
+.mesh-quality-location { color:var(--muted,#a9bccb); font-size:.88rem; }
+.mesh-quality-actions code { overflow-wrap:anywhere; user-select:all; }
+.mesh-quality-actions button { margin:6px 8px 0 0; }
+.mesh-quality-table-wrap { overflow:auto; margin-top:10px; }
+.mesh-quality-dialog table { width:100%; border-collapse:collapse; }
+.mesh-quality-dialog th,.mesh-quality-dialog td { padding:8px; text-align:left; vertical-align:top; border-bottom:1px solid var(--border,#405363); }
+.mesh-quality-dialog th { font-size:.85rem; }
+.mesh-quality-dialog td:last-child { max-width:240px; overflow-wrap:anywhere; }
+@media(max-width:600px) { .mesh-quality-dialog { padding:12px; } .mesh-quality-heading { align-items:flex-start; } }

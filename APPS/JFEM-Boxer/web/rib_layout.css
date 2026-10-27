@@ -9,13 +9,19 @@
 .rl-line-handle { stroke:transparent;stroke-width:14;pointer-events:stroke;cursor:crosshair; }
 .rl-line-handle:hover,.rl-line-handle:focus-visible { stroke:#83cffa33;outline:none; }
 .rl-line-handle[aria-disabled=true] { pointer-events:none; }
+.rl-handle text.rl-location-label{font-size:12px;pointer-events:none}
+.rl-label-leader{stroke:#a0b9cd;stroke-width:.65;opacity:.7;pointer-events:none}
+.rl-spar-point{cursor:pointer;outline:none}.rl-spar-hit{fill:transparent;stroke:none;pointer-events:all}.rl-spar-cross{fill:none;stroke:#6fffc9;stroke-width:2.5;pointer-events:none}.rl-spar-rear .rl-spar-cross{stroke:#ffc075}.rl-spar-snap-center{fill:transparent;stroke:none;pointer-events:none}.rl-spar-point text{fill:#b0ffdf;font-size:14px;font-weight:700;paint-order:stroke;stroke:#0c1721;stroke-width:3px;pointer-events:none}.rl-spar-rear text{fill:#ffd3a6}.rl-spar-point[aria-disabled=true]{cursor:default;opacity:.65}.rl-spar-point:is(.rl-snap-selected,:focus-visible) .rl-spar-cross{stroke:#fff;stroke-width:4}.rl-cross-legend{color:#ffc075;font-size:19px;font-weight:bold;vertical-align:middle}
+.rl-snap-controls{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:8px;align-items:end;padding:10px;margin-top:10px;background:#142734;border:1px solid #375366;border-radius:5px;min-width:0}.rl-snap-controls label{display:flex;flex-direction:column;gap:4px;min-width:0;font-size:11px;color:#c1d7e5}.rl-snap-controls select{width:100%;min-width:0;box-sizing:border-box;font-size:11px;padding:6px;background:#0b151e;color:#e0effa;border:1px solid #3d566b;border-radius:4px}.rl-snap-controls button{min-height:30px;padding:6px 10px;white-space:nowrap}.rl-snap-status{grid-column:1/-1;font-size:11px;line-height:1.5;margin:0;color:#bad6e8;overflow-wrap:anywhere}.rl-snap-status.rl-snap-error{color:#ffb7bd}
+@media(max-width:700px){.rl-snap-controls{grid-template-columns:minmax(0,1fr)}.rl-snap-controls button{justify-self:start}}
 :is(.workspace-maximized,.drawing-maximized) .rl-preview { position:relative; }
 :is(.workspace-maximized,.drawing-maximized) .rl-preview svg { min-height:min(60vh,700px); max-height:none; }
 @media(min-width:1100px) {
- :is(.workspace-maximized,.drawing-maximized) .rib-layout-editor { display:grid; grid-template-columns:minmax(0,1fr) 365px; grid-template-rows:auto auto min-content 1fr; grid-template-areas:"title title" "help help" "preview table" "preview add"; column-gap:15px; align-items:start; }
+ :is(.workspace-maximized,.drawing-maximized) .rib-layout-editor { display:grid; grid-template-columns:minmax(0,1fr) 365px; grid-template-rows:auto auto min-content min-content 1fr; grid-template-areas:"title title" "help help" "preview snap" "preview table" "preview add"; column-gap:15px; align-items:start; }
  :is(.workspace-maximized,.drawing-maximized) .rl-title { grid-area:title; }
  :is(.workspace-maximized,.drawing-maximized) .rl-help { grid-area:help; }
  :is(.workspace-maximized,.drawing-maximized) .rl-preview { grid-area:preview; min-width:0; }
+ :is(.workspace-maximized,.drawing-maximized) .rl-snap-controls { grid-area:snap;grid-template-columns:minmax(0,1fr);margin-top:5px; }
  :is(.workspace-maximized,.drawing-maximized) .rl-table-wrap { grid-area:table; max-height:60vh; margin-top:5px; }
  :is(.workspace-maximized,.drawing-maximized) .rib-layout-editor > button[data-rl=add] { grid-area:add; justify-self:start; align-self:start; }
 }

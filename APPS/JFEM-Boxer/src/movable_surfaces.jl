@@ -57,7 +57,6 @@ function normalize_movable_surfaces(value)
             throw(ArgumentError("$name: require 0 <= start eta < end eta <= 1, separated by at least 0.000001"))
         all(k->0<clean[k]<1,("hinge_start","hinge_end","front_spar_start","front_spar_end")) ||
             throw(ArgumentError("$name: hinge and control-spar x/c must be strictly between 0 and 1"))
-        abs(clean["deflection"])<=90 || throw(ArgumentError("$name: deflection must be between -90 and 90 degrees"))
         color=row["color"]
         color isa AbstractString && occursin(r"^#[0-9a-fA-F]{6}$",color) ||
             throw(ArgumentError("$name: color must be a six-digit hex color"))

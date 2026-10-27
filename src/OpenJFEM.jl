@@ -19,6 +19,10 @@ using AlgebraicMultigrid
 using ForwardDiff
 using PrecompileTools
 
+# Root-list agreement and eigenspace comparison are distinct from extraction.
+include("spectrum_comparison.jl")
+using .SpectrumComparison
+
 # ---- Submodule: FEM (element kernels) -----------------------------------
 include("FEMKernels.jl")
 using .FEM
@@ -90,6 +94,7 @@ export main,
        buckling_load_factor_ks_design_gradient,
        modal_eigenvalue_design_gradient,
        eigen_mode_tracking_reference, eigen_mode_continuation_update,
+       compare_eigenvalue_spectra, compare_eigenspaces, eigenpair_diagnostics,
        solve_adjoint, solve_adjoint_buckling,
        optimize_thickness, optimize_sizing,
        build_model, resolve_nested_coords!, transform_geometry!,

@@ -36,10 +36,10 @@ function fixture(dir,n,offset,warp,Q,mixed_cd)
     model,transform,coordinates
 end
 
-function geometric(model,u)
+function geometric(model,u;capture=nothing)
     _,ids,X,ndof,R,_,rbe3,snorm,_=S.assemble_stiffness(model;sol105_context=true)
     Matrix(S.assemble_geometric_stiffness(model,ids,X,R,ndof,u,snorm,rbe3;
-        snorm_angle_override=0.))
+        snorm_angle_override=0.,geometric_capture=capture))
 end
 
 function checks()
@@ -56,21 +56,38 @@ function checks()
             for enabled in (true,false)
                 withenv("JFEM_KG_SHELL_DRILL_ZERO"=>string(enabled)) do
                     @test S.kg_shell_drill_zero_enabled()==enabled
-                    G=geometric(base,u)
+                    captured=Any[]
+                    G=geometric(base,u;capture=(eid,data)->push!(captured,data))
+                    reference_offset=get(only(captured),:kg_reference_offset_differential,false)
+                    @test reference_offset == (n==4 && enabled)
                     @test norm(G)>0
                     for mixed_cd in (false,true)
                         Q=ry(35.)*rx(21.)
                         rotated,T,_=fixture(dir,n,offset,warp,Q,mixed_cd)
                         rotated_u=T*u
-                        Grot=geometric(rotated,rotated_u)
+                        rotated_capture=Any[]
+                        Grot=geometric(rotated,rotated_u;
+                            capture=(eid,data)->push!(rotated_capture,data))
+                        @test get(only(rotated_capture),:kg_reference_offset_differential,false)==reference_offset
                         expected=T*G*T'
                         @test norm(Grot-expected)/norm(expected)<2e-10
                         virtual=[sin(.31i) for i in 1:6n]
                         @test isapprox(dot(T*virtual,Grot*(T*virtual)),dot(virtual,G*virtual);
                             rtol=2e-10,atol=1e-9)
-                        # These are physical bending components in the output
-                        # frame, even though their component number is six.
-                        @test maximum(abs,diag(Grot)[6:6:6n])>1e-6
+                        if reference_offset
+                            # Ordinary reference-surface offset prestress acts
+                            # on GRID translations. Both the finite-warp map's
+                            # translation rows and GRID-CD rotations preserve
+                            # zero work for every pure rotational perturbation.
+                            rotations=[6(i-1)+j for i=1:n for j=4:6]
+                            @test all(iszero,Grot[rotations,:])
+                            @test all(iszero,Grot[:,rotations])
+                        else
+                            # Legacy offset and TRI3 routes retain physical
+                            # bending terms in the rotated output frame, even
+                            # when that component is numbered six.
+                            @test maximum(abs,diag(Grot)[6:6:6n])>1e-6
+                        end
                     end
                 end
             end

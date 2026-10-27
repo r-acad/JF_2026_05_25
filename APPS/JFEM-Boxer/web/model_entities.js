@@ -34,7 +34,7 @@
     return radius;
   }
   const color=card=>COLORS[card]||(/^CELAS/.test(card)?COLORS.CELAS:COLORS.RBE1);
-  const kind=card=>card==='CONM2'?'conm2':/^CELAS/.test(card)?'spring':'connection';
+  const kind=card=>card==='RBE3'?'rbe3':card==='CONM2'?'conm2':/^CELAS/.test(card)?'spring':'connection';
   function pickedElementId(pick){
     const mesh=pick?.pickedMesh,metadata=mesh?.metadata;
     if(!pick?.hit||!metadata)return undefined;
@@ -50,7 +50,7 @@
   }
   function renderConnections({data,state,positions,lineMesh,markerMesh,markerRadius,addLayer,diag}){
     for(const collection of data.imported_connections||[]){
-      const pairs=[],faces=[],ids=Int32Array.from(collection.elements,el=>el.eid),hex=color(collection.card);
+      const pairs=[],faces=[],ids=Int32Array.from(collection.elements,el=>el.eid),hex=collection.name==='ENGINE_BEAMS'?'#dc2638':color(collection.card);
       for(let i=0;i<collection.elements.length;i++){
         const el=collection.elements[i],group={name:collection.name,kind:kind(el.type),card_types:{[el.eid]:el.type},color:hex,properties:el.properties};
         state.elements.set(el.eid,{id:el.eid,group,nodes:Int32Array.from(el.nodes)});
@@ -58,7 +58,7 @@
         for(const [a,b]of edges){pairs.push(el.nodes[a],el.nodes[b]);faces.push(i);}
       }
       const mesh=lineMesh(collection.name,positions,Int32Array.from(pairs),hex,1,true),meshes=mesh?[mesh]:[];
-      if(mesh){mesh.isPickable=true;mesh.intersectionThreshold=.002*diag;mesh.elementIds=ids;mesh.metadata={feGroup:{name:collection.name,kind:kind(collection.card)},faceElements:faces,facesPerElement:1};
+      if(mesh){mesh.isPickable=true;mesh.intersectionThreshold=.002*diag;mesh.elementIds=ids;mesh.metadata={feGroup:{name:collection.name,kind:kind(collection.card),card:collection.card},faceElements:faces,facesPerElement:1};
         if(/^CELAS/.test(collection.card))mesh.explodedElementRanges=faces.map((index,line)=>({id:ids[index],start:2*line,count:2}));}
       // Two different GRID IDs can share one position. Those zero-length
       // springs need the same pickable marker as a one-GRID mass/connection.
@@ -144,11 +144,11 @@
       const radius=Math.max(Math.min(diag*.006,Number(el.properties?.['Length m']||1)*.035),1e-8);
       const mesh=B.MeshBuilder.CreateCylinder(collection.name+'-'+el.eid,{height:1,diameter:2*radius,tessellation:24},state.scene);
       const material=new B.StandardMaterial(mesh.name+'-material',state.scene);
-      material.diffuseColor=B.Color3.FromHexString('#ffc45b');material.emissiveColor=material.diffuseColor.scale(.3);material.specularColor=new B.Color3(.6,.6,.6);material.specularPower=45;material.maxSimultaneousLights=6;
+      material.diffuseColor=B.Color3.FromHexString('#dc2638');material.emissiveColor=material.diffuseColor.scale(.15);material.specularColor=new B.Color3(.3,.3,.3);material.specularPower=45;material.maxSimultaneousLights=6;
       mesh.material=material;mesh.parent=state.root;mesh.engineBeamCylinder=true;
       attachMarker(mesh,state.elements.get(el.eid));mesh.metadata.displayOnly=true;
       const record={mesh,engineBeam:{eid:el.eid,nodes:el.nodes}};state.deformable.push(record);updateEngineBeamMesh(B,record,positions,state.panelExplosion);
-      mesh.enableEdgesRendering(.95);mesh.edgesWidth=.08;mesh.edgesColor=new B.Color4(.35,.18,.03,1);meshes.push(mesh);
+      mesh.enableEdgesRendering(.95);mesh.edgesWidth=.08;mesh.edgesColor=new B.Color4(.32,.025,.04,1);meshes.push(mesh);
     }
     return meshes;
   }

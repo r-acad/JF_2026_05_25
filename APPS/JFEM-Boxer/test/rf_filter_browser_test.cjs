@@ -17,7 +17,7 @@ assert(!replay.synthetic,'Use actual recovered result records.');
   return route.fulfill({path:p==='/shared/jfem_graphics.js'?path.join(apps,'jfem_graphics.js'):path.join(web,p==='/'?'index.html':p)});
  });
  async function settled(){await page.waitForFunction(()=>document.getElementById('stress-report-field-status').textContent!=='Preparing the 3D field\u2026');await page.evaluate(()=>state.scene.render());}
- async function show(kind){await page.locator('#stress-report-field-kind').selectOption(kind);await settled();await page.locator('#stress-report-show-field').click();await settled();}
+ async function show(kind){if(kind.startsWith('rf:')||kind==='minimum_rf')await page.locator('#stress-report-failure-mode').selectOption(kind.startsWith('rf:')?kind.slice(3):kind);await page.locator('#stress-report-field-kind').selectOption(kind);await settled();await page.locator('#stress-report-show-field').click();await settled();}
  async function snapshot(){return page.evaluate(()=>{
   const f=rawContourValues(),visible=new Set(),bad=[],meshCounts={shell:0,lines:0,sections:0,thickness:0};
   for(const m of [...state.shellMeshes,...state.barMeshes]){

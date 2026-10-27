@@ -1,0 +1,4 @@
+.boxer-form-help-description{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important;pointer-events:none!important}
+.boxer-form-help-tooltip{position:fixed;inset:auto;margin:0;padding:10px 12px;border:1px solid #8aaac7;border-radius:6px;background:#142b3d;color:#f1f6fb;box-shadow:0 5px 18px #0005;font:13px/1.45 system-ui,sans-serif;text-align:left;white-space:normal;max-height:min(260px,45vh);overflow:auto;z-index:32000;pointer-events:none}
+.boxer-form-help-tooltip[hidden]{display:none!important}
+@media(prefers-reduced-motion:reduce){.boxer-form-help-tooltip{scroll-behavior:auto}}

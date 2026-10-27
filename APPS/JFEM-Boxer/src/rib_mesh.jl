@@ -208,8 +208,48 @@ function validate_main_rib_mesh(m)
     all(diff([sp.eta for sp in m.rbe3]).>1e-10)||throw(ArgumentError("RBE3 centers cross between master ribs; move the reference chord location or reduce the rib angle"))
 end
 
-"""Exact surface curve at a coarse or shell-only stringer column."""
+"""Whether this column or one of its physical boundaries retires in the cell."""
+function kink_column_runs_out(g,i,j)
+    boundaries=vcat(0,g.stringer_indices,ni(g))
+    q=clamp(searchsortedlast(boundaries,i),1,length(boundaries)-1)
+    affected=i in boundaries ? (i,) : (boundaries[q],boundaries[q+1])
+    return any(k->g.collapsed[k+1,j+1]!=g.collapsed[k+1,j+2],affected)
+end
+
 function kink_column_point(g,i,j,eta,upper)
+    if kink_column_runs_out(g,i,j)
+        # A retiring line tapers into the spar. Its old straight chord can
+        # cross a spar that turns inside this cell. Preserve the endpoint
+        # fractions of box width and follow the same exact spar corners.
+        w=g.wing;spars=g.rib_layout.arc.spar
+        spans=upper ? g.upper_etas : g.lower_etas
+        xcs=upper ? g.upper_xcs : g.lower_xcs
+        a,b=spans[i+1,j+1:j+2]
+        t=clamp((eta-a)/(b-a),0.,1.)
+        boundaries=vcat(0,g.stringer_indices,ni(g))
+        if !(i in boundaries)
+            # A flange edge or FE subdivision must remain between its two
+            # physical neighbors, especially beside a surviving stringer.
+            # A whole-box interpolation here can cross that stringer.
+            q=clamp(searchsortedlast(boundaries,i),1,length(boundaries)-1)
+            left,right=boundaries[q:q+1]
+            widths=[xcs[right+1,row]-xcs[left+1,row] for row in j+1:j+2]
+            fractions=[widths[q]>1e-12 ? (xcs[i+1,j+q]-xcs[left+1,j+q])/widths[q] : NaN for q in 1:2]
+            isfinite(fractions[1])||(fractions[1]=fractions[2])
+            isfinite(fractions[2])||(fractions[2]=fractions[1])
+            blend_fraction=clamp((1-t)*fractions[1]+t*fractions[2],0.,1.)
+            pl=kink_column_point(g,left,j,eta,upper);pr=kink_column_point(g,right,j,eta,upper)
+            xc=rib_skin_xc(w,eta,(1-blend_fraction)*pl[1]+blend_fraction*pr[1],upper)
+            return (upper ? upper_point : lower_point)(w,eta,xc)
+        end
+        fraction(row)=begin
+            e=spans[i+1,row];f=spar_surface_xc(w,spars,e,:front);r=spar_surface_xc(w,spars,e,:rear)
+            (xcs[i+1,row]-f)/(r-f)
+        end
+        f=spar_surface_xc(w,spars,eta,:front);r=spar_surface_xc(w,spars,eta,:rear)
+        xc=f+((1-t)*fraction(j+1)+t*fraction(j+2))*(r-f)
+        return (upper ? upper_point : lower_point)(w,eta,xc)
+    end
     g.shell_columns!==nothing&&return shell_stringer_kink_point(g,i,j,eta,upper)
     w,context=g.wing,g.rib_layout
     subdivisions=ni(g)÷(length(context.roots)-1)
@@ -311,10 +351,29 @@ function split_oriented_kink_edges!(reg,g,groups,eid;p=nothing)
     isempty(breaks)&&return eid
     splits=Dict{Tuple{Int,Int},Vector{Int}}()
     for i in 0:ni(g),j in 0:nj(g)-1,k in (i in (0,ni(g)) ? (0:g.nh) : (0:g.nh:g.nh))
-        g.collapsed[i+1,j+1]==0&&g.collapsed[i+1,j+2]==0||continue
+        g.collapsed[i+1,j+1]!=0&&g.collapsed[i+1,j+2]!=0&&continue
         a=node!(reg,g,i,j,k);b=node!(reg,g,i,j+1,k)
         ea=(reg.xyz[3a-1]-w.root_ref_y)/w.semispan;eb=(reg.xyz[3b-1]-w.root_ref_y)/w.semispan
-        cuts=filter(eta->ea+1e-10<eta<eb-1e-10,breaks)
+        # A front-spar corner must not split the rear spar or every stringer;
+        # likewise a rear/stringer corner must not propagate into the nose.
+        # Whole-loft corners still affect every curve in an oblique rib grid.
+        local_breaks=if i==0
+            vcat(context.arc.spar.front_etas,planform_breakpoints(w),w.vertical_shift_etas)
+        elseif i==ni(g)
+            vcat(context.arc.spar.rear_etas,planform_breakpoints(w),w.vertical_shift_etas)
+        else
+            related=copy(context.path.kink_etas)
+            if kink_column_runs_out(g,i,j)
+                append!(related,context.arc.spar.front_etas)
+                append!(related,context.arc.spar.rear_etas)
+            end
+            first_stringer=isempty(g.stringer_indices) ? ni(g) : first(g.stringer_indices)
+            last_stringer=isempty(g.stringer_indices) ? 0 : last(g.stringer_indices)
+            i<first_stringer&&append!(related,context.arc.spar.front_etas)
+            i>last_stringer&&append!(related,context.arc.spar.rear_etas)
+            vcat(related,planform_breakpoints(w),w.vertical_shift_etas)
+        end
+        cuts=filter(eta->ea+1e-10<eta<eb-1e-10,sort!(unique(local_breaks)))
         isempty(cuts)&&continue
         chain=Int[a]
         for eta in cuts
@@ -333,7 +392,8 @@ function split_oriented_kink_edges!(reg,g,groups,eid;p=nothing)
         end
         push!(chain,b);splits[(a,b)]=chain;splits[(b,a)]=reverse(chain)
     end
-    g.shell_columns!==nothing&&add_shell_stringer_kink_splits!(reg,g,p,groups,splits,breaks)
+    g.shell_columns!==nothing&&add_shell_stringer_kink_splits!(reg,g,p,groups,splits,
+        sort!(unique(vcat(context.path.kink_etas,planform_breakpoints(w),w.vertical_shift_etas))))
     isempty(splits)&&return eid
     appended=ElemGroup[]
     for group in groups
@@ -370,3 +430,5 @@ function split_oriented_kink_edges!(reg,g,groups,eid;p=nothing)
     append!(groups,appended)
     return eid
 end
+
+include("main_mesh_quality.jl")

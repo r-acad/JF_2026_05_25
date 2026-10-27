@@ -18,7 +18,7 @@ function independent(x,u,A,B)
         d,w=derivs(x,r,s);U=reshape(u,6,4)
         grad=U*d';grad0=U*d0'
         eps=[grad[1,1],grad[2,2],grad0[1,2]+grad0[2,1]]
-        kap=[grad[5,1],-grad[4,2],grad[5,2]-grad[4,1]]
+        kap=[grad[5,1],-grad[4,2],2*(grad[5,2]-grad[4,1])-(grad0[5,2]-grad0[4,1])]
         N[i,:].=A*eps+(B===nothing ? zeros(3) : B*kap);weights[i]=w
     end
     N,weights
@@ -133,7 +133,7 @@ function assembly_checks()
             u=[1e-4*sin(.7i) for i=1:24]
             base=model_fixture(dir,x,identity,zeros(3),[1,2,3,4],offset)
             G,data=assemble_fixture(base,u)
-            @test data[:kg_differential_prestress] == (warp == 0.)
+            @test data[:kg_differential_prestress]
             @test isapprox(G,G';rtol=2e-12,atol=1e-9)
             @test all(isfinite,G)
             shifted=model_fixture(dir,x,Q,[3.,-2.,4.],[1,2,3,4],offset)
@@ -151,19 +151,20 @@ function assembly_checks()
             end
             @test !olddata[:kg_differential_prestress]
             @test olddata[:kg_coupled_condensed]
-            if warp == 0.
-                @test norm(old-G)>1e-8*norm(G)
-            else
-                @test G == old
-            end
-            # A diagnostic opt-in retains the projected warped extension.
-            # It does not certify a complete 3D warped-shell tangent.
+            @test norm(old-G)>1e-8*norm(G)
+            # The historical warped opt-in now agrees with the bounded coupled
+            # default; an explicit opt-out still selects the legacy field.
             experimental,experimental_data=withenv("JFEM_Q4_DIFFERENTIAL_PRESTRESS_WARPED"=>"true") do
                 assemble_fixture(base,u)
             end
             @test experimental_data[:kg_differential_prestress]
             @test norm(old-experimental)>1e-8*norm(experimental)
-            warp == 0. && @test experimental == G
+            @test experimental == G
+            opted_out,opted_data=withenv("JFEM_Q4_DIFFERENTIAL_PRESTRESS_WARPED"=>"false") do
+                assemble_fixture(base,u)
+            end
+            @test opted_data[:kg_differential_prestress] == (warp == 0.)
+            @test opted_out == (warp == 0. ? G : old)
             experimental_rot,_=withenv("JFEM_Q4_DIFFERENTIAL_PRESTRESS_WARPED"=>"true") do
                 assemble_fixture(shifted,T*u)
             end

@@ -52,6 +52,8 @@
   <link rel="stylesheet" href="rf_property_editor.css">
   <link rel="stylesheet" href="flight_conditions.css">
   <link rel="stylesheet" href="ui_consistency.css">
+  <link rel="stylesheet" href="mesh_quality_review.css">
+  <link rel="stylesheet" href="form_help.css">
 </head>
 <body>
 
@@ -190,11 +192,31 @@
         <div id="vlm-view-legend"></div>
         <p class="pick-note">The lattice and pressures use the undeformed aerodynamic lifting surface. Pressure and Cp are lower-minus-upper jumps. Fully solid skins can hide the internal lattice; select Translucent in Display or hide a skin to see it.</p>
         </fieldset>
-        <fieldset id="load-constraint-markers"><legend>Constraint and connection symbols</legend></fieldset>
+        <fieldset id="load-constraint-markers"><legend>Constraint and connection symbols</legend>
+          <label class="layer" title="Add a colored halo to all visible constraint markers: SPC translation cones and rotation boxes, or neutral markers when an archived result lacks coordinate frames. Hidden constraints remain hidden; model depth is preserved."><input id="show-constraint-glow" type="checkbox"><span>Glow all constraints</span></label>
+          <label class="display-control" title="Scale only the constraint cones and rotation boxes relative to Marker radius. This changes the display only, not the FE boundary conditions.">Constraint size ×<input id="constraint-marker-size" type="number" min="0.1" max="10" step="0.1" value="1" aria-label="Constraint marker size multiplier"></label>
+        </fieldset>
         <fieldset id="load-constraint-reactions"><legend>Constraint reactions</legend>
-          <label class="ctl check"><input id="show-support-forces" type="checkbox" checked disabled><span>Display constraint reactions</span></label>
-          <label class="ctl check"><input id="show-support-force-values" type="checkbox" disabled><span>Label constraint forces and moments</span></label>
+          <label class="ctl check"><input id="show-support-forces" type="checkbox" checked disabled><span>Display constraint forces</span></label>
+          <label class="ctl check"><input id="show-support-force-values" type="checkbox" disabled><span>Label constraint forces</span></label>
+          <label class="ctl check"><input id="show-support-moments" type="checkbox" checked disabled><span>Display constraint moments</span></label>
+          <label class="ctl check"><input id="show-support-moment-values" type="checkbox" disabled><span>Label constraint moments</span></label>
+          <div id="support-reaction-components" role="group" aria-label="Constraint reaction components in global XYZ">
+            <p class="pick-note">Reaction components · global XYZ</p>
+            <div class="radio-row">
+              <label class="check"><input id="show-support-fx" type="checkbox" checked disabled>Fx</label>
+              <label class="check"><input id="show-support-fy" type="checkbox" checked disabled>Fy</label>
+              <label class="check"><input id="show-support-fz" type="checkbox" checked disabled>Fz</label>
+            </div>
+            <div class="radio-row">
+              <label class="check"><input id="show-support-mx" type="checkbox" checked disabled>Mx</label>
+              <label class="check"><input id="show-support-my" type="checkbox" checked disabled>My</label>
+              <label class="check"><input id="show-support-mz" type="checkbox" checked disabled>Mz</label>
+            </div>
+          </div>
           <label class="display-control">Arrow length multiplier<input id="support-force-scale" type="number" min="0.01" max="100" step="0.1" value="1" disabled></label>
+          <label class="display-control">Force stem diameter<input id="support-force-diameter" type="number" min="0" step="0.001" value="0" disabled></label>
+          <p id="support-reaction-diameter-note" class="pick-note">Diameter is in metres for generated models, or source length units for imported models; 0 uses automatic sizing. Solid arrows and moment arcs show the selected components. Labels retain their signed values.</p>
           <p id="support-force-note" class="pick-note">No constraint reactions are available for this result.</p>
         </fieldset>
         <p class="pick-note">Straight arrows show force components; curved arrows show signed moments by the right-hand rule. Global X is red, Y green, Z blue. VLM pressure forces use magenta arrows normal to the panels.</p>
@@ -317,7 +339,7 @@
       <p class="pick-note">The loft shows the full lifting-surface shape outside the structural box. Its visibility is independent of structural opacity and the VLM mesh.</p>
       <label class="display-control">Node radius (m)<input id="node-radius" type="number" min="0" step="any" value="0.005"></label>
       <label class="display-control">Marker radius (m)<input id="marker-radius" type="number" min="0" step="any" value="0.01"></label>
-      <p class="pick-note">Constraints: cones for translations 1–3, with their tips at the node along +x, +y and +z; open cubes for rotations 4–6. Global x is red, y green, z blue. Cone base radius equals Marker radius, length is twice that radius. Cubes keep their half-radius offset.</p>
+      <p class="pick-note">Constraints: cones for translations 1–3 and open cubes for rotations 4–6, oriented in each GRID's displacement coordinates. x is red, y deep green, z deep blue. Constraint size multiplies Marker radius for these glyphs only; cone tips remain at the node. Other connection and mass markers keep Marker radius.</p>
       <div id="aerodynamic-appearance">
         <label class="display-control">Aerodynamic loft finish
           <select id="aero-deformed-style" disabled><option value="auto" selected>Auto · contour-friendly</option><option value="wireframe">Wireframe</option><option value="solid">Solid</option><option value="translucent">Translucent</option><option value="metallic">Metallic · aluminium reflections</option></select>
@@ -339,6 +361,7 @@
       <div class="parameter-heading"><h2>Axes and labels</h2></div>
       <fieldset id="display-axes-labels">
         <legend>Axes &amp; labels</legend>
+        <label class="layer" title="Label the tips of the global BASIC coordinate axes x, y and z. These are reference directions and do not move with the deformed model."><input id="show-global-axis-labels" type="checkbox"><span>Global axis tip labels · x / y / z</span></label>
         <label class="layer" title="Label the visible axial actuator cylinders with their CBUSH element, PBUSH property, actuator coordinate system and axial stiffness K1 in N/m. Cylinders connect the actual upper spar-cap attachment grids and follow their displayed deformation; only their radius is a display size. Older torsional hinge joints are separately labeled Hinge restraint with K4 in N·m/rad."><input id="show-actuator-stiffness" type="checkbox"><span>Actuator stiffness labels</span></label>
         <label class="layer"><input id="show-shell-axes" type="checkbox" disabled><span>Shell local x axes</span></label>
         <label class="layer" title="Draw material x (red) and y (green) at each shell center. Composite ply angles are measured from these reference directions. Isotropic stiffness is orientation-independent, but directional stresses are not. Coordinate labels have their own switch below."><input id="show-material-axes" type="checkbox" disabled><span>Shell material axes</span></label>
@@ -457,8 +480,10 @@
     <section id="panel-results" class="workspace-panel" data-workspace-panel="results" role="tabpanel" aria-labelledby="tab-results" hidden>
       <p id="fe-results-validity" class="pick-note model-warning" role="status" aria-live="polite" hidden></p>
       <fieldset id="result-reaction-controls"><legend>Constraint reactions</legend>
-        <label class="ctl check"><input id="results-show-support-forces" type="checkbox" checked disabled><span>Display constraint reactions</span></label>
-        <label class="ctl check"><input id="results-show-support-force-values" type="checkbox" disabled><span>Label constraint forces and moments</span></label>
+        <label class="ctl check"><input id="results-show-support-forces" type="checkbox" checked disabled><span>Display constraint forces</span></label>
+        <label class="ctl check"><input id="results-show-support-force-values" type="checkbox" disabled><span>Label constraint forces</span></label>
+        <label class="ctl check"><input id="results-show-support-moments" type="checkbox" checked disabled><span>Display constraint moments</span></label>
+        <label class="ctl check"><input id="results-show-support-moment-values" type="checkbox" disabled><span>Label constraint moments</span></label>
         <p id="results-support-force-note" class="pick-note">No constraint reactions are available for this result.</p>
       </fieldset>
       <div class="hud" id="results-card" hidden>
@@ -524,7 +549,7 @@
         <option value="solid">Solids</option><option value="shells">Shells</option><option value="quad">Quadrilaterals (CQUAD4)</option>
         <option value="tria">Triangles (CTRIA3)</option><option value="bar">Bars, beams and rods</option>
         <option value="stringer">Stringers and runouts</option><option value="cap">Spar caps</option>
-        <option value="rbe3">RBE3 spiders</option>
+        <option value="rbe3">RBE3 elements · all attachments</option>
         <option value="connection">Rigid connections</option><option value="spring">Springs</option>
         <option value="conm2">Concentrated masses</option><option value="coordinate">Coordinate systems (CID)</option>
       </select>
@@ -734,6 +759,8 @@
 <script src="stress_report_snapshot.js" defer></script>
 <script src="stress_report.js" defer></script>
 <script src="panel_override_review.js" defer></script>
+<script src="mesh_quality_review.js" defer></script>
+<script src="form_help.js" defer></script>
 <script src="app.js" defer></script>
 </body>
 </html>

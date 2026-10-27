@@ -1,0 +1,22 @@
+'use strict';
+// node movable_lateral_stays_browser_test.cjs URL OUTPUT PLAYWRIGHT
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
+const[url,out,modulePath]=process.argv.slice(2),{chromium}=require(modulePath);fs.mkdirSync(out,{recursive:true});
+(async()=>{const browser=await chromium.launch({channel:'chrome',headless:true,args:['--enable-unsafe-webgpu','--disable-gpu-sandbox']}),page=await browser.newPage({viewport:{width:1500,height:1100}}),errors=[],checks=[];page.on('pageerror',e=>errors.push(e.message));
+try{
+ await page.goto(url,{timeout:180000});await page.waitForFunction(()=>typeof state!=='undefined'&&state.schema.length>0,null,{timeout:120000});
+ await page.evaluate(()=>{for(const d of document.querySelectorAll('dialog[open]'))d.close();document.getElementById('auto-save').checked=false;state.autosave?.destroy();document.getElementById('auto-mesh').checked=false;state.autoMeshEnabled=false;state.autoMeshReady=false;cancelAutoMeshTimer();state.parameterLocks?.restore({planform:false,mesh:false});
+  const parameters={...state.values,'movable_surfaces.items':[{name:'Stay controls',kind:'aileron',edge:'trailing',eta_start:.1,eta_end:.9,front_spar_start:.8,front_spar_end:.8,hinge_start:.7,hinge_end:.7,hinge_z_start:0,hinge_z_end:0,deflection:0,color:'#31bacd'}],'movable_structure.surfaces':[{...WingMovableStructure.defaults,surface:'Stay controls'}],'movable_structure.attachments':[{surface:'Stay controls',eta:.3,fitting:'shell_lugs',actuator:true}]};
+  buildForm(state.schema,parameters);activateWorkspaceTab('movablestructure');setPaneWidth(580);
+ });
+ const box=page.locator('[data-movable-structure-field=box_lateral_stay]'),movable=page.locator('[data-movable-structure-field=movable_lateral_stay]');
+ assert(await box.isVisible());assert(await movable.isVisible());assert(await box.isChecked());assert(!await movable.isChecked());assert.match(await box.getAttribute('title'),/rear-spar cap/);assert.match(await movable.getAttribute('title'),/front-spar cap/);checks.push('Existing shell-lug rows gain separate, explained controls with main-box on and movable off by default');
+ const initial=await page.evaluate(()=>state.movableStructureEditor.readDrafts());await movable.check();await box.uncheck();const changed=await page.evaluate(()=>state.movableStructureEditor.readDrafts());assert.equal(changed['movable_structure.attachments'][0].box_lateral_stay,false);assert.equal(changed['movable_structure.attachments'][0].movable_lateral_stay,true);
+ for(const key of Object.keys(initial['movable_structure.attachments'][0]))if(!['box_lateral_stay','movable_lateral_stay'].includes(key))assert.deepEqual(changed['movable_structure.attachments'][0][key],initial['movable_structure.attachments'][0][key]);checks.push('Changing either stay edits only its own option; actuator, hinge and thickness data remain unchanged');
+ await page.locator('[data-movable-structure-field=fitting]').selectOption('idealized');assert(await box.isHidden());assert(await movable.isHidden());await page.locator('[data-movable-structure-field=fitting]').selectOption('shell_lugs');assert(!await box.isChecked());assert(await movable.isChecked());checks.push('Stay controls apply only to shell lugs and preserve their settings across fitting changes');
+ const saved=await page.evaluate(()=>state.movableStructureEditor.readDrafts());await page.evaluate(saved=>{buildForm(state.schema,{...collectParams(),...saved});activateWorkspaceTab('movablestructure');},saved);assert.deepEqual(await page.evaluate(()=>state.movableStructureEditor.readDrafts()),saved);checks.push('Rebuilding the form preserves both independent stored choices');
+ await box.check();await movable.uncheck();await page.screenshot({path:path.join(out,'lateral-stay-controls.png')});
+ await page.evaluate(()=>state.parameterLocks.set('mesh',true));assert(await box.isDisabled());assert(await movable.isDisabled());checks.push('Mesh locking disables both stay options');
+ assert.deepEqual(errors,[]);fs.writeFileSync(path.join(out,'summary.json'),JSON.stringify({passed:true,checks,errors},null,2));console.log(JSON.stringify({passed:true,checks}));
+}catch(e){await page.screenshot({path:path.join(out,'failure.png')});fs.writeFileSync(path.join(out,'failure.json'),JSON.stringify({error:e.stack,errors,checks},null,2));throw e;}finally{await browser.close();}
+})().catch(e=>{console.error(e);process.exitCode=1;});

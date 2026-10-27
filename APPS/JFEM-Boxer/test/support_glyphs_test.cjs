@@ -31,6 +31,11 @@ try{
   }
  }
  checks.push("Six batched Babylon meshes use normal depth and opaque axis colors; cone apices and cube extents exactly match exported FE triangles");
+ glyphs.setGlow(true);const glow=glyphs.glow;assert(glow&&glow.isEnabled);assert.equal(scene.effectLayers.length,1);
+ for(const mesh of glyphs.meshes){const color=new B.Color4();glow.customEmissiveColorSelector(mesh,null,mesh.material,color);near(color.r,mesh.material.diffuseColor.r);near(color.g,mesh.material.diffuseColor.g);near(color.b,mesh.material.diffuseColor.b);assert.equal(color.a,1);assert(glow.hasMesh(mesh));assert.equal(mesh.material.disableDepthWrite,false);}
+ glyphs.setGlow(false);assert.equal(glow.isEnabled,false);glyphs.setGlow(true);assert.equal(glyphs.glow,glow);assert.equal(scene.effectLayers.length,1);
+ const green=B.Color3.FromHexString(G.COLORS[1]),blue=B.Color3.FromHexString(G.COLORS[2]);assert(green.g>2*green.b&&blue.b>2*blue.g,'Green and blue remain strongly distinct saturated hues');
+ checks.push('Constraint glow reuses one selective effect layer; original glyph depth policy and saturated axis colors are unchanged');
  const moved=positions.map((v,i)=>v+(i%3+1)*3);glyphs.update({positions:moved,radius:.4});assert.equal(glyphs.radius,.4);assert.deepEqual(glyphs.meshes,beforeMeshes);assert.deepEqual(glyphs.meshes.map(m=>m.material),beforeMaterials);
  for(const mesh of glyphs.meshes){const vertices=mesh.getVerticesData(B.VertexBuffer.PositionKind),nv=vertices.length/(3*mesh.metadata.records.length);for(let k=0;k<mesh.metadata.records.length;k++){const record=mesh.metadata.records[k];near(record.centerOffset[(record.dof-1)%3],record.dof<4?-.4:.2);for(let axis=0;axis<3;axis++){const values=Array.from({length:nv},(_,i)=>vertices[3*(k*nv+i)+axis]),offset=G.toView(record.centerOffset)[axis];near((Math.max(...values)+Math.min(...values))/2,moved[3*record.node+axis]+offset);}if(record.dof<4){const apex=Array.from(vertices.slice(3*k*nv,3*k*nv+3));apex.forEach((value,j)=>near(value,moved[3*record.node+j]));}}}
  for(const mesh of glyphs.meshes)mesh.setEnabled(false);glyphs.update({radius:.1});assert(glyphs.meshes.every(m=>!m.isEnabled()));
@@ -40,7 +45,7 @@ try{
  // Rotation outlines retain open faces around the node and cone apex.
  for(const record of glyphs.records.filter(r=>r.dof>3)){const vertices=G.triangles(record,[0,0,0],1),axis=(record.dof-1)%3;for(let i=0;i<vertices.length;i+=3){let edgeCoordinates=0;for(let j=0;j<3;j++)if(Math.abs(vertices[i+j]-(j===axis?.5:0))>=.85999)edgeCoordinates++;assert(edgeCoordinates>=2);}}
  checks.push("Rotation boxes retain solid edge rods with open faces around the translation cone apex");
- glyphs.dispose();glyphs.dispose();assert.equal(scene.meshes.length,0);assert.equal(scene.materials.length,0);assert.throws(()=>glyphs.update(),/disposed/);
+ glyphs.dispose();glyphs.dispose();assert.equal(scene.meshes.length,0);assert.equal(scene.materials.length,0);assert.equal(scene.effectLayers.length,0);assert.throws(()=>glyphs.update(),/disposed/);
  const rotatedData={nodes:{count:1,ids:[707]},spc:{nodes:[0],node_components:['14'],assignments:[{node:0,components:'14',coordinate_id:21,axes:[[0,1,0],[-1,0,0],[0,0,1]]}]}};
  const rotated=G.create({BABYLON:B,scene,data:rotatedData,positions:new Float32Array(3),radius:.2});
  for(const mesh of rotated.meshes){const record=mesh.metadata.records[0],xyz=G.triangles(record,[0,0,0],.2),vertices=mesh.getVerticesData(B.VertexBuffer.PositionKind),indices=mesh.getIndices();

@@ -15,6 +15,10 @@ test('Long supported/free isotropic plate reproduces an independently calculated
 test('Thickness, clear height and modulus have the expected plate scaling',()=>{
  const c=B.criticalStress(bar()).value;near(B.criticalStress(bar(1,{web_thickness_m:.004})).value,4*c);near(B.criticalStress(bar(1,{web_height_m:.08})).value,c/4);near(B.criticalStress(bar(1,{young_pa:140e9})).value,2*c);
 });
+test('A rectangular blade uses its complete supported-edge to free-tip height',()=>{
+ const specimen=bar(1,{section_shape:'BAR',dimensions_m:[.002,.04],web_height_m:.04}),r=build(blade({bars:[specimen]})).rows[0];
+ near(r.reserveFactor,.425*Math.PI*Math.PI*70e9/(12*(1-.3*.3))*(.002/.04)**2/50e6);assert.equal(r.complete,true);
+});
 test('Poisson ratio is used explicitly, including physically valid auxetic material',()=>{
  const c=B.criticalStress(bar(1,{poisson:0})).value;near(B.criticalStress(bar()).value,c/.91);near(B.criticalStress(bar(1,{poisson:-.3})).value,c/.91);
 });
@@ -101,7 +105,7 @@ test('The local plate mode ignores column end fixity and unrelated percentile se
  const a=build(),b=build(blade(),{1:-50e6},{eulerFixityCoefficient:4,method:'trimmed_mean',percentile:NaN});assert.equal(a.rows[0].reserveFactor,b.rows[0].reserveFactor);assert.equal(b.method,'mean');
 });
 test('No metadata produces an explicit unavailable blade report',()=>{
- const r=S.build(input([],new Map([[1,result({1:-20e6})]])));assert.equal(r.rows.length,0);assert.equal(r.complete,false);assert.match(r.note,/No generated PBARL T stringer-blade geometry/);
+ const r=S.build(input([],new Map([[1,result({1:-20e6})]])));assert.equal(r.rows.length,0);assert.equal(r.complete,false);assert.match(r.note,/No generated PBARL stringer-blade geometry/);
 });
 test('Exports state the equation, signed equal weighting and critical/mean stress in MPa',()=>{
  const r=build(),t=S.table(r,'reserve');assert.equal(t.title,'Stringer blade instability reserve factors');assert.match(t.headers.join(' '),/Critical stress \(MPa\)/);assert.match(t.headers.join(' '),/Mean compression \(MPa\)/);assert.equal(t.rows[0][4],'50');

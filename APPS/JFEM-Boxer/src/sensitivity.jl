@@ -185,9 +185,9 @@ function sensitivity_catalog(m::Model)
         skin=merge(inherited.skin,get(override,"skin",Dict()));bar=merge(inherited.stringer,get(override,"stringer",Dict()))
         fields=skin["kind"]=="sandwich" ? ("face_thickness","core_thickness") : ("thickness",)
         for (part,field,pid,value) in vcat([( "skin",f,panel.shell_pid,skin[f]) for f in fields],
-                [("stringer",f,stringer_pid,bar[f]) for f in (shell_stringers(p) ? ("web_thickness",) : RIB_STIFFENER_FIELDS)])
+                [("stringer",f,stringer_pid,bar[f]) for f in (shell_stringers(p) ? ("web_thickness",) : iszero(bar["flange_width"]) ? ("height","web_thickness") : RIB_STIFFENER_FIELDS)])
             fieldkey=(part=="skin" ? "shell." : "section.")*field
-            fieldlabel=part=="skin" ? (field=="thickness" ? "Shell thickness" : "Sandwich "*replace(field,'_'=>' ')) : (shell_stringers(p) ? "Shell stringer " : "T ")*replace(field,'_'=>' ')
+            fieldlabel=part=="skin" ? (field=="thickness" ? "Shell thickness" : "Sandwich "*replace(field,'_'=>' ')) : (shell_stringers(p) ? "Shell stringer " : iszero(bar["flange_width"]) ? "Blade " : "T ")*replace(field,'_'=>' ')
             variable=Dict{String,Any}("id"=>"properties.panels#$key#$part#$field",
                 "label"=>label*": "*fieldlabel,"path"=>Any["properties.panels",key,part,field],
                 "value"=>Float64(value),"unit"=>"m","scale"=>1.,"pids"=>[pid],

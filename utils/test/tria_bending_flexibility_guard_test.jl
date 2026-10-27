@@ -5,19 +5,18 @@ using Test, LinearAlgebra, ForwardDiff, OpenJFEM
 const F = OpenJFEM.FEM
 
 function checks()
-    # An ordinary positive flexibility stays bitwise unchanged. A badly
-    # conditioned ordered tying basis receives only positive compliance.
+    # Inactive bounds preserve the operator exactly. Active bounds preserve
+    # the third channel and the second orthogonal Schur diagonal; their
+    # congruence can change several edge-coordinate entries.
     ordinary = [2.0 0.1 0.2; 0.1 3.0 -0.1; 0.2 -0.1 1.0]
     saved = copy(ordinary)
-    @test F.tria3_guard_bending_flexibility!(ordinary,1.0,1.0,0.8,4.0) == 0
+    @test !F.tria3_guard_bending_flexibility!(ordinary,1.0,1.0,0.6,0.8,4.0)
     @test isequal(ordinary,saved)
     slender = [1e-8 2e-5 0.0; 2e-5 2.0 0.0; 0.0 0.0 1.0]
     before = copy(slender)
-    increment = F.tria3_guard_bending_flexibility!(slender,0.004,1.0,0.6,3.0)
-    delta = slender-before
-    @test increment > 0
-    @test count(!iszero,delta) == 1
-    @test minimum(eigvals(Symmetric(delta))) >= 0
+    @test F.tria3_guard_bending_flexibility!(slender,0.004,1.0,0.8,0.6,3.0)
+    @test slender[3,:] == before[3,:]
+    @test slender[:,3] == before[:,3]
     @test minimum(eigvals(Symmetric(slender))) > 0
 
     for ratio in (1.0,2.0,5.0), angle in (0.0,0.43,1.07),

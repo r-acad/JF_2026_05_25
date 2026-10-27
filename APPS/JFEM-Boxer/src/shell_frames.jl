@@ -49,12 +49,16 @@ function shell_material_frame(m, gr::ElemGroup, e::Int;
     pid=component_base_pid(gr.pid)
     _, _, z = shell_geometric_frame(element_points(m, gr, e))
     n=gr.kind === :quad ? 4 : 3
-    stations=[m.grid.etas[m.node_keys[id][2]+1] for id in gr.conn[n*(e-1)+1:n*e]]
-    eta=(minimum(stations)+maximum(stations))/2
-    if oriented_ribs(m.grid) || pid==PID_LE_SKIN && (get(m.params,"leading_edge.rib_orientation","flight_direction")=="front_spar_angle" || !isempty(get(m.params,"leading_edge.rib_orientations",Any[])))
-        # These nodes have shifted along the loft from their front-spar row.
-        ys=[m.xyz[3id-1] for id in gr.conn[n*(e-1)+1:n*e]]
+    nodes=gr.conn[n*(e-1)+1:n*e]
+    if oriented_ribs(m.grid) || any(id->m.node_keys[id][3]<0,nodes) || pid==PID_LE_SKIN && (get(m.params,"leading_edge.rib_orientation","flight_direction")=="front_spar_angle" || !isempty(get(m.params,"leading_edge.rib_orientations",Any[])))
+        # Oblique rows and locally inserted kink vertices lie at their actual
+        # loft stations, not the coarse row recorded in the registry key.
+        # Using that row can select the stringer slope on the wrong kink side.
+        ys=[m.xyz[3id-1] for id in nodes]
         eta=((minimum(ys)+maximum(ys))/2-m.wing.root_ref_y)/m.wing.semispan
+    else
+        stations=[m.grid.etas[m.node_keys[id][2]+1] for id in nodes]
+        eta=(minimum(stations)+maximum(stations))/2
     end
     slope = stringer_slope(path,eta)
     if pid in (PID_SKIN_UPPER, PID_SKIN_LOWER, PID_LE_SKIN, PID_STRINGER_FLANGE)
@@ -79,9 +83,12 @@ function stringer_axis_direction(p,g,reg,groups)
     index===nothing && throw(ArgumentError("Blade coordinate axis must be x, y or z"))
     cid=Int(get(p,"stringers.axis_cid",0))
     cid==0 && return ntuple(i->i==index ? 1.0 : 0.0,3)
-    cache=g.shell_columns.axis_cache
-    key=(cid,String(axis));haskey(cache,key)&&return cache[key]
-    if oriented_ribs(g)
+    cache=g.shell_columns===nothing ? nothing : g.shell_columns.axis_cache
+    key=(cid,String(axis));cache!==nothing&&haskey(cache,key)&&return cache[key]
+    context=g.rib_layout
+    if g.shell_columns!==nothing && context!==nothing && any(eta->1e-10<eta<last(g.etas)-1e-10,
+            Iterators.flatten((context.arc.spar.breakpoints,context.path.kink_etas,
+                planform_breakpoints(g.wing),g.wing.vertical_shift_etas)))
         # The displayed/exported frame belongs to the final split triangle,
         # not its original quad. Reserve the same stringer EIDs on a private
         # geometry copy, then split only the preceding structural groups.
@@ -102,11 +109,11 @@ function stringer_axis_direction(p,g,reg,groups)
         e=findfirst(==(cid),gr.eids)
         if e!==nothing
             direction=shell_material_frame(context,gr,e)[index]
-            cache[key]=direction
+            cache===nothing||(cache[key]=direction)
             return direction
         end
     end
-    throw(ArgumentError("Blade coordinate system $cid is not a skin, spar or rib frame on the current mesh. Select BASIC (ID 0) or an available frame in Display > Axes & Labels."))
+    throw(ArgumentError("stringers.axis_cid: blade coordinate system $cid is not a skin, spar or rib frame on the current mesh. Changing the stringer representation can change generated frame IDs. Select BASIC (ID 0) or an available frame in Display > Axes & Labels."))
 end
 
 """User-facing convention shared by element properties and recovered results."""

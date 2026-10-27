@@ -1021,6 +1021,64 @@ function quad4_snorm_relative_to_finite_warp_pq(
     return active ? pq_relative : nothing
 end
 
+
+"""One corner-normal and finite-warp displacement map.
+
+An internal three-column director field stores `(p,q,accepted)`. The
+translation map transfers membrane forces to the actual corner heights;
+the absolute accepted director supplies the rotation transfer once. Missing
+or rejected rows retain the ordinary finite-warp rotation map. Two-column
+direct-call fields retain their established relative-map contract.
+"""
+function quad4_snorm_corner_warp_map(coords,coords_3d,snorm_pq)
+    coords_3d===nothing && return nothing
+    snorm_pq===nothing && return nothing
+    size(snorm_pq,1)==4 && size(snorm_pq,2)>=3 || return nothing
+    quad4_snorm_normal_moment_mode() && fem_env_bool("JFEM_Q4_WARP_TRANSFORM",true) || return nothing
+    any(i->snorm_pq[i,3]>0,1:4) || return nothing
+    W=quad4_finite_warp_displacement_map(coords,coords_3d)
+    W===nothing && return nothing
+    pq=zeros(4,2)
+    for i in 1:4
+        snorm_pq[i,3]>0 || continue
+        pq[i,1]=snorm_pq[i,1];pq[i,2]=snorm_pq[i,2]
+        for row in (6i-2,6i-1)
+            for col in 1:24;W[row,col]=row==col ? 1.0 : 0.0;end
+        end
+    end
+    return quad4_snorm_normal_moment_displacement_map(coords,pq)*W
+end
+
+# Explicit products preserve derivatives in zero-primal constitutive entries.
+function quad4_apply_displacement_congruence!(K,P)
+    P===nothing && return K
+    tmp=similar(K);result=similar(K)
+    ts_mul!(tmp,K,P);ts_mul!(result,transpose(P),tmp)
+    copyto!(K,result)
+    return K
+end
+
+"""Shared physical-to-projected map for section recovery and its work dual."""
+function quad4_physical_displacement_map(coords,coords_3d,snorm_pq)
+    corner=quad4_snorm_corner_warp_map(coords,coords_3d,snorm_pq)
+    corner===nothing || return corner
+    P=Matrix{Float64}(I,24,24)
+    W=coords_3d!==nothing && fem_env_bool("JFEM_Q4_WARP_TRANSFORM",true) ?
+        quad4_finite_warp_displacement_map(coords,coords_3d) : nothing
+    W===nothing || (P=W)
+    if snorm_pq!==nothing
+        if quad4_snorm_normal_moment_mode()
+            relative=quad4_snorm_relative_to_finite_warp_pq(snorm_pq,W)
+            relative===nothing || (P=quad4_snorm_normal_moment_displacement_map(coords,relative)*P)
+        else
+            for j in 1:24
+                col=collect(view(P,:,j));apply_quad4_snorm_director_displacement!(col,snorm_pq);P[:,j].=col
+            end
+        end
+    end
+    return P
+end
+
 function apply_quad4_finite_warp_equilibrium!(Ke::AbstractMatrix,
                                                coords::AbstractMatrix,
                                                coords_3d::AbstractMatrix,
@@ -2395,6 +2453,20 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
     # the common warp congruence, not the user's request for the warp route;
     # that distinction prevents the recursive projected-plane build from
     # accidentally entering the unrelated curved-frame experiment.
+    corner_snorm_map = _defer_warp_transform || _defer_snorm_transform ? nothing :
+        quad4_snorm_corner_warp_map(coords,coords_3d,snorm_pq)
+    if corner_snorm_map !== nothing
+        # kernel_planar is a legacy shear/formulation selector, not the
+        # physical-coordinate contract. The corner map requires the warp
+        # route, which independently disables the curved GP frame below.
+        # Keep genuine intrinsic-curvature and Marguerre laws separate.
+        curvature_membrane===nothing && slope_membrane===nothing &&
+            !marguerre_warp_to_uz || throw(ArgumentError(
+                "Corner-normal transport requires projected shell kinematics"))
+        # Build the same projected operator, then apply the shared map once.
+        snorm_pq=nothing
+        _defer_warp_transform=true
+    end
     # Canonicalise the zero field to the historical no-SNORM path. Besides
     # avoiding signed-zero completion terms, this is the explicit bitwise
     # identity contract for callers that preallocate and pass a zero pq array.
@@ -2559,7 +2631,7 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
         if coords_3d !== nothing && warp_transform_on
             apply_quad4_finite_warp_equilibrium!(Ke, coords, coords_3d)
         end
-        return Ke
+        return quad4_apply_displacement_congruence!(Ke,corner_snorm_map)
     end
     q4_kernel = lowercase(strip(kernel_mode === nothing ? fem_env_str("JFEM_Q4_KERNEL") : string(kernel_mode)))
     huwashizu_kernel = q4_kernel in ("huwashizu", "hu-washizu", "hw")
@@ -2598,7 +2670,7 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
         if coords_3d !== nothing && warp_transform_on
             apply_quad4_finite_warp_equilibrium!(Ke, coords, coords_3d)
         end
-        return Ke
+        return quad4_apply_displacement_congruence!(Ke,corner_snorm_map)
     end
     # Tessler-Hughes 1983 MIN4 kernel branch (2026-05-14 evening). Replaces
     # the MacNeal/MITC bending+shear blocks with the anisoparametric MIN4
@@ -2670,7 +2742,7 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
         if coords_3d !== nothing && warp_transform_on
             apply_quad4_finite_warp_equilibrium!(Ke, coords, coords_3d)
         end
-        return Ke
+        return quad4_apply_displacement_congruence!(Ke,corner_snorm_map)
     end
     # ---- PERF function barrier (2026-08-05, perf program phase 2) ----------
     # Everything above this point is the per-element DISPATCHER: env-flag and
@@ -2697,7 +2769,7 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
         create_macneal_shear_workspace(promote_type(
             eltype(ws_c.Ke), eltype(Cb), eltype(Cs), typeof(h))) :
         msws
-    return _stiffness_quad4_core!(
+    Ke = _stiffness_quad4_core!(
         ws_c, msws_c, coords, Cm, Cb, Cs, h, E_ref,
         k6rot, drill_scale, Bmb,
         bending_incomp, shear_center_only, no_phi2,
@@ -2713,6 +2785,7 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
         snorm_transform_pq, snorm_normal_moment, snorm_transform_on,
         warp_transform_requested, warp_transform_on, snorm_completion_active, coupled_projected, field_capture,
     )
+    return quad4_apply_displacement_congruence!(Ke,corner_snorm_map)
 end
 
 # The determinant is an integration measure, not a dimensional tolerance.
@@ -4074,8 +4147,9 @@ strain, giving D_ii - B_ii^2/A_ii. The other membrane strains and curvatures
 remain fixed: a full ABD inverse would release additional channels already
 represented by the element degrees of freedom. This changes only the residual
 flexibility; the compatible constant-field energy still uses the original ABD.
-The physical shear coefficient stiffness is the exact integral of P'CsP on the
-bilinear map.
+The physical shear flexibility follows MacNeal (1978), equations 23--25,
+including the sampled Jacobian volume factors before the work-coordinate
+transfer. The affine and uncoupled-shear limits equal the natural-field integral.
 """
 function quad4_natural_shear_flexibility!(mw, coords, Cb, Cs; rigid_shear=false, Cm=nothing, Bmb=nothing)
     T = eltype(mw.Z_total)
@@ -4147,18 +4221,59 @@ function quad4_natural_shear_flexibility!(mw, coords, Cb, Cs; rigid_shear=false,
     Zs = fill!(mw.Zs,zero(T))
     if !rigid_shear
         H = fill!(mw.H1,zero(T))
+        # MacNeal (1978), Eqs. 23--25: the four shear samples carry
+        # sqrt(2*abs(detJ)) volume weights.  The off-diagonal shear modulus
+        # couples the mean of each sample pair.  Map this sampled stiffness
+        # into the work coordinates gamma_x=a+b*s, gamma_y=c+d*r.
+        # On an affine map, or for uncoupled transverse shear, this reduces
+        # to the exact natural-field integral.  With both taper and Cs12,
+        # the geometric-mean volume factors must be retained.
         gp = inv(sqrt(3.0))
-        @inbounds for r in (-gp,gp), s in (-gp,gp)
-            weight=abs((ax+cx*s)*(by+cy*r)-(ay+cy*s)*(bx+cx*r))
-            px=(1.0,s,0.0,0.0); py=(0.0,0.0,1.0,r)
-            for j in 1:4, i in 1:4
-                H[i,j] += weight*(px[i]*(Cs[1,1]*px[j]+Cs[1,2]*py[j])+
-                                  py[i]*(Cs[2,1]*px[j]+Cs[2,2]*py[j]))
-            end
+        jac(r,s) = abs((ax+cx*s)*(by+cy*r)-(ay+cy*s)*(bx+cx*r))
+        va = sqrt(2jac(0.0,-gp)); vb = sqrt(2jac(0.0,gp))
+        vc = sqrt(2jac(-gp,0.0)); vd = sqrt(2jac(gp,0.0))
+        pxa=(va,-gp*va,0.0,0.0); pxb=(vb,gp*vb,0.0,0.0)
+        pyc=(0.0,0.0,vc,-gp*vc); pyd=(0.0,0.0,vd,gp*vd)
+        @inbounds for j in 1:4, i in 1:4
+            H[i,j] = Cs[1,1]*(pxa[i]*pxa[j]+pxb[i]*pxb[j]) +
+                     Cs[2,2]*(pyc[i]*pyc[j]+pyd[i]*pyd[j]) +
+                     Cs[1,2]*(pxa[i]+pxb[i])*(pyc[j]+pyd[j])/2 +
+                     Cs[2,1]*(pyc[i]+pyd[i])*(pxa[j]+pxb[j])/2
         end
-        _msws_inv!(mw,mw.inv4,mw.lu4a,H)
-        mul!(mw.t4a,transport,mw.inv4)
-        mul!(Zs,mw.t4a,transpose(transport))
+        if T <: ForwardDiff.Dual
+            # A zero primal off-diagonal can carry a material-orientation
+            # derivative. Structural-zero shortcuts in inv/mul! discard it.
+            # H is SPD, so its unpivoted elimination has positive pivots.
+            # Retain every arithmetic term for first and nested derivatives.
+            copyto!(mw.lu4a,H)
+            fill!(mw.inv4,zero(T))
+            @inbounds for i in 1:4
+                mw.inv4[i,i] = one(T)
+            end
+            @inbounds for k in 1:4
+                pivot = mw.lu4a[k,k]
+                for j in 1:4
+                    mw.lu4a[k,j] /= pivot
+                    mw.inv4[k,j] /= pivot
+                end
+                for i in 1:4
+                    i == k && continue
+                    factor = mw.lu4a[i,k]
+                    for j in 1:4
+                        mw.lu4a[i,j] -= factor*mw.lu4a[k,j]
+                        mw.inv4[i,j] -= factor*mw.inv4[k,j]
+                    end
+                end
+            end
+            fill!(Zs,zero(T))
+            @inbounds for j in 1:4, i in 1:4, l in 1:4, k in 1:4
+                Zs[i,j] += transport[i,k]*mw.inv4[k,l]*transport[j,l]
+            end
+        else
+            _msws_inv!(mw,mw.inv4,mw.lu4a,H)
+            mul!(mw.t4a,transport,mw.inv4)
+            mul!(Zs,mw.t4a,transpose(transport))
+        end
     end
     fill!(mw.Zsei,zero(T))
     @inbounds for j in 1:4, i in 1:4
@@ -6566,28 +6681,9 @@ function stress_strain_quad4(coords, u_elem, E, nu, h, t_shell; bend_ratio=1.0, 
 
     # Recovery uses the same physical-to-projected ordering as stiffness:
     # first the finite-warp map W, then the selected PARAM,SNORM equilibrium map.
-    if (coords_3d !== nothing && fem_env_bool("JFEM_Q4_WARP_TRANSFORM", true)) ||
-       snorm_pq !== nothing
-        u_elem = collect(u_elem)
-        warp_map = nothing
-        if coords_3d !== nothing && fem_env_bool("JFEM_Q4_WARP_TRANSFORM", true)
-            warp_map = quad4_finite_warp_displacement_map(coords, coords_3d)
-            warp_map === nothing || (u_elem = warp_map * u_elem)
-        end
-        if snorm_pq !== nothing
-            if quad4_snorm_normal_moment_mode()
-                snorm_relative_pq = quad4_snorm_relative_to_finite_warp_pq(
-                    snorm_pq, warp_map)
-                snorm_relative_pq === nothing ||
-                    apply_quad4_snorm_normal_moment_displacement!(
-                        u_elem, coords, snorm_relative_pq)
-                # The normal-moment map is the complete kinematic operation;
-                # suppress the superseded local director-gradient rows.
-                snorm_pq = nothing
-            else
-                apply_quad4_snorm_director_displacement!(u_elem, snorm_pq)
-            end
-        end
+    if (coords_3d !== nothing && fem_env_bool("JFEM_Q4_WARP_TRANSFORM",true)) || snorm_pq!==nothing
+        u_elem=quad4_physical_displacement_map(coords,coords_3d,snorm_pq)*u_elem
+        quad4_snorm_normal_moment_mode() && (snorm_pq=nothing)
     end
 
     if compatible_center
@@ -6833,26 +6929,9 @@ function quad4_bilinear_corner_forces(coords, u_elem, E, nu, h;
     D_mem = const_mem .* [1 nu 0; nu 1 0; 0 0 (1-nu)/2]
     Cm = isnothing(Cm_override) ? D_mem * h : Cm_override
     Cb = isnothing(Cb_override) ? bend_ratio * D_mem * (h^3 / 12.0) : Cb_override
-    if (coords_3d !== nothing && fem_env_bool("JFEM_Q4_WARP_TRANSFORM", true)) ||
-       snorm_pq !== nothing
-        u_elem = collect(u_elem)
-        warp_map = nothing
-        if coords_3d !== nothing && fem_env_bool("JFEM_Q4_WARP_TRANSFORM", true)
-            warp_map = quad4_finite_warp_displacement_map(coords, coords_3d)
-            warp_map === nothing || (u_elem = warp_map * u_elem)
-        end
-        if snorm_pq !== nothing
-            if quad4_snorm_normal_moment_mode()
-                snorm_relative_pq = quad4_snorm_relative_to_finite_warp_pq(
-                    snorm_pq, warp_map)
-                snorm_relative_pq === nothing ||
-                    apply_quad4_snorm_normal_moment_displacement!(
-                        u_elem, coords, snorm_relative_pq)
-                snorm_pq = nothing
-            else
-                apply_quad4_snorm_director_displacement!(u_elem, snorm_pq)
-            end
-        end
+    if (coords_3d !== nothing && fem_env_bool("JFEM_Q4_WARP_TRANSFORM",true)) || snorm_pq!==nothing
+        u_elem=quad4_physical_displacement_map(coords,coords_3d,snorm_pq)*u_elem
+        quad4_snorm_normal_moment_mode() && (snorm_pq=nothing)
     end
 
     dNr, dNs = shape_derivs_quad(0.0, 0.0)
@@ -7008,30 +7087,7 @@ function quad4_condensed_section_fields(coords,u_elem,Cm,Bmb,Cb,Cs,h,E_ref;
         "Section recovery requires the Gauss-point quadrilateral kernel"))
     # Work-dual displacement maps are applied to K outside its integration loop.
     # Apply that same composition to u before using the captured local operators.
-    map=Matrix{scalar_type}(I,24,24)
-    warp=nothing
-    if coords_3d !== nothing && fem_env_bool("JFEM_Q4_WARP_TRANSFORM",true)
-        warp=quad4_finite_warp_displacement_map(coords,coords_3d)
-        warp===nothing || (map=warp*map)
-    end
-    if snorm_pq !== nothing
-        if quad4_snorm_normal_moment_mode()
-            relative=quad4_snorm_relative_to_finite_warp_pq(snorm_pq,warp)
-            if relative !== nothing
-                for j in 1:24
-                    col=collect(view(map,:,j))
-                    apply_quad4_snorm_normal_moment_displacement!(col,coords,relative)
-                    map[:,j].=col
-                end
-            end
-        else
-            for j in 1:24
-                col=collect(view(map,:,j))
-                apply_quad4_snorm_director_displacement!(col,snorm_pq)
-                map[:,j].=col
-            end
-        end
-    end
+    map=quad4_physical_displacement_map(coords,coords_3d,snorm_pq)
     u=map*u_elem
     mode=lowercase(strip(bmb_incomp_coupling_mode===:env ?
         fem_env_str("JFEM_Q4_BMB_INCOMP_COUPLING_MODE","full") :
@@ -7098,31 +7154,66 @@ function quad4_coupled_membrane_force_field(coords,u,Cm,Bmb,Cb,Cs,h,E;kwargs...)
 end
 
 """
+    quad4_reference_section_membrane_force_field(coords,u_grid,A,B,z;coords_3d=nothing)
+
+Ordinary projected initial-stress field referred to the GRID surface. Moving
+the section origin by z gives B_grid=B+z*A. Apply this constitutive shift to
+the unshifted GRID displacement before the differential interpolation: its
+center membrane shear and corrected Gauss-point twist do not commute with
+an eccentric nodal translation. The corresponding geometric metric is on
+the GRID surface, without an additional eccentric-offset congruence.
+Director/normal, curvature, and enhanced-offset laws are caller exclusions.
+"""
+function quad4_reference_section_membrane_force_field(coords,u_grid,A,B,z;
+                                                     coords_3d=nothing)
+    z isa Union{AbstractFloat,Integer} && iszero(z) && return quad4_differential_membrane_force_field(
+        coords,u_grid,A,B;coords_3d=coords_3d)
+    B_grid=B===nothing ? z.*A : B.+z.*A
+    return quad4_differential_membrane_force_field(
+        coords,u_grid,A,B_grid;coords_3d=coords_3d)
+end
+
+"""
     quad4_differential_membrane_force_field(coords, u, A, B; coords_3d=nothing)
 
 Section prestress for the ordinary quadrilateral differential-stiffness operator.
-Normal strains and laminate curvatures use compatible nodal gradients at each
+Normal strains and normal curvatures use compatible nodal gradients at each
 Gauss point; engineering membrane shear is sampled at the element center.
+MacNeal curvature compatibility restores the varying twist,
+`kappa_xy(g) = 2*kappa_xy_compatible(g) - kappa_xy_compatible(center)`.
 The same finite-warp displacement map as the elastic element is applied first.
+For coupled normal-moment kinematics, the supplied normal field selects the
+complete physical displacement map before evaluating B*kappa. Uncoupled and
+no-normal paths retain their existing arithmetic.
 
 This initial-stress interpolation is distinct from elastic stress recovery:
 Wilson internal strains belong to the elastic energy and output fields, and
 are not included in the compatible initial-stress field. The physical section
-law N = A*epsilon + B*kappa and the full compatible twisting curvature remain
-unchanged. Callers must exclude director, curvature, and alternate plate laws.
+law N = A*epsilon + B*kappa retains constant curvature exactly. For the cubic
+Kirchhoff patch w=x^2*y, bilinear nodal rotations give compatible twist 2*x;
+the compatibility correction restores the exact engineering twist 4*x.
+Callers must exclude director, curvature, and alternate plate laws.
 """
 function quad4_differential_membrane_force_field(coords,u_elem,Cm,Bmb;
-                                                coords_3d=nothing)
+                                                coords_3d=nothing,snorm_pq=nothing)
     T=promote_type(eltype(coords),eltype(u_elem),eltype(Cm),
                    Bmb===nothing ? eltype(Cm) : eltype(Bmb))
     u=u_elem
-    if coords_3d!==nothing && fem_env_bool("JFEM_Q4_WARP_TRANSFORM",true)
+    if snorm_pq!==nothing && Bmb!==nothing && any(!iszero,Bmb)
+        quad4_snorm_normal_moment_mode() || throw(ArgumentError(
+            "Coupled differential prestress requires ordinary normal-moment kinematics"))
+        # Apply the complete physical-to-projected map once. The caller may
+        # already have mapped a reference offset; never prepend a second W.
+        u=quad4_physical_displacement_map(coords,coords_3d,snorm_pq)*u_elem
+    elseif coords_3d!==nothing && fem_env_bool("JFEM_Q4_WARP_TRANSFORM",true)
         map=quad4_finite_warp_displacement_map(coords,coords_3d)
         map===nothing || (u=map*u_elem)
     end
     dr,ds=shape_derivs_quad(0.0,0.0)
     d0=([dr';ds']*coords)\[dr';ds']
     shear=sum(d0[2,k]*u[6k-5]+d0[1,k]*u[6k-4] for k=1:4)
+    twist_center=Bmb===nothing ? zero(T) :
+        sum(d0[2,k]*u[6k-1]-d0[1,k]*u[6k-2] for k=1:4)
     N=zeros(T,4,3);weights=zeros(T,4)
     q=inv(sqrt(3.0))
     for (i,(r,s)) in enumerate(((-q,-q),(q,-q),(q,q),(-q,q)))
@@ -7134,7 +7225,7 @@ function quad4_differential_membrane_force_field(coords,u_elem,Cm,Bmb;
         if Bmb!==nothing
             kappa=[sum(d[1,k]*u[6k-1] for k=1:4),
                    -sum(d[2,k]*u[6k-2] for k=1:4),
-                   sum(d[2,k]*u[6k-1]-d[1,k]*u[6k-2] for k=1:4)]
+                   2*sum(d[2,k]*u[6k-1]-d[1,k]*u[6k-2] for k=1:4)-twist_center]
             n+=Bmb*kappa
         end
         N[i,:].=n;weights[i]=abs(det(J))
@@ -7176,26 +7267,9 @@ function quad4_membrane_force_field(coords, u_elem, E, nu, h;
     const_mem = E / (1 - nu^2)
     D_mem = const_mem .* [1 nu 0; nu 1 0; 0 0 (1-nu)/2]
     Cm = isnothing(Cm_override) ? D_mem * h : Cm_override
-    if (coords_3d !== nothing && fem_env_bool("JFEM_Q4_WARP_TRANSFORM", true)) ||
-       snorm_pq !== nothing
-        u_elem = collect(u_elem)
-        warp_map = nothing
-        if coords_3d !== nothing && fem_env_bool("JFEM_Q4_WARP_TRANSFORM", true)
-            warp_map = quad4_finite_warp_displacement_map(coords, coords_3d)
-            warp_map === nothing || (u_elem = warp_map * u_elem)
-        end
-        if snorm_pq !== nothing
-            if quad4_snorm_normal_moment_mode()
-                snorm_relative_pq = quad4_snorm_relative_to_finite_warp_pq(
-                    snorm_pq, warp_map)
-                snorm_relative_pq === nothing ||
-                    apply_quad4_snorm_normal_moment_displacement!(
-                        u_elem, coords, snorm_relative_pq)
-                snorm_pq = nothing
-            else
-                apply_quad4_snorm_director_displacement!(u_elem, snorm_pq)
-            end
-        end
+    if (coords_3d !== nothing && fem_env_bool("JFEM_Q4_WARP_TRANSFORM",true)) || snorm_pq!==nothing
+        u_elem=quad4_physical_displacement_map(coords,coords_3d,snorm_pq)*u_elem
+        quad4_snorm_normal_moment_mode() && (snorm_pq=nothing)
     end
 
     pt = 1.0 / sqrt(3.0)
@@ -9112,36 +9186,45 @@ function tria3_rbf_shear(Ds, Db, A, coords = nothing)
 end
 
 """
-    tria3_guard_bending_flexibility!(Zb, La, Lb, sine_angle, Dnormal)
+    tria3_guard_bending_flexibility!(Zb, La, Lb, cosine_angle, sine_angle, Dnormal)
 
-Safeguard the dimensionless bending-flexibility pivots of a very slender
-triangle. Eliminate the third tying mode, then bound the first diagonal and
-the complementary Schur pivot. The normalization uses the bending rigidity
-normal to the first edge (D22), including for an anisotropic laminate.
+Regularize the two residual bending channels in orthogonal work coordinates
+after eliminating the third tying channel. The native legacy algorithm uses
+a dimensionless first-diagonal floor of 1/10000 and a squared-correlation
+limit of 85/100. These are reconstructed element stability conventions,
+not constitutive constants or eigenvalue tolerances. The latter bound leaves
+at least 15 percent of the uncoupled determinant in this two-channel block.
 
-The fixed 1/10000 pivot bound belongs to the element's ordered tying basis;
-it is not a global stiffness shift or an eigenvalue tolerance. Only an active
-bound changes Zb, by a nonnegative first-diagonal increment. Ordinary cells
-remain bitwise unchanged. The transverse-shear flexibility is not modified.
+The second orthogonal diagonal and the third tying channel are preserved.
+Return true only when a bound changes the flexibility. Inactive cells remain
+bitwise unchanged, and transverse-shear flexibility is not modified.
 """
-@inline function tria3_guard_bending_flexibility!(Zb, La, Lb, sine_angle, Dnormal)
+@inline function tria3_guard_bending_flexibility!(Zb, La, Lb, cosine_angle, sine_angle, Dnormal)
     T = eltype(Zb)
-    rho = La / Lb
-    scale = 6 * rho * sine_angle * Dnormal
-    scale > zero(T) && Zb[3,3] > zero(T) || return zero(T)
-    h11 = scale * (Zb[1,1] - Zb[1,3]^2 / Zb[3,3]) / La^2
-    h22 = scale * (Zb[2,2] - Zb[2,3]^2 / Zb[3,3]) / Lb^2
-    h12 = scale * (Zb[1,2] - Zb[1,3]*Zb[2,3] / Zb[3,3]) / (La*Lb)
-    pivot_bound = one(T) / 10000
-    denominator = h22 - pivot_bound * sine_angle^4
-    denominator > zero(T) || return zero(T)
-    bounded = max(h11, pivot_bound, h12^2 / denominator)
-    if bounded > h11
-        increment = (bounded - h11) * La^2 / scale
-        Zb[1,1] += increment
-        return increment
-    end
-    return zero(T)
+    c, s = cosine_angle, sine_angle
+    scale = 6 * (La/Lb) * s * Dnormal
+    scale > zero(T) && Zb[3,3] > zero(T) || return false
+    h11 = scale * (Zb[1,1] - Zb[1,3]^2/Zb[3,3]) / La^2
+    h22 = scale * (Zb[2,2] - Zb[2,3]^2/Zb[3,3]) / Lb^2
+    h12 = scale * (Zb[1,2] - Zb[1,3]*Zb[2,3]/Zb[3,3]) / (La*Lb)
+    p11 = h11
+    p12 = (h12-c*h11)/s
+    p22 = (h22-2c*h12+c*c*h11)/(s*s)
+    isfinite(p22) && p22 > zero(T) || throw(ArgumentError(
+        "Triangle residual normal flexibility must be positive"))
+    a = max(p11,one(T)/10000)
+    limit = sqrt((T(85)/100)*a*p22)
+    b = clamp(p12,-limit,limit)
+    a == p11 && b == p12 && return false
+    # Inverse congruence: both edge-coordinate diagonals generally change.
+    new_h11 = a
+    new_h12 = c*a+s*b
+    new_h22 = c*c*a+2c*s*b+s*s*p22
+    Zb[1,1] += (new_h11-h11)*La^2/scale
+    Zb[1,2] += (new_h12-h12)*La*Lb/scale
+    Zb[2,1] = Zb[1,2]
+    Zb[2,2] += (new_h22-h22)*Lb^2/scale
+    return true
 end
 
 # Residual bending in a directional strip takes place about that strip's
@@ -9156,6 +9239,57 @@ end
     isfinite(rigidity) && rigidity > zero(rigidity) || throw(ArgumentError(
         "Coupled triangle residual flexibility requires positive neutral-surface bending rigidity"))
     return rigidity
+end
+
+"""
+    tria3_corner_thickness_section(thickness)
+
+Section averages on the ordinary triangle's three edge-midpoint quadrature.
+Membrane and shear use mean(t); bending uses mean(t^3) at the same points.
+The resulting constant section is invariant under a permutation of Ti.
+"""
+function tria3_corner_thickness_section(thickness)
+    length(thickness)==3 || throw(DimensionMismatch("Triangle section requires three thicknesses"))
+    all(t->isfinite(t)&&t>zero(t),thickness) || throw(ArgumentError(
+        "Triangle corner thicknesses must be finite and positive"))
+    if all(==(first(thickness)),thickness)
+        h=first(thickness)
+        return (mean_thickness=h,mean_cube=h^3,bending_scale=one(h))
+    end
+    t1,t2,t3=thickness
+    h=(t1+t2+t3)/3
+    cube=(((t1+t2)/2)^3+((t2+t3)/2)^3+((t3+t1)/2)^3)/3
+    return (mean_thickness=h,mean_cube=cube,bending_scale=cube/h^3)
+end
+
+# Componentwise neutral reduction belongs to the element's ordered tying
+# representation. Reduction and directional projection do not commute:
+# project D_ij-B_ij^2/A_ij after reducing the section channels. This auxiliary
+# matrix is not a constitutive tensor to rotate independently; compatible ABD
+# remains unchanged. Undefined channels retain the scalar-strip fallback.
+function tria3_component_neutral_bending(Dm, Bmb, Db)
+    T = promote_type(eltype(Dm),eltype(Bmb),eltype(Db))
+    result = Matrix{T}(undef,3,3)
+    for j in 1:3, i in 1:3
+        a,b,d = Dm[i,j],Bmb[i,j],Db[i,j]
+        if iszero(a)
+            iszero(b) || return nothing
+            result[i,j] = d
+        else
+            result[i,j] = d-b*b/a
+        end
+        isfinite(result[i,j]) || return nothing
+    end
+    return result
+end
+
+# A diagonal congruence tests energy without dimensional pivot thresholds.
+function tria3_positive_flexibility(Z)
+    all(i->isfinite(Z[i,i]) && Z[i,i]>zero(Z[i,i]),1:3) || return false
+    p=Z[1,2]/sqrt(Z[1,1]*Z[2,2])
+    q=Z[1,3]/sqrt(Z[1,1]*Z[3,3])
+    r=Z[2,3]/sqrt(Z[2,2]*Z[3,3])
+    one(p)-p*p>zero(p) && one(p)+2p*q*r-p*p-q*q-r*r>zero(p)
 end
 
 function stiffness_tria3_matrices_generic(coords, Dm, Db, Ds, h, G_ref; bend_ratio=1.0, k6rot=100.0, Bmb=nothing)
@@ -9479,7 +9613,34 @@ function stiffness_tria3_matrices_generic(coords, Dm, Db, Ds, h, G_ref; bend_rat
                 Zb3[1,3] = -s6/Gd*S1*S3;   Zb3[3,1] = Zb3[1,3]
                 Zb3[2,3] =  s6/Gd*S2*S3;   Zb3[3,2] = Zb3[2,3]
                 Zb3[3,3] =  s6/Gd*S3*S3
-                tria3_guard_bending_flexibility!(Zb3, La, Lb, sth,
+                # Component reduction defines an auxiliary ordered-channel
+                # representation, not an independent constitutive tensor.
+                # Individual edge terms can be signed. The orthogonal Schur
+                # regularization below restores positive residual energy.
+                # Undefined neutral or zero edge channels keep the strip law.
+                if coupled_strip && dir_pair
+                    neutral = tria3_component_neutral_bending(Dm,Bmb,Db)
+                    if neutral !== nothing
+                        function component_direction(vx,vy)
+                            len=hypot(vx,vy);nx=-vy/len;ny=vx/len
+                            w=(nx*nx,ny*ny,2nx*ny)
+                            sum(w[i]*neutral[i,j]*w[j] for i in 1:3,j in 1:3)
+                        end
+                        e12=component_direction(x2-x1,y2-y1)
+                        e13=component_direction(x3-x1,y3-y1)
+                        e23=component_direction(x3-x2,y3-y2)
+                        if all(v->isfinite(v) && !iszero(v),(e12,e13,e23))
+                            candidate=copy(Zb3)
+                            candidate[1,1]=(s6/Gd+fr/e12+w13/e13+w23/e23)*S1*S1
+                            candidate[2,2]=(s6/Gd+w12/e12+fri/e13+w23/e23)*S2*S2
+                            candidate[1,2]=(-s6/Gd+o12/e12+o13/e13+o23/e23)*S1*S2
+                            candidate[2,1]=candidate[1,2]
+                            Zb3=candidate
+                            Dn12=e12
+                        end
+                    end
+                end
+                tria3_guard_bending_flexibility!(Zb3, La, Lb, cth, sth,
                                                dir_pair ? Dn12 : Dbend)
                 Zt = inv(Symmetric(Matrix(Wsh))) + Zb3
                 Zt = 0.5 .* (Zt .+ Zt')
@@ -11445,9 +11606,9 @@ end
     reference_lumped_mass_frame3d(L, rho, A, J, Iy, Iz) -> 12x12 Matrix
 
 Reference-compatible lumped mass matrix for 3D CBAR/CBEAM line elements.
-Translational mass is lumped equally to the two end grids. Rotary inertia is
-lumped to the corresponding local rotational DOFs when section inertias are
-available.
+Translational mass is lumped equally to the two end grids. With
+`torsion_inertia=true`, the polar second moment `Iy + Iz` supplies torsional
+rotary inertia. Bending rotary inertia is omitted by this lumped convention.
 """
 function reference_lumped_mass_frame3d(L::Float64, rho::Float64, A::Float64,
                                      J::Float64, Iy::Float64, Iz::Float64;
@@ -11456,21 +11617,17 @@ function reference_lumped_mass_frame3d(L::Float64, rho::Float64, A::Float64,
     if L < 1e-12 || rho < 1e-30 || A < 1e-30; return Me; end
 
     m_node = rho * A * L / 2.0
-    # 2026-08-05: the reference solver's lumped conventions are element
-    # specific, and each element's own retained reference spectrum proves its
-    # convention: the CBAR lumped mass is TRANSLATIONAL ONLY (its reference
-    # has no finite torsion mode -- the former rho*J/Iy/Iz entries here
-    # produced a spurious torsion root at 5.84e6 below the axial pair), while
-    # the CBEAM lumped mass ADDS torsional inertia rho*J*L/2 (its reference
-    # prints exactly that torsion mode at 5.836e6). Bending rotary inertia
-    # (Iy/Iz) is carried by neither. `torsion_inertia=true` selects the CBEAM
-    # convention.
+    # Rigid section spin has kinetic inertia integral(rho*(y^2+z^2), A),
+    # hence rho*(Iy+Iz); Saint-Venant J belongs to elastic torsion, not mass.
+    # CBEAM retains this torsional inertia, while CBAR's default remains
+    # translational only. Neither convention adds bending rotary inertia.
+    polar_inertia = Iy + Iz
     @inbounds for base in (0, 6)
         Me[base + 1, base + 1] = m_node
         Me[base + 2, base + 2] = m_node
         Me[base + 3, base + 3] = m_node
-        if torsion_inertia && J > 0.0
-            Me[base + 4, base + 4] = rho * J * L / 2.0
+        if torsion_inertia && polar_inertia > 0.0
+            Me[base + 4, base + 4] = rho * polar_inertia * L / 2.0
         end
     end
     return Me

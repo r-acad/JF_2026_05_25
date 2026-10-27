@@ -39,8 +39,11 @@ end
 
 function validate_t_section_dimensions(dimensions,label)
     b,h,tf,tw=dimensions
-    all(v->v isa Real&&!(v isa Bool)&&isfinite(v)&&v>0,dimensions)||throw(ArgumentError("$label dimensions must be finite positive lengths in metres"))
-    tf<h&&tw<b||throw(ArgumentError("$label requires flange thickness < overall height and web thickness < flange width"))
+    for (field,value) in zip(("flange width","overall height","flange thickness","web thickness"),dimensions)
+        value isa Real&&!(value isa Bool)&&isfinite(value)&&value>0||throw(ArgumentError("$label $field must be a finite positive length in metres; received $value"))
+    end
+    tf<h||throw(ArgumentError("$label flange thickness ($tf m) must be less than overall height ($h m)"))
+    tw<b||throw(ArgumentError("$label web thickness ($tw m) must be less than flange width ($b m)"))
     return nothing
 end
 

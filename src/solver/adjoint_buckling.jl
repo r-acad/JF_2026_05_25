@@ -346,9 +346,14 @@ function _buckling_local_rhs_has_operator_gap(model)
     # T3, independently of the optional Q4 KDJJ formulation.
     for el in values(get(model,"CSHELLs",Dict()))
         prop = get(get(model,"PSHELLs",Dict()),string(el["PID"]),Dict())
+        # The projected reference-plane shift precedes W/S. The local RHS
+        # builder has no matching displacement pullback; differentiate the
+        # complete forward operator until that chain is implemented locally.
+        length(el["NODES"]) == 4 && !iszero(get(el,"ZOFFS",0.0)) && return true
         # A different-property DV still differentiates preload through this shell.
         # Local RHS replay lacks its anisotropic assumed transverse gradients.
-        get(prop,"TYPE","")=="PCOMP_CLT" && !Bool(get(prop,"IS_ISOTROPIC",false)) && return true
+        get(prop,"TYPE","")=="PCOMP_CLT" &&
+            (!Bool(get(prop,"IS_ISOTROPIC",false)) || get(prop,"Bmb",nothing)!==nothing) && return true
         _pshell_local_constitutive_gap(prop, model) && return true
     end
     kg_quad4_iso_reference_kdjj_mode() === :off && return false
@@ -1646,8 +1651,7 @@ function _covariant_iso_quad4_kg_context(el, model, id_map, node_coords, node_R,
         !elem_is_flat &&
         get(prop, "Bmb", nothing) === nothing &&
         iso_corner_curvature !== nothing &&
-        abs(q4_curvature_gaussian(iso_corner_curvature)) <= 1e-10 &&
-        first(q4_curvature_principal_abs(iso_corner_curvature)) > 1e-8
+        q4_curvature_is_numerically_cylindrical(iso_corner_curvature, qd.lc)
     use_iso_exact_membrane =
         use_flat_curved_iso_exact_membrane || use_cyl_iso_exact_membrane
     if curvature_membrane === nothing && use_cyl_iso_exact_membrane && iso_corner_curvature !== nothing
@@ -2262,14 +2266,22 @@ function _dKg_dx_phi_node_coord(dv, model, id_map, node_coords, node_R, u_global
         try
             coords_arr[comp] = x0 + d
             _, id_map_p, nc_p, ndof_p, nr_p, _, rbe3_p, snorm_p, _ = assemble_stiffness(model)
-            return assemble_geometric_stiffness(model, id_map_p, nc_p, nr_p, ndof_p, u_global, snorm_p, rbe3_p)
+            cylinder_branch = Dict{Int,Bool}()
+            capture = (eid, data) -> (cylinder_branch[Int(eid)] =
+                get(data, :kg_cyl_iso_exact_membrane, false))
+            Kg_p = assemble_geometric_stiffness(model, id_map_p, nc_p, nr_p, ndof_p,
+                u_global, snorm_p, rbe3_p; geometric_capture=capture)
+            return Kg_p, cylinder_branch
         finally
             coords_arr[comp] = x0
         end
     end
 
-    Kg_plus = _Kg_at_perturbed(delta)
-    Kg_minus = _Kg_at_perturbed(-delta)
+    _, branch_base = _Kg_at_perturbed(0.0)
+    Kg_plus, branch_plus = _Kg_at_perturbed(delta)
+    Kg_minus, branch_minus = _Kg_at_perturbed(-delta)
+    branch_base == branch_plus == branch_minus || throw(ArgumentError(
+        "SOL105 node-coordinate finite difference crosses a numerical cylindrical-curvature branch; no local derivative is defined across this dispatch transition"))
 
     phi_dKg_phi = dot(phi, (Kg_plus - Kg_minus) * phi) / (2.0 * delta)
     result[label] = phi_dKg_phi
@@ -2318,8 +2330,7 @@ function _adjoint_has_active_completed_q4_snorm(model, id_map, node_coords)
     )
 
     for (angle, frame_mode) in configurations
-        angle > 0.0 || continue
-        normals = compute_shell_nodal_normals(model, id_map, node_coords, angle)
+        normals = compute_snorm_normals(model,id_map,node_coords;angle_deg=angle)
         isempty(normals) && continue
         for (_, el) in get(model, "CSHELLs", Dict())
             nids = get(el, "NODES", nothing)
@@ -2405,6 +2416,15 @@ function solve_adjoint_buckling(results::Dict, adjoint_config_path::String)
     assert_no_corner_thickness_analytic(results["model"])
     if results["sol_type"] != 105
         error("[ADJOINT-BUCK] Requires SOL 105 results (got SOL $(results["sol_type"]))")
+    end
+
+    buckling = get(results, "buckling", nothing)
+    if buckling isa BucklingResult
+        selections = [(get(sc.details,"static_mpc_id",nothing),
+                       get(sc.details,"buckling_mpc_id",nothing)) for sc in buckling.subcases]
+        if any(p -> first(p) != last(p), selections) || length(unique(selections)) > 1
+            throw(ArgumentError("Buckling adjoint sensitivity with changing MPC selections requires separate constraint-map derivatives; use end-to-end finite differences."))
+        end
     end
 
     config = parse_adjoint_config(adjoint_config_path)

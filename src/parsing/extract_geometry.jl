@@ -48,6 +48,49 @@ function extract_grid(cards; grdset=nothing)
     return d
 end
 
+# Explicit surface normals retain input components until the solver resolves
+# the CID tangent basis at their GRID. A zero vector is rejected only when the
+# normal is active; PARAM,SNORM<0 and inapplicable element types ignore it.
+function normalize_snorm(record::AbstractDict; gid_default=nothing)
+    number(raw,default)=raw===nothing || (raw isa AbstractString && isempty(strip(raw))) ? default : parse_reference_number(raw,nothing)
+    gid = number(get(record,"GID",gid_default),nothing)
+    cid = number(get(record,"CID",0),0)
+    gid isa Real && isfinite(gid) && isinteger(gid) && gid>0 ||
+        throw(ArgumentError("SNORM requires a positive integer GID"))
+    cid isa Real && isfinite(cid) && isinteger(cid) && cid>=0 ||
+        throw(ArgumentError("SNORM requires a nonnegative integer CID"))
+    raw = get(record,"N",[get(record,"N1",0.),get(record,"N2",0.),get(record,"N3",0.)])
+    raw isa AbstractVector && length(raw)==3 ||
+        throw(ArgumentError("SNORM $gid requires three normal components"))
+    vector = [number(x,0.) for x in raw]
+    all(x->x isa Real && isfinite(x),vector) ||
+        throw(ArgumentError("SNORM $gid requires finite normal components"))
+    return Dict{String,Any}("GID"=>Int(gid),"CID"=>Int(cid),"N"=>Float64.(vector))
+end
+
+function extract_snorm(cards)
+    normals=Dict{String,Any}()
+    for card in cards
+        record=normalize_snorm(Dict("GID"=>safe_get(card,3),
+            "CID"=>safe_get(card,4),"N"=>[safe_get(card,k) for k in 5:7]))
+        key=string(record["GID"])
+        haskey(normals,key) && throw(ArgumentError("Duplicate SNORM for GRID $key"))
+        normals[key]=record
+    end
+    return normals
+end
+
+function normalize_snorm_map(records::AbstractDict)
+    normals=Dict{String,Any}()
+    for (key,value) in records
+        record=normalize_snorm(value;gid_default=key)
+        string(record["GID"])==string(key) ||
+            throw(ArgumentError("SNORM dictionary key $key does not match its GID"))
+        normals[string(record["GID"])]=record
+    end
+    return normals
+end
+
 function _coordinate_frame(A, B, C, cid)
     a, b, c = Float64.(A), Float64.(B), Float64.(C)
     all(isfinite, a) && all(isfinite, b) && all(isfinite, c) ||

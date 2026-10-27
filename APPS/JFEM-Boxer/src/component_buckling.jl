@@ -16,6 +16,7 @@ function component_rf_faces(m,path)
     for group in m.groups,eid in group.eids;eid_counts[eid]=get(eid_counts,eid,0)+1;end
     supports=Dict{Symbol,Dict{Tuple{Int,Int},Int}}(kind=>Dict{Tuple{Int,Int},Int}() for kind in (:rib,:spar,:skin,:stiffener))
     ribnodes=Dict{Int,Set{Int}}();skinnodes=Dict(0=>Set{Int}(),m.grid.nh=>Set{Int}())
+    panels=Dict(panel.id=>panel for panel in stiffened_panel_layout(m.grid).panels)
     for group in m.groups
         base=component_base_pid(group.pid)
         if group.kind in (:quad,:tria)
@@ -35,8 +36,13 @@ function component_rf_faces(m,path)
                     side=only(is);for edge in edges;supports[:spar][edge]=side;end
                     identity=(:spar,side)
                 else
-                    ks=unique(key[3] for key in keys);length(ks)==1&&only(ks) in (0,m.grid.nh)||continue
-                    side=only(ks);for edge in edges;supports[:skin][edge]=side;end
+                    # Local conforming kink nodes carry negative registry
+                    # sentinels, not a literal through-height index. Their
+                    # skin identity belongs to the physical property family.
+                    panel=get(panels,stiffened_panel_id(group.pid),nothing)
+                    upper=base==PID_SKIN_UPPER||base==PID_STRINGER_FLANGE&&panel!==nothing&&panel.upper
+                    base==PID_STRINGER_FLANGE&&panel===nothing&&continue
+                    side=upper ? m.grid.nh : 0;for edge in edges;supports[:skin][edge]=side;end
                     union!(skinnodes[side],nodes);continue
                 end
                 points=element_points(m,group,index)
@@ -57,6 +63,22 @@ function component_rf_faces(m,path)
         end
     end
     (;surfaces,supports,ribnodes,skinnodes,eid_counts)
+end
+
+"""Continuous mesh station/height for structured and locally inserted web nodes."""
+function component_rf_web_coordinates(m,node,axis_index)
+    key=m.node_keys[node]
+    key[3]>=0&&return Float64(key[axis_index]),key[3]/m.grid.nh
+    axis_index==2&&key[1] in (0,ni(m.grid)) || throw(ArgumentError("A web knot has no physical spar station"))
+    g=m.grid;point=skin_xyz(m,node);eta=(point[2]-m.wing.root_ref_y)/m.wing.semispan
+    xc=spar_surface_xc(m.wing,g.rib_layout.arc.spar,eta,key[1]==0 ? :front : :rear)
+    lo,up=lower_point(m.wing,eta,xc),upper_point(m.wing,eta,xc)
+    vertical=up.-lo;height=euler_dot(point.-lo,vertical)/sum(abs2,vertical)
+    -1e-8<=height<=1+1e-8||throw(ArgumentError("A local spar-web node lies outside its lower/upper skins"))
+    height=clamp(height,0.,1.);i,j=key[1]+1,key[2]+1
+    a=(1-height)*g.lower_etas[i,j]+height*g.upper_etas[i,j]
+    b=(1-height)*g.lower_etas[i,j+1]+height*g.upper_etas[i,j+1]
+    return Float64(key[2])+(eta-a)/(b-a),height
 end
 
 function component_rf_compartments(surface,support)
@@ -124,19 +146,25 @@ function component_rf_web_geometry!(row,m,items,chosen,owners,support,axis_index
     upward=euler_dot(y,height_direction)>0
     # Arc coordinates retain all actual span/chord refinement and align each
     # through-height cell in an explicit equivalent-rectangle parameter map.
-    fractions=Dict{Tuple{Symbol,Int},Dict{Int,Float64}}()
+    fractions=Dict{Tuple{Symbol,Int},Dict{Float64,Float64}}()
     for side in sides
         chain=chains[side]
-        m.node_keys[first(chain)][axis_index]>m.node_keys[last(chain)][axis_index]&&(chain=reverse(chain))
-        values=Dict(m.node_keys[first(chain)][axis_index]=>0.);distance=0.
+        first(component_rf_web_coordinates(m,first(chain),axis_index))>first(component_rf_web_coordinates(m,last(chain),axis_index))&&(chain=reverse(chain))
+        values=Dict(first(component_rf_web_coordinates(m,first(chain),axis_index))=>0.);distance=0.
         for i in 2:length(chain)
             distance+=norm3(skin_xyz(m,chain[i]).-skin_xyz(m,chain[i-1]))
-            values[m.node_keys[chain[i]][axis_index]]=distance/lengths[side]
+            values[first(component_rf_web_coordinates(m,chain[i],axis_index))]=distance/lengths[side]
         end
         fractions[side]=values
     end
-    Set(keys(fractions[lower]))==Set(keys(fractions[upper]))||throw(ArgumentError("Opposite web edges do not share the same through-height mesh stations"))
-    uv=Dict(index=>(fractions[lower][index]+fractions[upper][index])/2 for index in keys(fractions[lower]))
+    # An oblique physical kink can intersect the two skin edges at different
+    # fractions of the same span cell. Interpolate each supported boundary's
+    # arc coordinate rather than dropping unmatched vertices or using its
+    # negative GRID registry sentinel as a height.
+    curves=Dict(side=>(sort!(collect(keys(fractions[side]))),fractions[side]) for side in sides)
+    arc(side,station)=begin
+        keys,values=curves[side];table_interp(keys,[values[k] for k in keys],station)
+    end
     row["length_m"]=a;row["width_m"]=b;row["area_m2"]=total_area
     row["side_lengths_m"]=Dict("lower"=>lengths[lower],"upper"=>lengths[upper],"start"=>lengths[start],"end"=>lengths[stop])
     row["frame"]=Dict("origin_m"=>collect(origin./total_area),"x"=>collect(x),"y"=>collect(y),"normal"=>collect(n))
@@ -159,8 +187,9 @@ function component_rf_web_geometry!(row,m,items,chosen,owners,support,axis_index
         section=get!(sections,face.pid) do;euler_shell_section(shell_material_definition(m.params,face.pid));end
         effective=get!(laws,(face.pid,atan(s,c))) do;skin_effective_bending(section,atan(s,c));end
         vertices=[begin
-            key=m.node_keys[node];haskey(uv,key[axis_index])||throw(ArgumentError("A web node has no supported boundary coordinate"))
-            height=key[3]/m.grid.nh;[uv[key[axis_index]],upward ? height : 1-height]
+            station,height=component_rf_web_coordinates(m,node,axis_index)
+            u=(arc(lower,station)+arc(upper,station))/2
+            [u,upward ? height : 1-height]
         end for node in face.nodes]
         push!(row["elements"],Dict("eid"=>face.eid,"pid"=>face.pid,"area_m2"=>face.area,
             "thickness_m"=>section.thickness,"material_ids"=>section.material_ids,
@@ -232,7 +261,10 @@ function component_column_buckling_payload(m,data)
             a,b=m.node_keys[group.conn[2index-1]],m.node_keys[group.conn[2index]]
             identity=if base==PID_SPAR_CAP
                 bay=clamp(searchsortedlast(m.grid.ribs,min(a[2],b[2])),1,length(m.grid.ribs)-1)
-                (:cap,a[1],a[3],bay)
+                part=something(component_table_part(group.pid),"")
+                height=endswith(part,"lower_cap") ? 0 : endswith(part,"upper_cap") ? m.grid.nh :
+                    group.conn[2index-1] in data.skinnodes[0] ? 0 : m.grid.nh
+                (:cap,a[1],height,bay)
             else
                 rib=findfirst(==(a[2]),m.grid.ribs);rib===nothing&&continue
                 (:stiffener,a[1],rib,0)

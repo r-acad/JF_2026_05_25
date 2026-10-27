@@ -68,7 +68,9 @@ end
   vals,_,_,d=solve_pencil(T'*K*T,T'*M*T,8)
   @test isapprox(vals,[1.25,4/3,1.5,2.];rtol=1e-8)
   @test d["quadratic_mass_floor_active"]==false
-  @test d["mass_acceptance_metric"]=="legacy_unclassified_or_indefinite_pencil_policy"
+  @test d["mass_acceptance_metric"]=="relative_diagonal_mass_floor_certified_psd_mass"
+  @test d["mass_spectrum_classification"]["status"]=="positive_semidefinite"
+  @test d["scale_relative_mass_floor_active"]==true
  end
  # A requested frequency range does not alter the physical eligibility.
  for upper in (0.0,1.0)
@@ -77,5 +79,17 @@ end
   @test d["quadratic_mass_floor_active"]==true
  end
 end
+
+@testset "Unclassified mass retains the legacy acceptance policy" begin
+ n=6;eye=Matrix{Float64}(I,n,n)
+ withenv("JFEM_SOL103_MASS_RANK_MAX_DOF"=>"0","JFEM_SOL103_DENSE_MAX_DOF"=>"0") do
+  vals,_,_,d=solve_pencil(Diagonal([1.,2.,3.,4.,5.,6.]),eye,4)
+  @test isapprox(vals,[1.,2.,3.,4.];rtol=1e-8)
+  @test d["quadratic_mass_floor_active"]==false
+  @test d["scale_relative_mass_floor_active"]==false
+  @test d["mass_acceptance_metric"]=="legacy_unclassified_or_indefinite_pencil_policy"
+ end
+end
+
 
 end

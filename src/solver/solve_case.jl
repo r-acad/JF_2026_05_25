@@ -183,7 +183,7 @@ end
                                    snorm_normals, solver_diagnostics;
                                    active_load_id=nothing,
                                    active_load_scale::Float64=1.0,
-                                   spc_dofs=nothing, shell_static_fields_capture=nothing)
+                                   spc_dofs=nothing, shell_static_fields_capture=nothing, corotational_context=nothing)
     results_json = Dict(
         "displacements" => [],
         "spc_forces" => [],
@@ -222,6 +222,9 @@ end
 
         t_glob = node_R[idx] * u_loc[1:3]
         r_glob = node_R[idx] * u_loc[4:6]
+        if corotational_context!==nothing && get(model,"PARAM_LANGLE",1)==1
+            r_glob=_corotational_gimbal_rotation(r_glob)
+        end
 
         u_out[base+1:base+3] = t_glob
         u_out[base+4:base+6] = r_glob
@@ -237,7 +240,11 @@ end
         # Mask there before rotating; masking a basic vector would be wrong for CD != 0.
         r_support = spc_mask === nothing ? r_loc :
             SVector{6,Float64}(ntuple(c -> spc_mask[base+c] ? r_loc[c] : 0.0, 6))
-        r_reac_glob = vcat(node_R[idx] * r_support[1:3], node_R[idx] * r_support[4:6])
+        r_moment=r_support[4:6]
+        if corotational_context!==nothing
+            r_moment=transpose(CorotationalShell.rotation_left_jacobian(u_loc[4:6]))\r_moment
+        end
+        r_reac_glob = vcat(node_R[idx] * r_support[1:3], node_R[idx] * r_moment)
         if norm(r_reac_glob) > 1e-20
             push!(results_json["spc_forces"], Dict(
                 "grid_id" => nid,
@@ -247,6 +254,13 @@ end
         end
     end
 
+    if corotational_context!==nothing
+        results_json["nonlinear_rotation_coordinates"]=Dict("internal"=>"GRID_CD_ROTATION_VECTOR",
+            "reported"=>get(model,"PARAM_LANGLE",1)==1 ? "BASIC_GIMBAL_Z_Y_X" : "BASIC_ROTATION_VECTOR",
+            "grid_cd_rotations"=>[Dict("grid_id"=>nid,"angles"=>get(model,"PARAM_LANGLE",1)==1 ? _corotational_gimbal_rotation(
+                node_R[id_map[nid]]*u_global[6id_map[nid]-2:6id_map[nid]];frame=node_R[id_map[nid]]) :
+                collect(u_global[6id_map[nid]-2:6id_map[nid]])) for nid in sorted_nodes])
+    end
     spc_fx = isempty(results_json["spc_forces"]) ? 0.0 : sum(s["t1"] for s in results_json["spc_forces"])
     spc_fy = isempty(results_json["spc_forces"]) ? 0.0 : sum(s["t2"] for s in results_json["spc_forces"])
     spc_fz = isempty(results_json["spc_forces"]) ? 0.0 : sum(s["t3"] for s in results_json["spc_forces"])
@@ -263,7 +277,9 @@ end
         results_json["stress_recovery_skipped"] = true
     else
         recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_normals, stresses, results_json;
-                               static_fields_capture=shell_static_fields_capture)
+                               static_fields_capture=shell_static_fields_capture,
+                               element_displacements=corotational_context===nothing ? nothing :
+                                   _corotational_element_distortions(corotational_context,u_global))
         recover_bar_stresses!(
             model, id_map, X, node_R, u_global, stresses, results_json;
             active_load_id=active_load_id,
@@ -454,6 +470,48 @@ function _automatic_shell_energy_support(model, id_map, X, snorm_normals)
         get(mat, "TYPE", "MAT1") == "MAT1" || return (; supported=false, reason="anisotropic_shell")
     end
     return (; supported=true, reason="planar_isotropic_shell_energy")
+end
+
+# Preserve the finite-strain membrane AUTO contract when the explicit
+# constraints restrict every shell node to in-plane translations. This is a
+# kinematic subspace test, independent of stiffness, AUTOSPC and load size.
+# The caller also requires the existing planar isotropic energy scope.
+function _explicit_shell_membrane_subspace(model, id_map, X, node_R, spc_id, rbe3_map)
+    isempty(rbe3_map) || return false
+    shells=get(model,"CSHELLs",Dict())
+    isempty(shells) && return false
+    fixed=Set{Int}()
+    _apply_permanent_grid_constraints!(fixed,model,id_map)
+    sets=selected_spc_sets(model,spc_id)
+    for spc in get(model,"SPC1s",[])
+        Int(spc["SID"]) in sets || continue
+        comps=_constraint_grid_components(spc["C"],"SPC/SPC1 $(spc["SID"])")
+        for nid in spc["NODES"]
+            idx=_constraint_grid_index(id_map,nid,"SPC/SPC1 $(spc["SID"])")
+            idx>0 || continue
+            for c in comps
+                push!(fixed,6(idx-1)+c)
+            end
+        end
+    end
+    for el in values(shells)
+        ids=[id_map[nid] for nid in el["NODES"]]
+        p1=X[ids[1],:];p2=X[ids[2],:];p3=X[ids[3],:]
+        normal=cross(p2-p1,p3-p1)
+        scale=norm(normal)
+        isfinite(scale) && scale>0 || return false
+        normal/=scale
+        for idx in ids
+            all(c->6(idx-1)+c in fixed,4:6) || return false
+            for c in 1:3
+                6(idx-1)+c in fixed && continue
+                # CD basis vectors are unit vectors. Only geometric roundoff
+                # is admitted; a genuinely free normal component stays out.
+                abs(dot(normal,view(node_R[idx],:,c)))<=64eps(Float64) || return false
+            end
+        end
+    end
+    return true
 end
 
 function _automatic_linear_line_support(model)
@@ -859,11 +917,13 @@ end
 end
 
 @inline function _line_search_merit(state)
+    hasproperty(state,:line_search_merit) && return Float64(state.line_search_merit)
     residual_norm = Float64(state.residual_norm)
     return 0.5 * residual_norm * residual_norm
 end
 
 @inline function _line_search_merit_directional_derivative(state)
+    hasproperty(state,:line_search_merit_directional_derivative) && return Float64(state.line_search_merit_directional_derivative)
     residual_norm = Float64(state.residual_norm)
     return -(residual_norm * residual_norm)
 end
@@ -950,7 +1010,7 @@ Base.showerror(io::IO, error::_NonlinearNumericalFailure) = print(io, error.mess
 # Only numerical breakdowns are eligible for a load retry. Bounds errors,
 # missing model data and arbitrary callback exceptions must remain visible.
 _nonlinear_numerical_failure(error) = error isa Union{
-    _NonlinearNumericalFailure, LinearAlgebra.SingularException,
+    _NonlinearNumericalFailure, CorotationalShell.TrialDomainError, LinearAlgebra.SingularException,
     LinearAlgebra.PosDefException, LinearAlgebra.ZeroPivotException,
     LinearAlgebra.LAPACKException}
 
@@ -1214,13 +1274,20 @@ end
     formal_support = _formal_von_karman_shell_support_report(model, id_map, X)
     formal_supported = formal_support.supported
     nonlinear_method === :formal_shell_von_karman && (nonlinear_method = :formal_shell_green_lagrange)
-    nonlinear_method in (:auto, :legacy_geometric, :formal_shell_green_lagrange, :linear_elastic) ||
+    nonlinear_method in (:auto, :legacy_geometric, :formal_shell_green_lagrange, :linear_elastic, :corotational_shell) ||
         throw(ArgumentError("Unsupported nonlinear method $nonlinear_method"))
     requested_nonlinear_method = nonlinear_method
     automatic_support = _automatic_shell_energy_support(model, id_map, X, snorm_normals)
+    corotational_support = _corotational_shell_support_report(model,snorm_normals,rbe3_map;load_id=load_id)
+    automatic_membrane_energy = automatic_support.supported &&
+        _explicit_shell_membrane_subspace(model,id_map,X,node_R,spc_id,rbe3_map)
     nonlinear_selection_reason = "explicit_legacy_or_existing_experimental_fallback"
     nonlinear_method =
-        if nonlinear_method === :formal_shell_green_lagrange
+        if nonlinear_method === :corotational_shell
+            corotational_support.supported || throw(ArgumentError("Corotational SOL106 is unsupported: "*corotational_support.reason))
+            nonlinear_selection_reason=corotational_support.reason
+            :corotational_shell
+        elseif nonlinear_method === :formal_shell_green_lagrange
             formal_supported || error("[SOLVER] PARAM_NLMETHOD=formal_shell_green_lagrange requested, but the model is outside the currently supported flat-shell subset")
             nonlinear_selection_reason = "explicit_formal_shell_energy"
             :formal_shell_green_lagrange
@@ -1232,6 +1299,12 @@ end
             if get(model, "PARAM_LGDISP", -1) != 1
                 nonlinear_selection_reason = "geometric_nonlinearity_disabled_by_LGDISP"
                 :linear_elastic
+            elseif automatic_membrane_energy
+                nonlinear_selection_reason="explicitly_constrained_planar_membrane_energy"
+                :formal_shell_green_lagrange
+            elseif corotational_support.supported
+                nonlinear_selection_reason=corotational_support.reason
+                :corotational_shell
             elseif automatic_support.supported
                 nonlinear_selection_reason = automatic_support.reason
                 :formal_shell_green_lagrange
@@ -1244,6 +1317,14 @@ end
         else
             :legacy_geometric
         end
+    if requested_nonlinear_method===:auto && get(model,"PARAM_LGDISP",-1)==1 &&
+       corotational_support.has_quad && !corotational_support.supported
+        log_msg("[SOLVER] Corotational shell work is outside the verified scope ("*corotational_support.reason*
+            "); preserving the existing AUTO route "*String(nonlinear_method))
+    end
+    corotational_context=nonlinear_method===:corotational_shell ?
+        _corotational_shell_context(K_linear,ndof,model,id_map,X,node_R,spc_id,rbe3_map;residual_tol=residual_tol) : nothing
+    get(model,"PARAM_LANGLE",1) in (1,2) || corotational_context===nothing || throw(ArgumentError("SOL106 corotational rotation reporting supports LANGLE 1 or 2"))
     line_search_max_backtracks = max(line_search_max_backtracks, 0)
     line_search_reduction = clamp(line_search_reduction, 0.1, 0.9)
     max_cutbacks = max(max_cutbacks, 0)
@@ -1278,6 +1359,8 @@ end
             u_state, snorm_normals, rbe3_map;
             residual_model=residual_model,
         ) :
+        nonlinear_method === :corotational_shell ?
+        (u_state,F_step)->_evaluate_nonlinear_state_corotational(corotational_context,K_linear,F_step,u_state) :
         nonlinear_method === :formal_shell_green_lagrange ?
         (u_state, F_step) -> _evaluate_nonlinear_state_formal(
             K_linear, F_step, ndof, model, id_map, X, spc_id, node_R, u_state, snorm_normals, rbe3_map
@@ -1294,7 +1377,15 @@ end
     # Follower forces are nonconservative. Update their residual and exact load
     # Jacobian at every state evaluation and disable potential-based acceptance.
     follower_scale = 0.0
-    evaluate_state = followers === nothing ? evaluate_structural_state :
+    evaluate_state = corotational_context!==nothing ?
+        (u_state,F_step)->begin
+            change,pressure_tangent=followers===nothing ? (zeros(ndof),spzeros(ndof,ndof)) :
+                _follower_load_update(followers,u_state,follower_scale)
+            physical=F_step+change
+            applied,moment_tangent,work_map=_corotational_applied_force_tangent(physical,u_state)
+            state=evaluate_structural_state(u_state,applied)
+            merge(state,(K_eff=state.K_eff-sparse(moment_tangent)-work_map*pressure_tangent,applied_force=applied))
+        end : followers === nothing ? evaluate_structural_state :
         (u_state,F_step) -> begin
             change,load_tangent=_follower_load_update(followers,u_state,follower_scale)
             applied=F_step+change
@@ -1361,7 +1452,7 @@ end
                         free_dofs=current_state.free_dofs,
                         fixed_dofs=current_state.fixed_dofs,
                         bc_diagnostics=current_state.bc_diagnostics,
-                        unsymmetric=followers!==nothing,
+                        unsymmetric=followers!==nothing || corotational_context!==nothing,
                     )
                 catch error
                     _nonlinear_numerical_failure(error) || rethrow()
@@ -1428,7 +1519,8 @@ end
                         all(isfinite, candidate_state.residual_vector) &&
                         all(isfinite, nonzeros(candidate_state.K_eff)) &&
                         all(isfinite, nonzeros(candidate_state.Kg))
-                    armijo_satisfied = false
+                    armijo_satisfied = corotational_context!==nothing &&
+                        candidate_merit<=current_line_search_merit+formal_armijo_c1*alpha*line_search_merit_directional_derivative
                     if nonlinear_method === :formal_shell_green_lagrange &&
                        !(isnothing(current_potential) || isnothing(candidate_potential)) &&
                        directional_derivative < 0.0
@@ -1448,7 +1540,9 @@ end
                             "rejected"
                         elseif candidate_state.relative_residual <= residual_tol
                             "residual_tolerance"
-                        elseif residual_reduced
+                        elseif corotational_context!==nothing && armijo_satisfied
+                            "armijo"
+                        elseif residual_reduced && corotational_context===nothing
                             "residual_reduction"
                         elseif armijo_satisfied
                             "armijo"
@@ -1756,6 +1850,7 @@ end
                 # Dependent MPC/RBE3 residuals are constraint forces, not SPC
                 # reactions. Mask in the analysis frame before rotating.
                 spc_dofs=Set(d for d in final_state.fixed_dofs if !haskey(rbe3_map,d)),
+                corotational_context=corotational_context,
             )
             recovery_relative_change = 0.0
             final_rel_residual = final_state.relative_residual
@@ -2262,7 +2357,8 @@ end
     converged = !terminated_early && !isempty(load_history) && current_load_scale >= 1.0 - 1e-12 &&
         all(get(step, "converged", false) for step in load_history)
     sub_res["nonlinear_diagnostics"] = Dict(
-        "scheme" => nonlinear_method === :formal_shell_green_lagrange ?
+        "scheme" => nonlinear_method === :corotational_shell ? "corotational_engineering_spin_compliance_line_search" :
+            nonlinear_method === :formal_shell_green_lagrange ?
             "formal_shell_green_lagrange_line_search" :
             nonlinear_method === :linear_elastic ? "incremental_linear_elastic" :
             "experimental_geometric_residual_line_search",
@@ -2270,6 +2366,13 @@ end
         "requested_nonlinear_method" => String(requested_nonlinear_method),
         "nonlinear_selection_reason" => nonlinear_selection_reason,
         "automatic_shell_energy_supported" => automatic_support.supported,
+        "automatic_membrane_energy_preserved" => automatic_membrane_energy &&
+            requested_nonlinear_method===:auto && nonlinear_method===:formal_shell_green_lagrange,
+        "corotational_shell_supported"=>corotational_support.supported,
+        "corotational_shell_scope"=>corotational_support.reason,
+        "corotational_force_precision_refinements"=>corotational_context===nothing ? 0 : corotational_context.precision_refinements[],
+        "corotational_force_refinement_bits"=>corotational_context===nothing ? nothing : 128,
+        "corotational_roundoff_force_trigger"=>corotational_context===nothing ? nothing : corotational_context.roundoff_force_bound,
         "automatic_shell_energy_scope" => automatic_support.reason,
         "load_steps" => load_history,
         "requested_load_step_count" => load_steps,
@@ -2284,9 +2387,9 @@ end
         "convergence_policy" => convergence_criteria == "LEGACY" ? "P AND (U OR W)" : "all selected criteria",
         "intermediate_output_requested" => intermediate_output,
         "intermediate_output_count" => length(intermediate_results),
-        "residual_model" => nonlinear_method === :formal_shell_green_lagrange ? "formal_internal_force" :
+        "residual_model" => nonlinear_method === :corotational_shell ? "corotational_engineering_spin" : nonlinear_method === :formal_shell_green_lagrange ? "formal_internal_force" :
             nonlinear_method === :linear_elastic ? "linear_internal_force" : String(residual_model),
-        "correction_tangent_model" => nonlinear_method === :formal_shell_green_lagrange ? "formal_consistent_tangent" :
+        "correction_tangent_model" => nonlinear_method === :corotational_shell ? "consistent_unsymmetric_force_jacobian" : nonlinear_method === :formal_shell_green_lagrange ? "formal_consistent_tangent" :
             nonlinear_method === :linear_elastic ? "linear_elastic" : "linear_plus_geometric",
         "relaxation" => relaxation,
         "line_search_max_backtracks" => line_search_max_backtracks,
@@ -2577,25 +2680,31 @@ function _buckling_dense_max_dof()
     return max(solver_env_int("JFEM_SOL105_DENSE_MAX_DOF", 200), 0)
 end
 
-# Sturm / inertia count for the buckling pencil (K + lambda*Kg) phi = 0 with K SPD.
-# Returns the negative inertia of M(sigma) = K + sigma*Kg, i.e. the number of
-# NEGATIVE eigenvalues of M(sigma).
+# Negative inertia of the symmetric pencil M(sigma) = K + sigma*Kg.
+# This primitive returns a matrix sign count, not an interval certificate.
+# It also serves modal pencils with Kg=-M; K need not be positive definite
+# merely to evaluate inertia. The caller must establish the appropriate domain.
 #
-# IMPORTANT — use as a DIFFERENCE, not an absolute count. When Kg is indefinite
-# (load-reversal modes give negative lambda), the absolute negative-inertia has a
-# constant offset, but the DIFFERENCE
-#       _buckling_sturm_count(K, Kg, b) - _buckling_sturm_count(K, Kg, a)
-# is EXACTLY the number of buckling eigenvalues lambda in the half-open interval
-# (a, b]. This was verified numerically against a known indefinite spectrum. So
-# range counts use sturm(v2)-sturm(v1), and the positive-mode count uses
-# sturm(b)-sturm(0+). Never compare a single sturm(sigma) to a mode count.
+# For buckling with SPD K, write mu_i = eig(K^(-1/2)*(-Kg)*K^(-1/2))
+# and finite lambda_i=1/mu_i. Then n(sigma)=#{i: 1-sigma*mu_i < 0}.
+# At nonsingular endpoints a<b:
+#   0 <= a < b: n(b)-n(a) counts the positive roots in (a,b);
+#   a < b <= 0: n(a)-n(b) counts the negative roots in (a,b);
+#   a < 0 < b: n(a)+n(b) counts the roots in (a,b), since n(0)=0.
+# A signed interval crossing zero therefore cannot use one endpoint difference.
+# Singular endpoints require an explicit boundary/roundoff policy before a
+# closed or half-open interval count can be certified. This primitive does not
+# provide that policy, nor does an inertia result alone certify SPD K.
 #
-# Returns the count, or `nothing` if the inertia could not be computed (so callers
-# treat it as "unknown" and fall back to the non-Sturm behaviour). Pure-Julia:
-# uses a dense symmetric eigenvalue sign count for small systems (exact), and a
-# sparse CHOLMOD LDLᵀ pivot-sign inertia for larger ones (Sylvester's law of
-# inertia: the count of negative pivots equals the number of negative
-# eigenvalues, invariant under the fill-reducing permutation CHOLMOD applies).
+# For modal pencils K-sigma*M with PSD M, inertia is nondecreasing for all
+# sigma even if K is indefinite: subtract the lower-end inertia, including its
+# massless/negative-root offset. Do not transfer that monotonicity to indefinite
+# buckling Kg or to an unclassified indefinite modal mass matrix.
+#
+# Returns an integer, or `nothing` when factorization fails. The small-system
+# path uses numerical symmetric eigenvalue signs, and the sparse path uses
+# CHOLMOD LDL' pivot signs. Near-singular numerical signs require a separate
+# stability check before either result supports a completeness certificate.
 #
 # NOTE on the CHOLMOD accessor: the inertia is `count(<(0), diag(F))` on the
 # Factor itself. `diag(F.D)` does NOT work — `F.D` is a CHOLMOD `FactorComponent`
@@ -4274,6 +4383,8 @@ end
         # post-augmentation). Returns nothing when no certificate can be
         # formed (no positive roots, inertia unavailable).
         function current_range_sturm_gap()
+            # Positive-branch monotonicity is certified only for SPD elastic K.
+            eigen_ctx.factor_backend == "cholesky" || return nothing
             a_bound = max(eigrl_v1, positive_tol)
             pos_vals = sort!([eigenvalues[i] for i in valid_idx if eigenvalues[i] > positive_tol])
             isempty(pos_vals) && return nothing
@@ -4308,7 +4419,8 @@ end
                 sturm_at(a_bound)
             end
             (sc_a === nothing || sc_b === nothing) && return nothing
-            expected = max(sc_b - sc_a, 0)
+            sc_b >= sc_a || return nothing
+            expected = sc_b - sc_a
             found = count(i -> begin
                     v = eigenvalues[i]
                     v > positive_tol && v >= a_bound - eps(Float64) && v <= b_bound + eps(Float64)
@@ -4655,21 +4767,13 @@ end
 
     # --- Sturm inertia diagnostic (iterative paths only) -------------------
     #
-    # Reports the inertia (Sturm) count of the (K, -Kg) pencil over the band the
-    # iterative solve recovered. The EXACT number of pencil eigenvalues in a
-    # half-open interval (a, b] is the difference
-    #     _buckling_sturm_count(K, Kg, b) - _buckling_sturm_count(K, Kg, a).
-    # (See the helper's docstring — never compare a single absolute count.)
-    #
-    # This is INFORMATIONAL, not a pass/fail completeness verdict. The Sturm
-    # difference counts every pencil eigenvalue in the band, including spurious
-    # low-energy modes (drilling, localized mechanisms, near-singular DOFs) that
-    # JFEM's localization & cluster filters deliberately drop, so the count is
-    # PRE-filter while the reported spectrum is POST-filter — `pencil > reported`
-    # is normal and does not indicate a missed physical mode. An earlier version
-    # emitted a complete/incomplete verdict from this difference and consequently
-    # cried "incomplete" on every realistic model; the verdict was removed.
-    # The count is recorded for diagnostics / offline analysis.
+    # Reports a positive-branch count only when elastic K is SPD. At stable,
+    # nonsingular nonnegative endpoints it is n(b)-n(a); negative branches
+    # require the reversed difference, and crossing zero requires both counts.
+    # This optional diagnostic is not a numerical endpoint certificate and does
+    # not replace original-pencil residual and independent-mode checks. Current
+    # extraction retains valid roots; there is no localization/cluster deletion
+    # that can justify ignoring an unexplained count discrepancy.
     completeness_enabled = solver_env_bool("JFEM_SOL105_STURM_COMPLETENESS", false)
     # The Sturm count needs an indefinite inertia factorization of M(sigma) at two
     # shifts. For n <= 600 that is a dense eigvals; above that it is a sparse
@@ -4688,7 +4792,15 @@ end
         )
         log_msg("[BUCKLING][STURM] completeness check skipped: $n_free DOF exceeds JFEM_SOL105_STURM_MAX_DOF=$sturm_max_dof (sparse inertia factorization too costly). Set JFEM_SOL105_STURM_MAX_DOF=0 to force it.")
     end
-    if completeness_enabled && !will_use_dense && !sturm_too_large && !isempty(valid_idx)
+    if completeness_enabled && !will_use_dense && !sturm_too_large && !isempty(valid_idx) &&
+       eigen_ctx.factor_backend != "cholesky"
+        diagnostics["sturm_completeness"] = Dict{String,Any}(
+            "status" => "not_certified",
+            "reason" => "elastic_pencil_not_positive_definite",
+        )
+    end
+    if completeness_enabled && !will_use_dense && !sturm_too_large && !isempty(valid_idx) &&
+       eigen_ctx.factor_backend == "cholesky"
         t_sturm = time_ns()
         pos_tol_c = positive_tol
         # Interval to certify: "did the iterative solve skip any eigenvalue BELOW
@@ -4712,23 +4824,11 @@ end
             sturm_info_reuse = Base.RefValue{Any}(nothing)
             sc_b = _buckling_sturm_count(K_ff, Kg_ff, b_bound; reuse=sturm_info_reuse)
             sc_a = _buckling_sturm_count(K_ff, Kg_ff, a_bound; reuse=sturm_info_reuse)
-            if sc_a !== nothing && sc_b !== nothing
+            if sc_a !== nothing && sc_b !== nothing && sc_b >= sc_a
                 expected = sc_b - sc_a
                 gap = expected - found_in_band
-                # IMPORTANT — this is an INFORMATIONAL inertia count, not a
-                # pass/fail verdict. The Sturm difference counts EVERY eigenvalue
-                # of the (K, -Kg) pencil in (a, b], including spurious low-energy
-                # modes (drilling / localized mechanisms / near-singular DOFs the
-                # eigen partition leaves in) that JFEM's localization & cluster
-                # filters intentionally DROP from the reported spectrum. So
-                # `expected` is a PRE-filter count while `found_in_band` is
-                # POST-filter; `expected > found` is the normal, correct case and
-                # does NOT mean the iterative solve missed a physical mode. There
-                # is no reliable way at this layer to separate "Krylov skipped a
-                # mode" from "a filter removed a spurious mode", so we record the
-                # counts for diagnostics and do not emit a complete/incomplete
-                # verdict. (The earlier verdict cried "incomplete" on every real
-                # model for exactly this reason.)
+                # Keep the count informational until endpoint stability and
+                # the rank of the recovered eigenspace are also certified.
                 diagnostics["sturm_completeness"] = Dict{String,Any}(
                     "status" => "informational",
                     "interval" => [a_bound, b_bound],
@@ -4743,7 +4843,7 @@ end
             else
                 diagnostics["sturm_completeness"] = Dict{String,Any}(
                     "status" => "unavailable",
-                    "reason" => "inertia_count_failed",
+                    "reason" => "inertia_count_failed_or_nonmonotone",
                 )
                 log_msg("[BUCKLING][STURM] inertia count unavailable; proceeding.")
             end
@@ -5026,6 +5126,8 @@ assemble_modal_mass(model,id_map,node_coords,node_R,ndof;kwargs...) =
         nids = el["NODES"]; n = length(nids)
         mat = _effective_mat1_for_nodes(model, mid, nids)
         corner_data=shell_corner_thickness_model_data(model,prop,el)
+        corner_data!==nothing && !corner_data.uniform && length(corner_data.thickness)==3 &&
+            throw(ArgumentError("CTRIA3 $(get(el,"ID","?")) nonuniform corner-thickness mass is not implemented"))
         h=corner_data===nothing ? Float64(prop["T"]) :
             corner_data.uniform ? first(corner_data.thickness) : corner_data.reference_thickness
         rho = Float64(get(mat, "RHO", 0.0))
@@ -5385,16 +5487,16 @@ assemble_modal_mass(model,id_map,node_coords,node_R,ndof;kwargs...) =
         Iz = Float64(get(prop, "I1", get(prop, "Iz", 0.0)))
         J = Float64(get(prop, "J", 0.0))
 
-        # Effective density including NSM
-        rho_beam = A_beam > 1e-30 ? rho + nsm_beam / A_beam : rho
-        Me_loc = cbar_coupled_mass ?
-            FEM.consistent_mass_frame3d(L, rho, A_beam, Iy, Iz) +
-                nsm_beam .* FEM.consistent_mass_frame3d(L, 1.0, 1.0, 0., 0.) :
-            FEM.reference_lumped_mass_frame3d(L, rho_beam, A_beam, J, Iy, Iz;
+        # Interpolation choice is independent of the structural centroid and
+        # the nonstructural mass line. NSM has no intrinsic section inertia.
+        axis_mass(density,area,iy,iz) = cbar_coupled_mass ?
+            FEM.consistent_mass_frame3d(L,density,area,iy,iz) :
+            FEM.reference_lumped_mass_frame3d(L,density,area,0.,iy,iz;
                                              torsion_inertia=true)
-        centroid_mass_axis_active = cbar_coupled_mass &&
-            _pbeam_neutral_axis_transform(prop)!==nothing
-        independent_nsm_axis = cbar_coupled_mass && !iszero(nsm_beam) &&
+        Me_loc = axis_mass(rho,A_beam,Iy,Iz) +
+            nsm_beam .* axis_mass(1.,1.,0.,0.)
+        centroid_mass_axis_active = _pbeam_neutral_axis_transform(prop)!==nothing
+        independent_nsm_axis = !iszero(nsm_beam) &&
             any(k->!iszero(get(prop,k,0.)),("M1A","M2A","M1B","M2B"))
         if centroid_mass_axis_active || independent_nsm_axis
             # Structural inertia follows the centroid, while an independent
@@ -5412,11 +5514,11 @@ assemble_modal_mass(model,id_map,node_coords,node_R,ndof;kwargs...) =
             n1b=centroid_mass_axis_active ? get(prop,"N1B",n1) : 0.
             n2b=centroid_mass_axis_active ? get(prop,"N2B",n2) : 0.
             C=mass_axis_map(n1,n2,n1b,n2b)
-            Me_loc=C'*FEM.consistent_mass_frame3d(L,rho,A_beam,Iy,Iz)*C
+            Me_loc=C'*axis_mass(rho,A_beam,Iy,Iz)*C
             if !iszero(nsm_beam)
                 m1=get(prop,"M1A",0.);m2=get(prop,"M2A",0.)
                 Cm=mass_axis_map(m1,m2,get(prop,"M1B",m1),get(prop,"M2B",m2))
-                Me_loc+=nsm_beam .* (Cm'*FEM.consistent_mass_frame3d(L,1.0,1.0,0.,0.)*Cm)
+                Me_loc+=nsm_beam .* (Cm'*axis_mass(1.,1.,0.,0.)*Cm)
             end
         end
 
@@ -5724,10 +5826,10 @@ function _sol103_shifted_factorization(K_ff, M_ff, mass_tol, stiff_tol, eigrl_v2
         lambda_reference = 1.0
     end
 
-    max_kdiag = maximum(kdiag; init=1.0)
+    max_kdiag = maximum(kdiag; init=0.0)
     max_mdiag = maximum(mdiag; init=0.0)
     max_mdiag > 0.0 || error("SOL103 positive mass shift unavailable: mass diagonal is zero")
-    numerical_floor = 256.0 * eps(Float64) * max(max_kdiag, 1.0) / max_mdiag
+    numerical_floor = 256.0 * eps(Float64) * (max_kdiag / max_mdiag)
     alpha0 = max(1.0e-3 * lambda_reference, numerical_floor, eps(Float64))
     attempts = Any[]
 
@@ -5909,10 +6011,10 @@ end
     # without requiring M to be positive definite.
     mass_diag = abs.(diag(M_ff))
     mass_scale = isempty(mass_diag) ? 0.0 : maximum(mass_diag)
-    mass_tol = max(mass_scale * 1.0e-12, 1.0e-30)
+    mass_tol = mass_scale * 1.0e-12
     stiff_diag = abs.(diag(K_ff))
     stiff_scale = isempty(stiff_diag) ? 0.0 : maximum(stiff_diag)
-    stiff_tol = max(stiff_scale * 1.0e-12, 1.0e-20)
+    stiff_tol = stiff_scale * 1.0e-12
     massless_idx = findall(<=(mass_tol), mass_diag)
     # 2026-08-05: drop ONLY massless coordinates that are also stiffness-free
     # (true mechanisms). The former unconditional `component == 6` clause was
@@ -6225,16 +6327,19 @@ end
             k_scale = maximum(stiff_diag; init=1.0)
             m_scale = maximum(mass_diag; init=1.0)
 
-            # For bounded PSD mass, a positive shifted Cholesky factor and
-            # zero negative inertia certify a regular finite modal pencil.
-            # Only that physical class uses the unit-consistent quadratic-form
-            # mass bound. Higher-index/indefinite or unclassified pencils retain
-            # their existing acceptance policy; no residual gate is changed.
+            # A positive shifted Cholesky factor and zero negative inertia
+            # certify the regular PSD pencil eligible for a quadratic-form
+            # evaluation bound. Higher-index/indefinite pencils need the
+            # directional mass floor to exclude approximate infinite modes.
             certified_psd_mass_floor = bounded_mass_rank!==nothing &&
                 factor_backend=="positive_mass_shift_cholesky" && sturm_origin===0
+            scale_relative_mass_floor = bounded_mass_rank!==nothing && !certified_psd_mass_floor
+            psd_mass_scale = maximum(mass_diag; init=0.0)
             diagnostics["quadratic_mass_floor_active"] = certified_psd_mass_floor
+            diagnostics["scale_relative_mass_floor_active"] = scale_relative_mass_floor
             diagnostics["mass_acceptance_metric"] = certified_psd_mass_floor ?
                 "quadratic_form_roundoff_gamma_2n_plus_2_certified_psd_pencil" :
+                scale_relative_mass_floor ? "relative_diagonal_mass_floor_certified_psd_mass" :
                 "legacy_unclassified_or_indefinite_pencil_policy"
             accepted_lambdas = Float64[]
             accepted_vecs = Vector{Float64}[]
@@ -6252,11 +6357,15 @@ end
                 v = Float64.(real.(vector_seed))
                 mv = Vector{Float64}(M_ff * v)
                 mass_norm = dot(v, mv)
-                mass_floor = certified_psd_mass_floor ?
-                    _sol103_mass_quadratic_roundoff(M_ff,v) : max(
-                        256.0 * eps(Float64) * m_scale * dot(v, v),
-                        1.0e-30,
-                    )
+                mass_floor = if certified_psd_mass_floor
+                    _sol103_mass_quadratic_roundoff(M_ff,v)
+                elseif scale_relative_mass_floor
+                    # Preserve directional exclusion but make it homogeneous
+                    # under common scaling of a certified PSD mass matrix.
+                    256.0 * eps(Float64) * psd_mass_scale * dot(v, v)
+                else
+                    max(256.0 * eps(Float64) * m_scale * dot(v, v), 1.0e-30)
+                end
                 if !(isfinite(mass_norm) && mass_norm > mass_floor)
                     rejected_massless[] += 1
                     return false

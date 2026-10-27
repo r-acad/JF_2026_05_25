@@ -22,4 +22,14 @@ check('Real Babylon ray picking excludes filtered imported bars and restores cur
  }finally{engine.dispose();}
 });
 check('Unchanged frames do not rewrite GPU indices',()=>{const a=mesh([0,1,2,3,4,5],[10,20]),write=a.setIndices;let count=0;a.setIndices=function(value){count++;write.call(this,value);};const controller=V.create({state:state([a])}),allowed=new Set([20]);controller.sync(allowed);for(let i=0;i<100;i++)controller.sync(allowed);assert.equal(count,1);controller.restore();assert.equal(count,2);});
+check('Unassessed movable shells are wireframe only during RF views, with WebGPU-compatible depth bias',()=>{
+ const a=mesh([0,1,2],[10]),b=mesh([0,1,2],[20]),ordinary=mesh([0,1,2],[30]);
+ for(const m of[a,b,ordinary])m.material={wireframe:false,zOffset:-1,zOffsetUnits:2};
+ a.metadata.feGroup={properties:{movable_surface:'Flap'}};b.metadata.feGroup={name:'MOVABLE_SLAT'};ordinary.metadata.feGroup={name:'UPPER_SKIN'};
+ const s=state([a,b,ordinary]),controller=V.createMovableStyle({state:s});controller.sync({byId:new Map([[20,2]])});
+ assert.equal(a.material.wireframe,true);assert.equal(a.material.zOffset,0);assert.equal(a.material.zOffsetUnits,0);assert.equal(b.material.wireframe,false);assert.equal(ordinary.material.wireframe,false);
+ controller.sync({byId:new Map([[10,.8],[20,2]])});assert.equal(a.material.wireframe,false);
+ controller.sync({byId:new Map(),stale:true});assert.equal(a.material.wireframe,true);assert.equal(b.material.wireframe,true);
+ controller.restore();assert.deepEqual(a.material,{wireframe:false,zOffset:-1,zOffsetUnits:2});assert.equal(b.material.wireframe,false);
+});
 console.log(passed+' RF visibility tests passed.');

@@ -26,7 +26,7 @@ const near=(a,b,tol=1e-7)=>assert(Number.isFinite(a)&&Math.abs(a-b)<=tol*Math.ma
   return route.fulfill({path:p==='/shared/jfem_graphics.js'?path.join(apps,'jfem_graphics.js'):path.join(web,p==='/'?'index.html':p)});
  });
  async function settled(){await page.waitForFunction(()=>document.getElementById('stress-report-field-status').textContent!=='Preparing the 3D field\u2026');}
- async function show(kind){await page.evaluate(()=>activateWorkspaceTab('stressreport'));await page.locator('#stress-report-field-kind').selectOption(kind);await settled();await page.locator('#stress-report-show-field').click();await settled();}
+ async function show(kind){await page.evaluate(()=>activateWorkspaceTab('stressreport'));if(kind.startsWith('rf:')||kind==='minimum_rf')await page.locator('#stress-report-failure-mode').selectOption(kind.startsWith('rf:')?kind.slice(3):kind);await page.locator('#stress-report-field-kind').selectOption(kind);await settled();await page.locator('#stress-report-show-field').click();await settled();}
  async function snapshot(){return page.evaluate(()=>{
   const f=rawContourValues();if(!f||f.kind!=='reserve_factor_field')return{kind:f?.kind||null};
   const misses=[],counts={shells:0,lines:0,sections:0},seen={shells:new Set(),lines:new Set(),sections:new Set()};

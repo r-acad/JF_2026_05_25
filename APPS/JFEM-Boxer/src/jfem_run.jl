@@ -1292,7 +1292,7 @@ function complete_stringer_stresses!(m::Model, records::AbstractDict)
                 end
             end
             record["section_recovery_points_yz_m"] = points
-            record["stress_units"] = (is_imported_model(m) ? "Source stress units" : "Pa") * "; end_a/end_b are bending stresses at T polygon vertices p1-p8; add axial for total normal stress"
+            record["stress_units"] = (is_imported_model(m) ? "Source stress units" : "Pa") * "; end_a/end_b are bending stresses at section polygon vertices; add axial for total normal stress"
             # Preserve a native recovery decision, including an unavailable
             # distributed-load/taper scope. Older generated results can be
             # reprocessed from complete force rows: generated loading is

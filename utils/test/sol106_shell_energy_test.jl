@@ -199,9 +199,9 @@ end
         solved=OpenJFEM.solve_model(deepcopy(model))
         diag=only(solved["subcases"])["nonlinear_diagnostics"]
         @test diag["converged"]
-        @test diag["nonlinear_method"]=="formal_shell_green_lagrange"
+        @test diag["nonlinear_method"]=="corotational_shell"
         @test diag["requested_nonlinear_method"]=="auto"
-        @test diag["correction_tangent_model"]=="formal_consistent_tangent"
+        @test diag["correction_tangent_model"]=="consistent_unsymmetric_force_jacobian"
         @test diag["requested_load_step_count"]==2
         legacy=deepcopy(model);legacy["PARAM_NLMETHOD"]="legacy_geometric"
         old=only(OpenJFEM.solve_model(legacy)["subcases"])["nonlinear_diagnostics"]

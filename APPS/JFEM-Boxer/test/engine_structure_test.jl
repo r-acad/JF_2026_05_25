@@ -106,9 +106,9 @@ tests=@testset "Elastic engine beam, attachment geometry and native constraints"
     @test front["ref"]==r["cg_node"]
     @test aft["ref"]==last(r["beam_nodes"])
     frontj=m.grid.ribs[2];aftj=m.grid.ribs[3]
-    @test Set(m.node_keys[n] for n in front["nodes"])==Set((0,j,m.grid.nh) for j in (frontj-2,frontj-1,frontj+1,frontj+2))
-    aftcaps=Set((0,j,0) for j in (aftj-2,aftj-1,aftj+1,aftj+2))
-    @test length(aft["nodes"])==5
+    @test Set(m.node_keys[n] for n in front["nodes"])==Set((0,j,m.grid.nh) for j in m.grid.ribs[[1,3]])
+    aftcaps=Set((0,j,0) for j in m.grid.ribs[[2,4]])
+    @test length(aft["nodes"])==3
     @test issubset(aftcaps,Set(m.node_keys[n] for n in aft["nodes"]))
     ribnode=only(filter(n->m.node_keys[n][2]==aftj,aft["nodes"]))
     @test m.node_keys[ribnode][3]==0
@@ -202,19 +202,30 @@ tests=@testset "Elastic engine beam, attachment geometry and native constraints"
         _,scaled_parsed=engine_deck(scaled_model,"engine_units_"*string(scale))
         engine_rigid_checks(scaled_model,scaled_parsed;units_sweep=true)
     end
-    # Two real nodes must exist on each side; do not silently broaden or shift
+    # One physical rib must exist on each side; do not silently broaden or shift
     # a boundary attachment to a different rib or to the opposite surface.
     for key in ("front_rib","aft_rib"),rib in (1,length(m.grid.ribs))
         invalid=deepcopy(p);invalid["engines.items"][1][key]=rib
         @test_throws ArgumentError W.build_model(invalid)
     end
     sparse=deepcopy(p);sparse["mesh.elements_between_ribs"]=1
-    @test_throws ArgumentError W.build_model(sparse)
+    @test W.all_checks_pass(W.build_model(sparse))
+    for refinement in (1,3,9)
+        refined=deepcopy(p);refined["mesh.elements_between_ribs"]=refinement
+        refined_model=W.build_model(refined)
+        for mount in only(W.engine_records(refined_model))["mounts"]
+            ri=mount["rib"]
+            @test mount["cap_ribs"]==[ri-1,ri+1]
+            @test mount["cap_span_indices"]==refined_model.grid.ribs[[ri-1,ri+1]]
+            @test length(mount["cap_nodes"])==2
+            @test all(refined_model.node_keys[n][2] in refined_model.grid.ribs for n in mount["cap_nodes"])
+        end
+    end
     # At the front-spar x/c, the nominal-rib lower point remains distinct from
-    # the four flanking cap nodes and no interpolation membership duplicates.
+    # the two flanking cap nodes and no interpolation membership duplicates.
     edge=deepcopy(p);edge["engines.items"][1]["aft_xc"]=m.grid.lower_xcs[1,aftj+1]
     edge_model=W.build_model(edge);edge_mount=last(only(W.engine_records(edge_model))["mounts"])
-    @test length(edge_mount["nodes"])==length(unique(edge_mount["nodes"]))==5
+    @test length(edge_mount["nodes"])==length(unique(edge_mount["nodes"]))==3
     _,edge_parsed=engine_deck(edge_model,"engine_front_edge_aft_point")
     engine_rigid_checks(edge_model,edge_parsed)
     oriented=W.build_model(engine_test_params(;oriented=true));@test W.all_checks_pass(oriented)

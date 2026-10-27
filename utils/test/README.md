@@ -14,6 +14,62 @@ Individual
 large application model. The JFEM-Boxer browser/generator checks live separately
 under `APPS/JFEM-Boxer/test/`.
 
+`spectrum_comparison_test.jl` checks signed root assignment against an
+exhaustive independent oracle, strict tolerance boundaries, multiplicity,
+explicit intervals, repeated-mode basis rotations and scaled residuals.
+`buckling_inertia_domain_test.jl` uses prescribed signed spectra to check
+branch orientation, repeated and infinite roots, and the elastic-stiffness
+domain required by positive-branch inertia diagnostics.
+`modal_common_scale_pencils_test.jl` checks common matrix-unit changes and
+DOF permutations against prescribed finite spectra and constant-determinant
+infinite chains. `modal_request_contract_test.jl` checks literal EIGRL field
+presence and early rejection of unsupported requests.
+
+`quad4_corner_normal_work_test.jl` checks bilinear corner normals and the
+shared shell stiffness, prestress and recovery maps. It uses independent
+geometry and virtual-work constructions, accepted/rejected normal rows,
+reference offsets and directional derivatives to protect warped-shell work.
+`explicit_snorm_input_test.jl` checks prescribed-normal parsing, coordinate
+bases, normalization, precedence, operator work and unsupported tangent normals.
+`quad4_normal_differential_work_test.jl` checks compatible prestress under
+normal-moment transport and its bounded formulation scope.
+`quad4_coupled_normal_transport_test.jl` checks
+the complete physical preload map for coupled laminate sections, independent
+scalar normal/offset work, full A/B/D section energy, rigid motion and unit/frame
+covariance. Uncoupled and absent-normal controls retain their arithmetic.
+
+`normal_moment_shear_recovery_test.jl` checks transverse-shear recovery against
+the actual assembled elastic work, including normal transport, section and
+coordinate changes, supported derivatives and adjacent-route exclusions.
+`pshell_shear_recovery_test.jl` also checks physical normal-map work while
+retaining separate research-method guards.
+
+`quad4_reference_section_prestress_test.jl` checks reference-surface membrane
+work, offset ordering, compatible twist, rigid motion, units and derivatives.
+`quad4_offset_buckling_sensitivity_test.jl` checks the actual supported adjoint,
+full-solve differences, default-setting equivalence and research-route guards.
+`generated_snorm_axis_test.jl` and `generated_snorm_axis_scope_test.jl` check
+coherent generated normal axes, coordinate/node-order invariance and preserved
+normal consumers. `node_coord_snorm_branch_test.jl` checks geometry derivative
+branch rejection and restoration of the model after a rejected perturbation.
+`unit_classifier_test.jl` checks dimensionless curvature rank and independent
+cylindrical membrane energy. `unit_classifier_operator_test.jl` checks actual
+stiffness, prestress and eigenvalue covariance across length scales.
+
+`corner_normal_projection_contract_test.jl` checks physical projection,
+rigid motion, units and incompatible kinematics.
+`aligned_normal_recovery_identity_test.jl` checks complete planar field
+identity while retaining active normal maps on warped cells.
+
+`sol106_corotational_work_test.jl` checks finite-rotation force and moment work,
+tangents, recovery, coordinate output, arithmetic limits and AUTO compatibility.
+`sol106_membrane_dispatch_test.jl` protects finite-strain membrane selection,
+coordinate covariance, selected constraints and explicit method choices.
+`sol106_pressure_follower_test.jl` and `pload4_direction_scope_test.jl` check
+current-face pressure integration, load tangents and input direction semantics.
+`unsupported_direction_load_scope_test.jl` prevents active unsupported geometric
+force/moment cards from disappearing, while preserving zero and cancelled loads.
+
 The material and stress-report checks include `material_allowables_test.cjs`,
 `material_library_browser_test.cjs`, `stress_report_data_test.cjs` and
 `stress_report_material_roles_test.jl`. They verify MPa/Pa conversion, saved

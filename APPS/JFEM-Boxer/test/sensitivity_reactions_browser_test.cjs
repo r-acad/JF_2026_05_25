@@ -3,6 +3,7 @@
 // node this-file <evidence-dir> [playwright-module] [fixture-dir]
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 const {chromium}=require(process.argv[3]||'playwright'),web=path.resolve(__dirname,'../web'),out=path.resolve(process.argv[2]);
+const asset=file=>file.replace(/^\//,'').startsWith('shared/')?path.resolve(__dirname,'../..',file.replace(/^\/?shared\//,'')):path.join(web,file);
 const fixture=process.argv[4]?path.resolve(process.argv[4]):out;fs.mkdirSync(out,{recursive:true});
 (async()=>{
  const browser=await chromium.launch({headless:true,...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:{}),args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
@@ -14,7 +15,7 @@ const fixture=process.argv[4]?path.resolve(process.argv[4]):out;fs.mkdirSync(out
   await page.route('http://127.0.0.1:43962/**',route=>{const pathname=new URL(route.request().url()).pathname;return pathname==='/index.html'?route.fulfill({contentType:'text/html',body:html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/g,'').replace(/<link\b[^>]*>/g,'')}):route.fulfill({path:path.join(web,pathname)});});
   await page.goto('http://127.0.0.1:43962/index.html');
   for(const[,file]of html.matchAll(/<link\s+rel="stylesheet"\s+href="([^"]+)"/g))await page.addStyleTag({path:path.join(web,file)});
-  for(const[,file]of html.matchAll(/<script\s+src="([^"]+)"/g))if(file!=='app.js')await page.addScriptTag({path:path.join(web,file)});
+  for(const[,file]of html.matchAll(/<script\s+src="([^"]+)"/g))if(file!=='app.js')await page.addScriptTag({path:asset(file)});
   const app=fs.readFileSync(path.join(web,'app.js'),'utf8');await page.addScriptTag({content:app.slice(0,app.indexOf('(async function start()'))});
   await page.evaluate(()=>{window.reactionControls=()=>Object.fromEntries(['show-support-forces','results-show-support-forces','show-support-force-values','results-show-support-force-values'].map(id=>{const input=document.getElementById(id);return[id,{checked:input.checked,disabled:input.disabled,hidden:input.closest('label').hidden}];}));});
   };await loadApp();
@@ -33,6 +34,27 @@ const fixture=process.argv[4]?path.resolve(process.argv[4]):out;fs.mkdirSync(out
    return reactionState();
   },{model:[...fs.readFileSync(path.join(fixture,'model.msgpack'))],ordinary:[...fs.readFileSync(path.join(fixture,'ordinary_results.msgpack'))],baseline:[...fs.readFileSync(path.join(fixture,'baseline_results.msgpack'))],schema:JSON.parse(fs.readFileSync(path.join(fixture,'schema.json'),'utf8'))});
   assert.equal(initial.disabled,false);assert(initial.visible&&initial.glyphs>0&&initial.forces.length>0);
+  // The two glyph families and their labels must remain genuinely independent.
+  const split=await page.evaluate(()=>{
+   const visibility=()=>Object.fromEntries(['SUPPORT_FORCES','SUPPORT_MOMENTS'].map(name=>{const layer=state.layers.get(name);return[name,{visible:layer.visible,kinds:[...new Set(layer.meshes.flatMap(mesh=>mesh.metadata.glyphs.map(g=>g.kind)))],enabled:layer.meshes.every(mesh=>mesh.isEnabled())}];}));
+   window.reactionVisibility=visibility;return visibility();
+  });
+  assert.deepEqual(split.SUPPORT_FORCES.kinds,['force']);assert.deepEqual(split.SUPPORT_MOMENTS.kinds,['moment']);
+  const solids=await page.evaluate(()=>state.layers.get('SUPPORT_FORCES').meshes.map(mesh=>({triangles:mesh.material.fillMode===BABYLON.Material.TriangleFillMode,opaque:mesh.material.alpha===1,normals:mesh.getVerticesData('normal')?.length||0,glyphs:mesh.metadata.glyphs.map(g=>({solid:g.solid,labelVertex:g.label_vertex,firstVertex:g.first_vertex,diameter:g.stem_diameter}))})));
+  assert(solids.length&&solids.every(mesh=>mesh.triangles&&mesh.opaque&&mesh.normals>0&&mesh.glyphs.every(g=>g.solid&&g.labelVertex===g.firstVertex&&g.diameter>0)));
+  await page.locator('#results-show-support-force-values').check();await page.locator('#results-show-support-moment-values').check();
+  await page.locator('#results-show-support-forces').uncheck();
+  assert(await page.locator('#results-show-support-moments').isChecked());assert(!(await page.locator('#results-show-support-moment-values').isDisabled()));
+  const momentsOnly=await page.evaluate(()=>({layers:reactionVisibility(),labels:WingAnnotations.supportValueCandidates(state,true,true).map(item=>item.text)}));
+  assert(!momentsOnly.layers.SUPPORT_FORCES.visible&&momentsOnly.layers.SUPPORT_MOMENTS.visible);assert(momentsOnly.labels.length&&momentsOnly.labels.every(text=>text.startsWith('M')));
+  await page.locator('#results-show-support-forces').check();await page.locator('#results-show-support-moments').uncheck();
+  const forcesOnly=await page.evaluate(()=>({layers:reactionVisibility(),labels:WingAnnotations.supportValueCandidates(state,true,true).map(item=>item.text)}));
+  assert(forcesOnly.layers.SUPPORT_FORCES.visible&&!forcesOnly.layers.SUPPORT_MOMENTS.visible);assert(forcesOnly.labels.length&&forcesOnly.labels.every(text=>text.startsWith('F')));
+  const splitSave=await page.evaluate(()=>{const saved=WingWorkspace.captureView(document,state,workspaceUI);setLayerVisible('SUPPORT_MOMENTS',true);restoreWorkspaceView(saved);return{controls:WingWorkspace.captureView(document,state,workspaceUI).controls,layers:reactionVisibility()};});
+  assert(splitSave.controls['show-support-forces']&&!splitSave.controls['show-support-moments']);assert(!splitSave.layers.SUPPORT_MOMENTS.visible);
+  const migrated=await page.evaluate(()=>{const saved=WingWorkspace.captureView(document,state,workspaceUI);delete saved.controls['show-support-moments'];delete saved.controls['show-support-moment-values'];delete saved.layers.SUPPORT_MOMENTS;restoreWorkspaceView(saved);return{controls:WingWorkspace.captureView(document,state,workspaceUI).controls,layers:reactionVisibility()};});
+  assert(migrated.controls['show-support-moments']&&migrated.controls['show-support-moment-values']&&migrated.layers.SUPPORT_MOMENTS.visible);
+  checks.push('Separate forces/moments and labels in Results; glyph layers, label candidates, split Study persistence and old combined setting migration verified');
   const empty=await page.evaluate(()=>({controls:emptyControls,note:emptyNote}));assert(empty.controls['show-support-forces'].disabled&&empty.controls['results-show-support-forces'].disabled);assert.match(empty.note,/No constraint reactions/);
   assert(await page.locator('#results-show-support-forces').isVisible());
   await page.locator('#results-show-support-forces').uncheck();
@@ -49,6 +71,18 @@ const fixture=process.argv[4]?path.resolve(process.argv[4]):out;fs.mkdirSync(out
   checks.push('FE Results directly toggles vectors without navigation; the separate label toggle remains discoverable, is disabled with vectors off, synchronized and restored from existing Study controls');
   await page.evaluate(()=>activateWorkspaceTab('displayloads'));
   assert.equal(await page.locator('#layer-SUPPORT_FORCES').count(),0);assert(await page.locator('#support-force-scale').isVisible());
+  assert.equal(await page.locator('#layer-SUPPORT_MOMENTS').count(),0);
+  await page.locator('#show-support-moments').uncheck();assert(await page.locator('#show-support-moment-values').isDisabled());
+  assert(await page.evaluate(()=>state.layers.get('SUPPORT_FORCES').visible&&!state.layers.get('SUPPORT_MOMENTS').visible&&!document.getElementById('results-show-support-moments').checked));
+  await page.locator('#show-support-moments').check();await page.locator('#show-support-moment-values').uncheck();
+  assert(!(await page.evaluate(()=>document.getElementById('results-show-support-moment-values').checked)));await page.locator('#show-support-moment-values').check();
+  await page.locator('#show-support-fx').uncheck();await page.locator('#show-support-my').uncheck();
+  await page.locator('#support-force-diameter').fill('0.04');await page.locator('#support-force-diameter').dispatchEvent('input');
+  const components=await page.evaluate(()=>{const layers=Object.fromEntries(['SUPPORT_FORCES','SUPPORT_MOMENTS'].map(name=>[name,state.layers.get(name).meshes.flatMap(mesh=>mesh.metadata.glyphs)]));const saved=WingWorkspace.captureView(document,state,workspaceUI);document.getElementById('show-support-fx').checked=true;document.getElementById('support-force-diameter').value='0';restoreWorkspaceView(saved);return{layers,controls:WingWorkspace.captureView(document,state,workspaceUI).controls,labels:WingAnnotations.supportValueCandidates(state).map(item=>item.text),forces:Array.from(state.results.reactions.forces)};});
+  assert(components.layers.SUPPORT_FORCES.every(g=>g.axis!=='X'&&g.stem_diameter===.04));assert(components.layers.SUPPORT_MOMENTS.every(g=>g.axis!=='Y'));assert(!components.labels.some(text=>/^Fx |^My /.test(text)));assert.deepEqual(components.forces,initial.forces);assert.equal(components.controls['show-support-fx'],false);assert.equal(components.controls['support-force-diameter'],'0.04');
+  await page.evaluate(async()=>{await state.scene.whenReadyAsync();state.scene.render();state.annotations.render(true);});await page.screenshot({path:path.join(out,'solid-force-components.png')});
+  await page.locator('#show-support-fx').check();await page.locator('#show-support-my').check();
+  checks.push('Solid closed force-arrow meshes with opaque triangle materials; independent global Fx/Fy/Fz/Mx/My/Mz filtering and stem diameter persist in Study without altering physical reaction values');
   assert(await page.locator('#show-support-forces').isVisible());await page.locator('#show-support-force-values').uncheck();assert(!(await page.evaluate(()=>document.getElementById('results-show-support-force-values').checked)));
   await page.locator('#show-support-forces').uncheck();assert.equal(await page.evaluate(()=>reactionState().visible),false);
   assert(!(await page.evaluate(()=>document.getElementById('results-show-support-forces').checked)));assert(await page.locator('#show-support-force-values').isVisible());assert(await page.locator('#show-support-force-values').isDisabled());
@@ -111,6 +145,7 @@ const fixture=process.argv[4]?path.resolve(process.argv[4]):out;fs.mkdirSync(out
     state.annotations.render(true);
     return{...reaction,error,visibleShells:state.shellMeshes.filter(mesh=>mesh.isEnabled()&&mesh.isVisible).length,converged:state.results.convergence?.full_load,labels:document.getElementById('show-support-force-values').checked,labelCandidates:WingAnnotations.supportValueCandidates(state).length,shownLabels:state.annotations.stats.supportValuesShown||[],inspection:document.getElementById('pick-content').textContent,moved:state.deformed.some((value,i)=>Math.abs(value-state.baseline[i])>1e-8),unchanged:before.every((value,i)=>value===state.results.reactions.forces[i])};
    },{model:[...fs.readFileSync(path.join(fixture,'nonlinear_model.msgpack'))],results:[...fs.readFileSync(path.join(fixture,'nonlinear_results.msgpack'))],schema:JSON.parse(fs.readFileSync(path.join(fixture,'nonlinear_schema.json'),'utf8'))});
+   fs.writeFileSync(path.join(out,'nonlinear-render.json'),JSON.stringify(nonlinear,null,2));
    assert(nonlinear.converged&&nonlinear.visible&&!nonlinear.disabled&&nonlinear.glyphs>0&&nonlinear.labels&&nonlinear.labelCandidates>0&&nonlinear.shownLabels.length>0&&nonlinear.moved&&nonlinear.unchanged&&nonlinear.visibleShells>0);assert(nonlinear.error<1e-6);assert.match(nonlinear.inspection,/Constraint force/);assert.match(nonlinear.inspection,/Constraint moment/);nonlinearEvidence=nonlinear;
    await page.locator('#results-show-support-forces').uncheck();assert.equal(await page.evaluate(()=>reactionState().visible),false);assert(await page.locator('#results-show-support-force-values').isVisible());assert(await page.locator('#results-show-support-force-values').isDisabled());await page.locator('#results-show-support-forces').check();assert(await page.locator('#results-show-support-force-values').isChecked());
    checks.push('Actual full-load SOL106 baseline displays retained reaction arrows and labels on the deformed model and signed force/moment inspection values');

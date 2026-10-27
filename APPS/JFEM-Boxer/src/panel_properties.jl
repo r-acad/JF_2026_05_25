@@ -321,17 +321,14 @@ function panel_stringer_dimensions(p,pid)
     Tuple(Float64(get(row,field,p["properties.stringer_"*field])) for field in RIB_STIFFENER_FIELDS)
 end
 
-"""A shell blade omits its flange; beam stringers retain the existing T rules."""
+"""A zero-width flange is absent: shell blade or rectangular PBARL BAR."""
 function validate_stringer_dimensions(p,dimensions,label="Stringer")
-    if !shell_stringers(p)
-        return validate_t_section_dimensions(dimensions,label)
-    end
     b,h,tf,tw=dimensions
-    b isa Real&&!(b isa Bool)&&isfinite(b)&&b>=0||throw(ArgumentError("$label flange width must be finite and nonnegative"))
-    all(v->v isa Real&&!(v isa Bool)&&isfinite(v)&&v>0,(h,tw))||throw(ArgumentError("$label height and web thickness must be finite positive lengths in metres"))
-    tf isa Real&&!(tf isa Bool)&&isfinite(tf)&&tf>=0||throw(ArgumentError("$label flange thickness must be finite and nonnegative"))
+    b isa Real&&!(b isa Bool)&&isfinite(b)&&b>=0||throw(ArgumentError("$label flange width must be finite and nonnegative; received $b"))
+    for (field,value) in (("overall height",h),("web thickness",tw))
+        value isa Real&&!(value isa Bool)&&isfinite(value)&&value>0||throw(ArgumentError("$label $field must be a finite positive length in metres; received $value"))
+    end
+    tf isa Real&&!(tf isa Bool)&&isfinite(tf)&&tf>=0||throw(ArgumentError("$label flange thickness must be finite and nonnegative; received $tf"))
     b==0&&return nothing
-    tf>0||throw(ArgumentError("$label flange thickness must be positive when its flange width is nonzero"))
-    tf<h&&tw<b||throw(ArgumentError("$label requires flange thickness < overall height and web thickness < flange width, or flange width = 0 for a shell blade"))
-    nothing
+    validate_t_section_dimensions(dimensions,label)
 end

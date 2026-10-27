@@ -33,12 +33,12 @@ p=F.normalize_params(p)[1];model=F.build_model(p)
 viewmodel(eff,percent=25.)=F.sensitivity_model(model,merge(copy(p),Dict("fuel.fill_efficiency"=>eff,"loads.fuel_percent"=>percent)))
 reports=Any[]
 suite=@testset "Uniform usable fuel volume fraction" begin
-    @test F.default_params()["fuel.fill_efficiency"]===1.
+    @test F.default_params()["fuel.fill_efficiency"]===.9
     spec=F.SCHEMA_BY_KEY["fuel.fill_efficiency"]
     @test spec.group=="Fuel tank" && spec.label=="Fill efficiency factor"
     @test occursin("without changing",spec.help) && occursin("Fuel status",spec.help)
     legacy=copy(p);delete!(legacy,"fuel.fill_efficiency")
-    @test F.normalize_params(legacy)[1]["fuel.fill_efficiency"]==1.
+    @test F.normalize_params(legacy)[1]["fuel.fill_efficiency"]==.9
     @test F.fuel_mass_state(F.sensitivity_model(model,legacy))==F.fuel_mass_state(model)
     for invalid in (-.001,1.001,Inf,-Inf,NaN)
         bad=merge(p,Dict("fuel.fill_efficiency"=>invalid))
@@ -47,7 +47,7 @@ suite=@testset "Uniform usable fuel volume fraction" begin
     end
     for efficiency in (0.,.35,1.),percent in (0.,25.,60.,100.)
         m=viewmodel(efficiency,percent);state=F.fuel_mass_state(m)
-        baseline=F.fuel_mass_state(model;params=merge(p,Dict("loads.fuel_percent"=>percent)))
+        baseline=F.fuel_mass_state(model;params=merge(p,Dict("loads.fuel_percent"=>percent,"fuel.fill_efficiency"=>1.)))
         capacity=F.fuel_summary(m);weights=F.weights_payload(m)
         expected_volume=.56*efficiency;expected_mass=800expected_volume*percent/100
         @test capacity["gross_volume_m3"]≈.56 atol=1e-10

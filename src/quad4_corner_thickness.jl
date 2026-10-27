@@ -1,4 +1,4 @@
-# Thickness integration for an ordinary planar rectangular quadrilateral.
+# Thickness integration for an ordinary convex planar quadrilateral.
 # The section's kinematic enrichment remains independent of thickness; its
 # physical energy, residual compliance, drilling work and inertia use Ti.
 
@@ -59,6 +59,7 @@ function quad4_variable_thickness_packet(coords,Cm,Cb,Cs,h,E_ref,thickness;
     end
     return (K=K,Kshear=Ks,fields=fields,membrane_map=pm,bending_map=pb,
         area=area,mean_thickness=mean_t/area,mean_cube=mean_cube/area,
+        reported_thickness=sum(thickness)/4,reported_cube=sum(f.t^3 for f in fields)/4,
         coords=copy(coords),reference_thickness=h,Cm=copy(Cm),Cb=copy(Cb))
 end
 
@@ -99,6 +100,7 @@ function quad4_variable_thickness_geometric(coords,u,Cm,h,thickness)
 end
 
 function quad4_variable_thickness_fields(packet,u)
+    hasproperty(packet,:warp_map) && (u=packet.warp_map*u)
     N=reduce(vcat,[(f.A*(f.Bm*u))' for f in packet.fields])
     M=reduce(vcat,[(f.D*(f.Bb*u))' for f in packet.fields])
     eps=reduce(vcat,[(f.Bm*u)' for f in packet.fields])
@@ -110,12 +112,14 @@ function quad4_variable_thickness_fields(packet,u)
         sum(d[2,i]*u[6i-5]+d[1,i]*u[6i-4] for i=1:4)]
     kc=[sum(d[1,i]*u[6i-1] for i=1:4),-sum(d[2,i]*u[6i-2] for i=1:4),
         sum(d[2,i]*u[6i-1]-d[1,i]*u[6i-2] for i=1:4)]
-    # Reported centroid convention uses the element's averaged section rigidities.
-    # Retain actual GP resultants separately for energy/work and initial stress.
-    Nc=(packet.Cm*(packet.mean_thickness/packet.reference_thickness))*ec
-    Mc=(packet.Cb*(packet.mean_cube/packet.reference_thickness^3))*kc
+    # Centroid reporting averages the section law in the reference square.
+    # Bilinear t has center value mean(Ti); its cubic bending law has the
+    # exact reference-square mean given by the unweighted 2x2 Gauss rule.
+    # Physical energy, inertia and GP resultants retain their Jacobian weights.
+    Nc=(packet.Cm*(packet.reported_thickness/packet.reference_thickness))*ec
+    Mc=(packet.Cb*(packet.reported_cube/packet.reference_thickness^3))*kc
     (N=N,M=M,eps=eps,kappa=kappa,Q_mean=Q,N_reported=Nc,M_reported=Mc,
-        eps_center=ec,kappa_center=kc,reported_thickness=packet.mean_thickness)
+        eps_center=ec,kappa_center=kc,reported_thickness=packet.reported_thickness)
 end
 
 function quad4_variable_thickness_prestress(packet,u)

@@ -101,12 +101,24 @@ function panel_override_error_response(error::PanelOverrideConflict)
         "compatible_rows"=>error.compatible_rows,"affected_rows"=>error.affected_rows);status=409)
 end
 
+# Collapsed faces can have infinite aspect ratio. Keep diagnostics valid JSON;
+# the human-readable explanation still identifies the collapsed face.
+mesh_quality_json(value::AbstractFloat) = isfinite(value) ? value : nothing
+mesh_quality_json(value::AbstractDict) = Dict(string(k)=>mesh_quality_json(v) for (k,v) in value)
+mesh_quality_json(value::AbstractVector) = map(mesh_quality_json, value)
+mesh_quality_json(value) = value
+
+function mesh_quality_error_response(error::MeshQualityError)
+    json_response(Dict{String,Any}("ok"=>false,"code"=>"mesh_quality",
+        "error"=>error.message,"message"=>error.message,"issues"=>mesh_quality_json(error.issues));status=422)
+end
+
 include("study_save_server.jl")
 
 """
     describe_error(e) -> String
 
-Turn an exception into a single line the browser can show. Argument errors
+Turn an exception into text the browser can show. Argument errors
 carry the parameter name, so they are reported verbatim.
 """
 function describe_error(e)
@@ -282,6 +294,7 @@ function handle_sensitivity_catalog(st::AppState,req)
         return json_response(Dict("ok"=>true,"catalog"=>sensitivity_catalog(model)))
     catch error
         error isa PanelOverrideConflict&&return panel_override_error_response(error)
+        error isa MeshQualityError&&return mesh_quality_error_response(error)
         return error_response("Sensitivity properties: "*describe_error(error))
     end
 end
@@ -302,6 +315,7 @@ function handle_sensitivity_run(st::AppState,req;start_job=start_sensitivity_job
         return json_response(Dict("ok"=>true,"job"=>id,"state"=>String(job.state),"outdir"=>job.outdir))
     catch error
         error isa PanelOverrideConflict&&return panel_override_error_response(error)
+        error isa MeshQualityError&&return mesh_quality_error_response(error)
         return error_response("Sensitivity analysis: "*describe_error(error))
     finally
         unlock(st.job_lock)
@@ -407,6 +421,7 @@ function handle_generate(st::AppState, req)
         return msgpack_response(payload)
     catch e
         e isa PanelOverrideConflict&&return panel_override_error_response(e)
+        e isa MeshQualityError&&return mesh_quality_error_response(e)
         @error "mesh generation failed" exception = (e, catch_backtrace())
         return error_response(describe_error(e))
     end
@@ -432,6 +447,7 @@ function handle_workspace(st::AppState, req; generate::Bool = false)
         return json_response(Dict("ok" => true, "parameters" => params))
     catch e
         e isa PanelOverrideConflict&&return panel_override_error_response(e)
+        e isa MeshQualityError&&return mesh_quality_error_response(e)
         return error_response(describe_error(e))
     end
 end
@@ -623,12 +639,14 @@ function handle_reference(st::AppState, req)
         result, snapshot = write_and_preserve_deck!(st, model, path, params; source = "Write deck")
         result["solution"] = "SOL " * String(params["output.solution"])
         result["checks_pass"] = all_checks_pass(model)
+        result["mesh_quality"] = mesh_quality_json(model.mesh_quality)
         result["deck_text"] = snapshot["deck_text"]
         result["deck_metadata"] = deck_metadata(snapshot)
         @info "REFERENCE deck written" path = result["path"] lines = result["lines"]
         return json_response(result)
     catch e
         e isa PanelOverrideConflict&&return panel_override_error_response(e)
+        e isa MeshQualityError&&return mesh_quality_error_response(e)
         @error "writing the REFERENCE deck failed" exception = (e, catch_backtrace())
         return error_response(describe_error(e))
     end
@@ -700,6 +718,7 @@ function handle_run_jfem(st::AppState, req; start_job=start_jfem_job)
             "deck_text" => snapshot["deck_text"],
             "deck_metadata" => deck_metadata(snapshot),
             "solution" => "SOL " * String(params["output.solution"]),
+            "mesh_quality" => mesh_quality_json(model.mesh_quality),
             "out_dir" => job.outdir,
             "repo" => job.repo,
             "command" => job.cmdline,
@@ -707,6 +726,7 @@ function handle_run_jfem(st::AppState, req; start_job=start_jfem_job)
         ))
     catch e
         e isa PanelOverrideConflict&&return panel_override_error_response(e)
+        e isa MeshQualityError&&return mesh_quality_error_response(e)
         @error "starting the JFEM run failed" exception = (e, catch_backtrace())
         return error_response(describe_error(e))
     finally

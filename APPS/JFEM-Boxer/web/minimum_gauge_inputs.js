@@ -12,7 +12,7 @@
    if(value.kind==='sandwich'&&sandwich){add('face_thickness',value.face_thickness,base.face_thickness,'materials.shells');add('core_thickness',value.core_thickness,base.core_thickness,'materials.shells');}
   }else if(component==='spar_cap')add('side',value.side,p['properties.spar_cap_side'],'properties.spar_cap_side');
   else if(['stringer','rib_stiffener'].includes(component)&&value.enabled!==false){
-   const blade=component==='stringer'&&p['stringers.model']==='shell'&&value.flange_width===0;
+   const blade=component==='stringer'&&value.flange_width===0;
    for(const field of T_FIELDS){if(blade&&field==='flange_thickness')continue;const key='properties.'+component+'_'+field;add(field,value[field],p[key],key);}
   }
   return rows;

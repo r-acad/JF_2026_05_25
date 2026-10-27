@@ -56,7 +56,23 @@ ENDDATA
   end
   # Unsupported/research constitutive routes must not silently opt in.
   xy=shapes[1];X=hcat(xy,zeros(4));mat=model["MATs"]["1"];model["SOL"]=101
-  @test S._pshell_macneal_mean_shear_data(model,prop,mat,xy,X,ones(4,2),nothing)===nothing
+  # Ordinary normal-moment cells now recover the same physical shear work.
+  pq=ones(4,2)
+  data=S._pshell_macneal_mean_shear_data(model,prop,mat,xy,X,pq,nothing)
+  @test data!==nothing
+  P=F.quad4_physical_displacement_map(xy,X,pq)
+  uq=1e-3*sin.(collect(1.:24.))
+  q=F.quad4_macneal_mean_shear_resultant(xy,P*uq,data.D,data.Cs,data.h;
+      Cm=data.A,rigid_shear=data.rigid)
+  Kn=F.stiffness_quad4_matrices(xy,data.A,data.D,data.Cs,data.h,E;
+      k6rot=0.,coords_3d=X,snorm_pq=pq,macneal_rigid_shear=data.rigid)
+  for gamma in ([1.,0.],[0.,1.],[.4,-.7])
+   v=zeros(24);v[4:6:24].=-gamma[2];v[5:6:24].=gamma[1]
+   @test isapprox(2dot(gamma,q),dot(P\v,Kn*uq);rtol=2e-10,atol=1e-8)
+  end
+  withenv("JFEM_SNORM_DIRECTOR"=>"true") do
+   @test S._pshell_macneal_mean_shear_data(model,prop,mat,xy,X,pq,nothing)===nothing
+  end
   for setting in ("JFEM_Q4_KERNEL"=>"default","JFEM_Q4_STATIC_COMPONENT_CS_SCALE"=>".5","JFEM_Q4_MACNEAL_RIGID_SHEAR_FORCE"=>"true")
    withenv(setting) do
     @test S._pshell_macneal_mean_shear_data(model,prop,mat,xy,X,nothing,nothing)===nothing

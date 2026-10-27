@@ -23,14 +23,30 @@ rib_runout_build(p)=W.build_model(first(W.normalize_params(p)))
 edge(a,b)=minmax(a,b)
 point(m,n)=Tuple(m.xyz[3n-2:3n])
 function skin_faces(m)
-    [(eid=eid,nodes=group.conn[n*(q-1)+1:n*q],upper=all(m.node_keys[node][3]==m.grid.nh for node in group.conn[n*(q-1)+1:n*q]))
+    panels=Dict(panel.id=>panel for panel in W.stiffened_panel_layout(m.grid).panels)
+    [(eid=eid,nodes=group.conn[n*(q-1)+1:n*q],upper=W.component_base_pid(group.pid)==W.PID_SKIN_UPPER||
+        W.component_base_pid(group.pid)==W.PID_STRINGER_FLANGE&&panels[W.stiffened_panel_id(group.pid)].upper)
      for group in m.groups if group.kind in (:quad,:tria)&&W.component_base_pid(group.pid) in (W.PID_SKIN_UPPER,W.PID_SKIN_LOWER,W.PID_STRINGER_FLANGE)
      for n in (group.kind===:quad ? 4 : 3,) for (q,eid) in enumerate(group.eids)]
 end
 function runout_rows(m)
-    [(eid=eid,a=group.conn[2q-1],b=group.conn[2q]) for group in m.groups
+    segments=[(eid=eid,a=group.conn[2q-1],b=group.conn[2q]) for group in m.groups
      if group.kind===:bar&&W.component_base_pid(group.pid)==W.PID_STRINGER_RUNOUT
      for (q,eid) in enumerate(group.eids)]
+    next=Dict(segment.a=>segment for segment in segments)
+    rows=Any[];visited=Set{Int}()
+    for start in segments
+        m.node_keys[start.a][3]>=0||continue
+        chain=[start];push!(visited,start.eid)
+        while haskey(next,last(chain).b)
+            following=next[last(chain).b]
+            following.eid in visited&&error("Cyclic or overlapping runout connector")
+            push!(chain,following);push!(visited,following.eid)
+        end
+        push!(rows,(eid=start.eid,a=start.a,b=last(chain).b,segments=chain))
+    end
+    length(visited)==length(segments)||error("A runout connector has no physical-rib start")
+    rows
 end
 
 function check_runout_model(m;expected_side=nothing,expected_eta=nothing,projected_area=.35)
@@ -63,7 +79,9 @@ function check_runout_model(m;expected_side=nothing,expected_eta=nothing,project
         @test kb[2]==ka[2]+1  # first skin mesh row after the physical rib
         @test kb[3]==ka[3]
         @test kb[3] in (0,g.nh)
-        @test haskey(counts,edge(connector.a,connector.b))
+        # Local spar corners can split a connector into a conforming chain;
+        # its physical endpoints and retirement rib remain unchanged.
+        @test all(haskey(counts,edge(segment.a,segment.b)) for segment in connector.segments)
         @test norm(collect(point(m,connector.b).-point(m,connector.a)))>1e-10
         plane=W.main_rib_plane(g,m.params,ka[2])
         @test abs(sum(plane.normal.*(point(m,connector.a).-plane.origin)))<1e-10

@@ -348,7 +348,7 @@ function _check_selected_acceleration_loads(model, sid, scale, id_map, path=Int[
         if !isempty(cards)
             # REFERENCE QRG ACCEL1 requires its SID to be distinct from any other load entry.
             owners = length(cards)
-            for key in ("FORCEs","MOMENTs","GRAVs","RFORCEs","PLOADs","PLOAD1s","PLOAD4s","SPCDs","LOAD_COMBOS")
+            for key in ("FORCEs","MOMENTs","FORCE1s","FORCE2s","MOMENT1s","MOMENT2s","GRAVs","RFORCEs","PLOADs","PLOAD1s","PLOAD4s","SPCDs","LOAD_COMBOS")
                 owners += count(c -> Int(c["SID"]) == sid,get(model,key,[]))
             end
             owners == 1 || throw(ArgumentError("ACCEL1 SID=$sid must be unique among load entries"))
@@ -409,7 +409,62 @@ function _add_accel1_load!(F_acc, model, card, scale, id_map, node_coords, mass_
     return nothing
 end
 
+# PLOAD4 LINE is an edge load on CTRIAR/CQUADR, not surface pressure.
+# The native card ignores SORL on other element types. Check only selected,
+# nonzero loads before any force accumulation or normal-follower dispatch.
+function _check_selected_pload4_semantics(model, scales::AbstractDict)
+    for card in get(model, "PLOAD4s", [])
+        factor = get(scales, Int(card["SID"]), 0.0)
+        iszero(factor) && continue
+        pressure = Float64(card["P"]) * factor
+        iszero(pressure) && continue
+        isfinite(pressure) || throw(ArgumentError("Nonfinite PLOAD4 pressure"))
+        sid, eid = card["SID"], card["EID"]
+        sorl = uppercase(strip(String(get(card, "SORL", "SURF"))))
+        isempty(sorl) && (sorl = "SURF")
+        sorl in ("SURF", "LINE") || throw(ArgumentError(
+            "PLOAD4 SID=$sid EID=$eid: SORL must be SURF or LINE"))
+        ldir = uppercase(strip(String(get(card, "LDIR", ""))))
+        ldir in ("", "X", "Y", "Z", "TANG", "NORM") || throw(ArgumentError(
+            "PLOAD4 SID=$sid EID=$eid: unsupported LDIR=$ldir"))
+        if haskey(card, "N")
+            direction = card["N"]
+            length(direction) == 3 && all(x -> x isa Real && isfinite(x), direction) ||
+                throw(ArgumentError("PLOAD4 SID=$sid EID=$eid requires three finite direction components"))
+        end
+        element = get(get(model, "CSHELLs", Dict()), string(eid), nothing)
+        element === nothing && continue
+        kind = uppercase(String(get(element, "TYPE", "")))
+        if sorl == "LINE" && kind in ("CQUADR", "CTRIAR")
+            throw(ArgumentError("PLOAD4 SID=$sid EID=$eid: SORL=LINE edge loads on $kind are unsupported"))
+        end
+    end
+    return nothing
+end
+
+# Resolve net LOAD coefficients before rejecting unsupported direction
+# cards. An unused set, zero magnitude, or exactly cancelled nested selection
+# contributes no load and must remain harmless.
+function _check_selected_directional_loads(model,sid,scale)
+    kinds=("FORCE1","FORCE2","MOMENT1","MOMENT2")
+    any(kind->!isempty(get(model,kind*"s",[])),kinds) || return nothing
+    scales=_load_sid_scales(model,sid,scale)
+    for kind in kinds, card in get(model,kind*"s",[])
+        load_sid=Int(card["SID"])
+        iszero(get(scales,load_sid,0.)) && continue
+        magnitude=get(card,"Mag",get(card,startswith(kind,"FORCE") ? "F" : "M",nothing))
+        magnitude isa Real && isfinite(magnitude) ||
+            throw(ArgumentError("$kind SID=$load_sid requires a finite magnitude"))
+        iszero(magnitude) && continue
+        throw(ArgumentError("Selected $kind SID=$load_sid is unsupported; its geometric direction and follower work must not be silently omitted. Use a verified supported load representation."))
+    end
+    return nothing
+end
+
 function resolve_loads(model, sid, scale, id_map, elem_map, node_coords, F_acc)
+    _check_selected_directional_loads(model,Int(sid),scale)
+    isempty(get(model, "PLOAD4s", [])) ||
+        _check_selected_pload4_semantics(model, _load_sid_scales(model, Int(sid), scale))
     _filter_shell_normal_moments_enabled() # Warn once only for an explicit retired option.
     if !isempty(get(model,"ACCEL1s",[])) || !isempty(get(model,"ACCELs",[]))
         # Capability preflight precedes accumulation, including nested LOADs.

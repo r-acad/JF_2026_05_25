@@ -55,7 +55,9 @@ tests=@testset "Structural bay CONM2 export and native mass" begin
     @test_throws ArgumentError W.normalize_params(bad)
     merge!(p,Dict("planform.area"=>2.,"planform.aspect_ratio"=>2.,"planform.taper_ratio"=>.65,
         "planform.sweep"=>18.,"planform.twist_tip"=>-5.,"box.end_eta"=>1.,"box.rib_pitch"=>.3,
-        "box.stringer_pitch"=>.15,"mesh.elements_between_ribs"=>1,"mesh.elements_between_stringers"=>1,
+        # Two span cells keep the tapered leading-edge strips below the
+        # application's 15:1 edge-ratio gate; mass checks use the same geometry.
+        "box.stringer_pitch"=>.15,"mesh.elements_between_ribs"=>2,"mesh.elements_between_stringers"=>1,
         "mesh.elements_spar_height"=>1,"airfoil.n_points"=>21,"mesh.aero_chord_points"=>11,
         "fuel.enabled"=>false,"leading_edge.enabled"=>true,"loads.cases"=>Any[],
         "aero.enabled"=>false,"loads.structure_inertia"=>false,"output.solution"=>"103"))

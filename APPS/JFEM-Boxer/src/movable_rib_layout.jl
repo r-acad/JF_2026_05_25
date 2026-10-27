@@ -39,7 +39,7 @@ end
 function movable_chord_stations(row)
     n=row["chord_elements"];secondary=row["secondary_spar"]
     secondary<=0&&return collect(range(0.,1.;length=n+1))
-    min(secondary,1-secondary)>=1/(100max(n,2))||throw(ArgumentError("$(row["surface"]): the secondary spar is too close to a control boundary for this chord mesh. Increase chord elements or move the secondary spar; its exact location cannot be merged with another spar to hide a slender cell."))
+    0<secondary<1||throw(ArgumentError("$(row["surface"]): the secondary spar must lie strictly inside the control chord."))
     # Keep both physical spar positions exact. Allocate the requested cells
     # between their intervals, then redistribute each interval uniformly.
     n=max(n,2);left=clamp(round(Int,n*secondary),1,n-1)
@@ -58,7 +58,7 @@ function movable_span_stations(w,row,rib_etas)
         target=(hi-lo)/row["span_elements"]
         cuts=movable_distinct_stations(vcat(lo,filter(t->lo+1e-10<t<hi-1e-10,anchors),hi))
         for (a,b) in zip(cuts[1:end-1],cuts[2:end])
-            b-a>=target/100||throw(ArgumentError("$(row["surface"]): a required geometry station and rib/geometry station at eta $a and $b are nearly coincident. Move the geometry station or rib, or refine the movable span mesh; preserving both in this mesh would create an extremely slender skin strip."))
+            b>a||throw(ArgumentError("$(row["surface"]): control rib and geometry stations must increase in eta."))
             n=max(1,round(Int,(b-a)/target))
             append!(result,[a+(b-a)*i/n for i in 0:n-1])
         end
@@ -67,20 +67,9 @@ function movable_span_stations(w,row,rib_etas)
     result
 end
 
-"""Reject collapsed, inverted or extremely slender control skins explicitly."""
+"""Reject invalid control skins; valid poor proportions are reported as warnings."""
 function validate_movable_skin_cell(reg,nodes,label)
-    pts=[reg.xyz[3n-2:3n] for n in nodes];n=length(pts)
-    edges=[pts[i%n+1].-pts[i] for i in 1:n];lengths=sqrt.([sum(abs2,e) for e in edges])
-    longest=maximum(lengths);shortest=minimum(lengths)
-    longest>0&&shortest>longest/100||throw(ArgumentError("$label: skin edge aspect ratio exceeds 100 or the cell has collapsed. Separate physical ribs/spars or refine the longer mesh direction; no element has been silently removed."))
-    triangles=[cross3(pts[i].-pts[1],pts[i+1].-pts[1]) for i in 2:n-1]
-    normal=ntuple(k->sum(t[k] for t in triangles),3)
-    area2=sqrt(sum(abs2,normal));area2>1e-10*longest^2||throw(ArgumentError("$label: control skin has zero area; check its rib, hinge and spar geometry."))
-    for i in 1:n
-        corner=cross3(edges[i],.-edges[mod1(i-1,n)])
-        jacobian=sum(corner.*normal)/(lengths[i]*lengths[mod1(i-1,n)]*area2)
-        jacobian>sinpi(1/180)||throw(ArgumentError("$label: a control skin corner is inverted or narrower than one degree. Move the attachment ribs apart or reduce their obliquity; the invalid cell has not been exported."))
-    end
+    main_shell_quality(reg,nodes).valid||throw(ArgumentError("$label: the control skin is collapsed, folded or inverted. Correct the rib, hinge and spar geometry; this invalid cell has not been exported."))
     nothing
 end
 
@@ -165,7 +154,8 @@ function movable_rib_eta_grid(w,s,row,rot,ribs,attachments,us,nh)
 end
 
 """Reject a lower-skin lug that enters the actual closed master-rib polygon."""
-function movable_underside_fitting(reg,lower,upper,center,normal,label)
+function movable_underside_fitting(reg,lower,upper,center,normal,label; minimum_end=2)
+    2<=minimum_end<=length(lower)||throw(ArgumentError("$label: invalid underside fitting endpoint"))
     pos(n)=reg.xyz[3n-2:3n]
     chord=pos(last(lower)).-pos(first(lower));chord=chord./sqrt(sum(abs2,chord))
     vertical=cross3(normal,chord);vertical=vertical./sqrt(sum(abs2,vertical))
@@ -199,9 +189,9 @@ function movable_underside_fitting(reg,lower,upper,center,normal,label)
         !inside_polygon(midpoint)
     end
     # Every lower fitting starts at the lower front-spar node. Extend a
-    # conforming fan along the existing lower-rib edges to the hinge region;
+    # conforming fan along the existing lower-rib edges through the subspar;
     # choosing only its closest skin cell left the spar outside the load path.
-    order=sortperm([abs((lp[i][1]+lp[i+1][1])/2-hinge[1]) for i in 1:length(lp)-1])
+    order=sort(collect(minimum_end-1:length(lp)-1);by=i->abs((lp[i][1]+lp[i+1][1])/2-hinge[1]))
     for index in order
         if all(i->exterior_triangle((lp[i],lp[i+1],hinge)),1:index)
             return (foot_nodes=lower[1:index+1],triangles=[(lower[i],lower[i+1],0) for i in 1:index],knee_point=nothing,shape="front-spar-connected lower fan")
@@ -222,10 +212,16 @@ function movable_underside_fitting(reg,lower,upper,center,normal,label)
         bisector=front.+bottom;bisector_length=sqrt(sum(abs2,bisector))
         if bisector_length>1e-8
             distance=.5min(hypot(hinge[1]-a[1],hinge[2]-a[2]),hypot(b[1]-a[1],b[2]-a[2]))
-            knee=a.+distance.*bisector./bisector_length
-            if exterior_triangle((hinge,a,knee))&&exterior_triangle((a,b,knee))
-                point=pos(first(lower)).+(knee[1]-a[1]).*chord.+(knee[2]-a[2]).*vertical
-                return (foot_nodes=[lower[1],lower[2]],triangles=[(0,lower[1],-1),(lower[1],lower[2],-1)],knee_point=point,shape="exterior knee")
+            # Retain the exterior corner route when a direct fan would cut
+            # through the front web, but carry every lower-rib edge through
+            # the required subspar rather than stopping after one skin cell.
+            for factor in (1.,2.,4.)
+                knee=a.+factor*distance.*bisector./bisector_length
+                if exterior_triangle((hinge,a,knee))&&all(i->exterior_triangle((lp[i],lp[i+1],knee)),1:minimum_end-1)
+                    point=pos(first(lower)).+(knee[1]-a[1]).*chord.+(knee[2]-a[2]).*vertical
+                    triangles=vcat([(0,lower[1],-1)],[(lower[i],lower[i+1],-1) for i in 1:minimum_end-1])
+                    return (foot_nodes=lower[1:minimum_end],triangles=triangles,knee_point=point,shape="exterior knee with subspar-connected lower fan")
+                end
             end
         end
     end

@@ -10,6 +10,20 @@
   return box;
  }
  function help(doc,parent,id,title,items){const box=group(doc,parent,id,title,items,{details:true});if(box)box.classList.add('ui-form-help');return box;}
+ function contextualHelp(doc){
+  // These editors provide more useful help than the schema's generic group
+  // summary. Keep their original button and handler as the one group action.
+  for(const id of ['group-loft','group-movable-surfaces','group-movable-structures']){
+   const host=doc.getElementById(id),heading=host?.querySelector(':scope > .parameter-heading');
+   // Drawing workbenches have already moved their introduction into the
+   // parameter column. Locate the same contextual note there as well.
+   const contextual=host?.querySelector('.group-note > button[aria-label^="Help:"]');
+   if(!heading||!contextual)continue;
+   const generic=heading.querySelector('.help-icon,.help-button');
+   contextual.classList.remove('mini');contextual.classList.add('help-button');
+   if(generic)generic.replaceWith(contextual);else heading.append(contextual);
+  }
+ }
  function generated(doc){
   const row=key=>doc.getElementById('row-'+key),host=id=>doc.getElementById(id);
   const mesh=host('group-mesh');
@@ -38,6 +52,7 @@
   group(doc,constraints,'constraint-load-transfer','Load-transfer connections',[row('rbe3.enabled'),row('rbe3.ref_xc')]);
   group(doc,constraints,'constraint-definition-fields','Structural constraints',[row('supports.mode'),editor]);
   if(editor)help(doc,editor,'constraint-definition-help','Choosing constraints and reading their symbols',[...editor.querySelectorAll(':scope > p.group-note,:scope > p.pick-note:not(:last-child)')]);
+  contextualHelp(doc);
   sync(doc);
  }
  function sync(doc){
@@ -70,7 +85,7 @@
   const axes=byId('display-axes-labels');
   if(axes){
    group(doc,axes,'display-element-axes','Element axes',[row('show-shell-axes'),row('show-material-axes'),row('show-material-axis-labels'),row('show-bar-axes'),axes.querySelector('.display-axis-key')]);
-   const coordinates=group(doc,axes,'display-coordinate-axes','Coordinate systems',[row('show-coordinate-labels'),byId('coordinate-inspection')]);
+   const coordinates=group(doc,axes,'display-coordinate-axes','Coordinate systems',[row('show-global-axis-labels'),row('show-coordinate-labels'),byId('coordinate-inspection')]);
    const note=axes.querySelector(':scope > p.pick-note');if(note)help(doc,coordinates,'display-coordinate-help','Reading coordinate labels',[note]);
    group(doc,axes,'display-entity-labels','Entity labels',[row('show-node-ids'),row('show-element-ids'),row('show-actuator-stiffness'),row('id-label-size'),byId('id-label-status')]);
    const legend=axes.querySelector(':scope > legend');if(legend)legend.hidden=true;axes.classList.add('ui-section-container');

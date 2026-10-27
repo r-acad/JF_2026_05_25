@@ -54,5 +54,14 @@ test('Leading-edge disabled bays and stale panel override tokens cannot be edite
 test('Malformed values, unknown fields and unsupported material IDs fail explicitly',()=>{
  const c=context(),d=api.resolve(c,6000001);for(const raw of['not a number','Infinity','0','-2'])assert.equal(api.validate(d,{thickness:raw}).valid,false);assert.throws(()=>api.prepare(c,6000001,{material:'999'}),/Study library/);assert.throws(()=>api.prepare(c,6000001,{made_up:'2'}),/Unknown/);assert.throws(()=>api.prepare(c,6000001,{}),/Change/);
 });
+test('Editor summarizes every failing mode and load case, not only the governing check',()=>{
+ const report={estimated:true,rows:[{pid:6000001,complete:true,reserveFactor:.4,envelopeCaseLabel:'Case 2',combined:{governingModeLabel:'Skin buckling',governingScope:'R1–R2',assessments:[
+  {modeLabel:'Skin buckling',scope:'R1–R2',complete:true,reserveFactor:.4,caseLabel:'Case 2',caseResults:[{label:'Case 1',reserveFactor:.8},{label:'Case 2',reserveFactor:.4},{label:'Case 3',reserveFactor:1.1}]},
+  {modeLabel:'Von Mises',scope:'Full property',complete:true,reserveFactor:.9,caseLabel:'Case 1'},
+  {modeLabel:'Euler',complete:true,reserveFactor:99,noDemand:true}]} }]};
+ const r=api.assessmentSummary(report,6000001);assert(r.available&&r.estimated);assert.equal(r.mode,'Skin buckling');assert.deepEqual(r.failures.map(a=>a.value),[.4,.8,.9]);assert.equal(r.failures[1].caseLabel,'Case 1');assert.equal(api.assessmentSummary(report,1).available,false);
+ report.rows[0].complete=false;report.rows[0].reserveFactor=null;report.rows[0].reserveFactorReason='Missing recovery';report.rows[0].combined.assessments.push({complete:false,modeLabel:'Web',reason:'Missing load case'});
+ const partial=api.assessmentSummary(report,6000001);assert.equal(partial.available,false);assert.equal(partial.failures.length,3);assert.match(partial.incomplete[0],/Missing load case/);
+});
 console.log(JSON.stringify({passed:true,checks}));
 module.exports={context};

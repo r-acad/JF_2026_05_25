@@ -4,7 +4,7 @@ const geometry=[{name:'Flap',eta_start:.2,eta_end:.8}],row={...S.defaults,surfac
 assert.equal(S.normalize([row],[a],geometry).surfaces.length,1);checks++;
 assert.equal(S.normalize([{...row,enabled:false}],[],[]).surfaces.length,1);checks++;
 for(const delta of [{span_bays:0},{span_elements:101},{height_elements:1.5},{upper_thickness:0},{skin_material:null},{mesh_deflected:0},{secondary_spar:1},{secondary_spar:-.1},{enabled:'yes'},{unexpected:1},{end_eta:.1},{end_eta:.9},{end_eta:null},{max_rib_pitch_ratio:0.9},{max_rib_pitch_ratio:NaN},{max_rib_pitch_ratio:null}]){assert.throws(()=>S.normalize([{...row,...delta}],[a],geometry));checks++;}
-for(const delta of [{eta:.9},{eta:null},{kind:'pinned'},{rib:0},{translation_stiffness:0},{tilt_stiffness:Infinity},{hinge_stiffness:-1},{unexpected:1},{fitting:'wrong'},{lug_thickness:0},{lug_material:0},{actuator:1},{lateral_stay:null},{actuator_stiffness:-1},{actuator_stiffness:null},{actuator_stiffness:Infinity}]){assert.throws(()=>S.normalize([row],[{...a,...delta}],geometry));checks++;}
+for(const delta of [{eta:.9},{eta:null},{kind:'pinned'},{rib:0},{translation_stiffness:0},{tilt_stiffness:Infinity},{hinge_stiffness:-1},{unexpected:1},{fitting:'wrong'},{lug_thickness:0},{lug_material:0},{actuator:1},{actuator_stiffness:-1},{actuator_stiffness:null},{actuator_stiffness:Infinity}]){assert.throws(()=>S.normalize([row],[{...a,...delta}],geometry));checks++;}
 assert.throws(()=>S.normalize([row],[],geometry));checks++;
 assert.throws(()=>S.normalize([row],[a],[]));checks++;
 assert.throws(()=>S.normalize([row,row],[a],geometry));checks++;
@@ -12,7 +12,13 @@ assert.throws(()=>S.normalize([row],[a,a],geometry));checks++;
 assert.equal(S.normalize([row],[{...a,kind:'rigid'}],geometry).attachments[0].kind,'rigid');checks++;
 assert.equal(S.normalize([row],[{...a,hinge_stiffness:0}],geometry).attachments[0].hinge_stiffness,0);checks++;
 assert.equal(S.normalize([{...row,end_eta:.6}],[{...a,fitting:'shell_lugs',actuator:true,lateral_stay:true}],geometry).surfaces[0].end_eta,.6);checks++;
-assert.throws(()=>S.normalize([row],[{...a,fitting:'shell_lugs',kind:'rigid',actuator:true,lateral_stay:false}],geometry));checks++;
+assert.equal(S.normalize([row],[{...a,fitting:'shell_lugs',kind:'rigid',actuator:true}],geometry).attachments[0].kind,'rigid');checks++;
+for(const legacy of [true,false,null]){assert.equal('lateral_stay' in S.normalize([row],[{...a,lateral_stay:legacy}],geometry).attachments[0],false);checks++;}
+assert.equal('lateral_stay' in S.attachmentDefaults,false);checks++;
+assert.equal(S.attachmentDefaults.box_lateral_stay,true);checks++;
+assert.equal(S.attachmentDefaults.movable_lateral_stay,false);checks++;
+for(const key of ['box_lateral_stay','movable_lateral_stay'])for(const value of [1,null,'true']){assert.throws(()=>S.normalize([row],[{...a,[key]:value}],geometry));checks++;}
+for(const box of [false,true])for(const movable of [false,true]){const normalized=S.normalize([row],[{...a,box_lateral_stay:box,movable_lateral_stay:movable}],geometry).attachments[0];assert.equal(normalized.box_lateral_stay,box);assert.equal(normalized.movable_lateral_stay,movable);checks++;}
 assert.equal(S.normalize([row],[{...a,fitting:'shell_lugs',kind:'hinge',actuator:true,lateral_stay:false}],geometry).attachments[0].actuator_stiffness,1e7);checks++;
 assert.equal(S.normalize([{...row,max_rib_pitch_ratio:1}],[{...a,actuator_stiffness:0}],geometry).surfaces[0].max_rib_pitch_ratio,1);checks++;
 assert.equal(S.normalize([row],[{...a,fitting:'shell_lugs',actuator:false,lateral_stay:false}],geometry).attachments[0].actuator,false);checks++;

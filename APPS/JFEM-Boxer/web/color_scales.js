@@ -32,6 +32,21 @@ function valueColor(name,value,min,max){
 }
 const css=color=>'rgb('+color.map(v=>Math.round(255*v)).join(', ')+')';
 const hex=color=>'#'+color.map(v=>Math.round(255*v).toString(16).padStart(2,'0')).join('');
+// Nominal IDs are separate classes, not positions on a continuous ramp.
+// Adjacent entries deliberately alternate hue and brightness. Keep this order
+// stable so a case retains its color when the user filters the assessment.
+const CATEGORY_COLORS=Object.freeze(['#0072b2','#e87500','#009e73','#a34ec7','#f0ce32','#ed5290',
+  '#24c9dc','#d53b32','#8ab83d','#4253b8','#b78351','#db8ed8',
+  '#80bfee','#9c4300','#006e55','#663780','#b39b00','#a82763',
+  '#007f91','#ff8b7f','#c9df72','#9698ef','#f2ba89','#9b507e']);
+function categoryColor(index){
+  const n=Math.max(0,Math.trunc(Number(index)||0));
+  if(n<CATEGORY_COLORS.length){const c=CATEGORY_COLORS[n];return[1,3,5].map(i=>parseInt(c.slice(i,i+2),16)/255);}
+  // Large ID sets retain individual, deterministic colors without repeating a
+  // short palette. Labels in the discrete legend remain the exact identifier.
+  const h=(n*137.507764)%360,s=.72,l=[.44,.62,.53][Math.floor(n/24)%3],a=s*Math.min(l,1-l);
+  return[0,8,4].map(v=>{const k=(v+h/30)%12;return l-a*Math.max(-1,Math.min(k-3,9-k,1));});
+}
 function stops(name,min,max){
   if(![min,max].every(Number.isFinite)||min>max)return [];
   if(min===max)return [0,1].map(position=>({position,value:min,color:valueColor(name,min,min,max)}));
@@ -39,5 +54,5 @@ function stops(name,min,max){
   return positions.map(position=>{const value=name==='signed'&&min<0&&max>0&&position===-min/(max-min)?0:min+(max-min)*position;return {position,value,color:valueColor(name,value,min,max)};});
 }
 function gradient(name,min,max){return 'linear-gradient(90deg, '+stops(name,min,max).map(s=>css(s.color)+' '+100*s.position+'%').join(', ')+')';}
-return {scales,sample,valueColor,stops,gradient,css,hex};
+return {scales,sample,valueColor,stops,gradient,css,hex,CATEGORY_COLORS,categoryColor};
 });

@@ -175,15 +175,20 @@ euler_path_intersection(index::EulerFaceIndex,origin,axis)=
 
 function euler_beam_parts(m,edge,origin,axis,y,z)
     gr=edge.group;index=edge.element;definition=section_definition(m.params,gr.pid)
-    get(definition,"shape","")=="T"||throw(ArgumentError("Only actual T-section beam stringers are supported"))
+    shape=get(definition,"shape","");shape in ("T","BAR")||throw(ArgumentError("Only actual T or rectangular blade beam stringers are supported"))
     material=bar_material_definition(m.params,gr.pid);young=Float64(material["E"])
-    b,h,tf,tw=definition["dimensions_m"];v=Tuple(gr.orient[3index-2:3index])
+    dims=definition["dimensions_m"];v=Tuple(gr.orient[3index-2:3index])
     local_y=unit3(v.-euler_dot(v,axis).*axis);local_z=cross3(axis,local_y)
     n=(euler_dot(local_y,y),euler_dot(local_y,z));t=(euler_dot(local_z,y),euler_dot(local_z,z))
     parts=Dict{String,Any}[]
     # The outer flange face lies on the FE GRID path. Decomposing the exact
     # T into two rectangles includes its centroid offset without overlap.
-    for (width,height,level,name) in ((b,tf,-tf/2,"flange"),(tw,h-tf,-tf-(h-tf)/2,"web"))
+    rectangles=if shape=="BAR"
+        tw,h=dims;((tw,h,-h/2,"web"),)
+    else
+        b,h,tf,tw=dims;((b,tf,-tf/2,"flange"),(tw,h-tf,-tf-(h-tf)/2,"web"))
+    end
+    for (width,height,level,name) in rectangles
         part=euler_rectangle(width,height,(level*n[1],level*n[2]),t,n)
         merge!(part,Dict("eid"=>gr.eids[index],"pid"=>gr.pid,"part"=>name,
             "young_pa"=>young,"material_young_pa"=>young,"projection_factor"=>1.,"material_id"=>material["id"]))

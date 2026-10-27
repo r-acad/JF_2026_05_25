@@ -17,6 +17,29 @@ function extract_loads(cards)
     return f
 end
 
+# Retain unsupported geometric-direction loads so selecting them cannot
+# silently remove a physical force or moment. This is ownership validation,
+# not an implementation of their configuration-dependent direction law.
+function normalize_unsupported_directional_load(record::AbstractDict, kind::AbstractString)
+    kind in ("FORCE1","FORCE2","MOMENT1","MOMENT2") ||
+        throw(ArgumentError("Unknown geometric-direction load type $kind"))
+    sid=parse_reference_number(get(record,"SID",nothing),nothing)
+    sid isa Real && isfinite(sid) && isinteger(sid) && 0<sid<=typemax(Int) ||
+        throw(ArgumentError("$kind requires a positive integer SID"))
+    magnitude_field=startswith(kind,"FORCE") ? "F" : "M"
+    mag=parse_reference_number(get(record,"Mag",get(record,magnitude_field,nothing)),nothing)
+    mag isa Real && isfinite(mag) ||
+        throw(ArgumentError("$kind SID=$sid requires a finite magnitude"))
+    return merge(Dict{String,Any}(record),Dict{String,Any}(
+        "TYPE"=>String(kind),"SID"=>Int(sid),"Mag"=>Float64(mag)))
+end
+
+function extract_unsupported_directional_loads(cards,kind::AbstractString)
+    return [normalize_unsupported_directional_load(Dict{String,Any}(
+        "SID"=>safe_get(c,3),"Mag"=>safe_get(c,5),"FIELDS"=>copy(c[4:end])),kind)
+        for c in cards]
+end
+
 function extract_moments(cards)
     m = []
     for c in cards
@@ -49,18 +72,35 @@ function extract_pload4(cards)
         g3 = thru ? 0 : to_id(parse_reference_number(safe_get(c, 10), 0))
         # Continuation line: CID(field 10→c[11]), N1(c[12]), N2(c[13]), N3(c[14])
         cid = to_id(parse_reference_number(safe_get(c, 11), 0))
-        n1 = parse_reference_number(safe_get(c, 12), nothing)
-        n2 = parse_reference_number(safe_get(c, 13), nothing)
-        n3 = parse_reference_number(safe_get(c, 14), nothing)
+        # Keep a partially supplied direction: blank vector components are
+        # zero, rather than discarding the whole vector and selecting pressure.
+        direction = zeros(3)
+        has_direction = false
+        for (i, k) in enumerate(12:14)
+            raw = safe_get(c, k)
+            (raw === nothing || isempty(strip(string(raw)))) && continue
+            value = parse_reference_number(raw, nothing)
+            value isa Real && isfinite(value) || throw(ArgumentError(
+                "PLOAD4 SID=$sid EID=$eid: N$i must be finite numeric data"))
+            direction[i] = Float64(value)
+            has_direction = true
+        end
+        sorl = uppercase(strip(string(safe_get(c, 15, ""))))
+        isempty(sorl) && (sorl = "SURF")
+        sorl in ("SURF", "LINE") || throw(ArgumentError(
+            "PLOAD4 SID=$sid EID=$eid: SORL must be SURF or LINE"))
+        ldir = uppercase(strip(string(safe_get(c, 16, ""))))
+        ldir in ("", "X", "Y", "Z", "TANG", "NORM") || throw(ArgumentError(
+            "PLOAD4 SID=$sid EID=$eid: unsupported LDIR=$ldir"))
         eids = thru && eid2 > eid ? collect(eid:eid2) : [eid]
         for e in eids
             d = Dict{String,Any}("TYPE"=>"PLOAD4", "SID"=>sid, "EID"=>e, "P"=>press)
             if g1 > 0; d["G1"] = g1; end
             if g3 > 0; d["G3"] = g3; end
-            if n1 !== nothing && n2 !== nothing && n3 !== nothing
-                d["CID"] = cid
-                d["N"] = [Float64(n1), Float64(n2), Float64(n3)]
-            end
+            d["CID"] = cid
+            d["SORL"] = sorl
+            isempty(ldir) || (d["LDIR"] = ldir)
+            has_direction && (d["N"] = copy(direction))
             push!(p, d)
         end
     end

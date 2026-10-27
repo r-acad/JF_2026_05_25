@@ -12,11 +12,11 @@
   const PANEL_IDS = ["sidebar","hud-left","model-card","results-card","pick-card","log-wrap","deck-panel"];
   const LAYER_GROUP_IDS = ["shells","beams","solids","nodes","connections","constraints","aerodynamics","vlm","loads","masses","overlays","aids","coordinates","other"];
   const DRAWING_KEYS = new Set(["shared-plan-reference","movable-surfaces-plan","planform","spars","master-ribs","stringer-layout","leading-edge-ribs","fuel-tank","stringer-section","spar-cap-section","rib-stiffener-section","rib-override-section","airfoil-root","airfoil-tip",...(["upper_skin","lower_skin","spar_web","rib_web","leading_edge_skin","leading_edge_rib","stringer_flange"].map(name=>"material-"+name))]);
-  const CONTROL_IDS = ["show-movable-preview","movable-preview-style","surface-mode","surface-translucency","shell-geometry","beam-style","show-bars-through","show-aero-overlay","aero-deformed-style","aero-surface-color","show-aero-curvature","show-loft-cuts","loft-cut-count","loft-cut-color","show-reference-loft-cuts","reference-loft-cut-color","background-color","inspect-entity",
+  const CONTROL_IDS = ["show-movable-preview","show-movable-hinges","movable-preview-style","surface-mode","surface-translucency","shell-geometry","beam-style","show-bars-through","show-aero-overlay","aero-deformed-style","aero-surface-color","show-aero-curvature","show-loft-cuts","loft-cut-count","loft-cut-color","show-reference-loft-cuts","reference-loft-cut-color","background-color","inspect-entity",
     "show-fuel-inertia","show-fuel-cg","show-fuel-mass-labels","fuel-inertia-scale","show-structural-inertia","structural-inertia-scale","show-material-axes","show-material-axis-labels",
-    "node-radius","marker-radius","celas-radius","show-ground-plane","show-symmetry-plane","ground-plane-z","ground-grid-spacing","show-shell-axes","show-bar-axes","show-node-ids","show-element-ids","show-coordinate-labels","show-rbe3-dofs","show-celas-cylinders","id-label-size",
+    "node-radius","marker-radius","constraint-marker-size","show-constraint-glow","show-global-axis-labels","celas-radius","show-ground-plane","show-symmetry-plane","ground-plane-z","ground-grid-spacing","show-shell-axes","show-bar-axes","show-node-ids","show-element-ids","show-coordinate-labels","show-rbe3-dofs","show-celas-cylinders","id-label-size",
     "mesh-labels-ribs","mesh-labels-stringers","show-rib-datums","rib-datum-size","vlm-field",
-    "vlm-force-scale","show-vlm-panel-forces","show-fuel-tank","show-panels","show-panel-ids","result-palette","show-support-forces","show-support-force-values","support-force-scale",
+    "vlm-force-scale","show-vlm-panel-forces","show-fuel-tank","show-panels","show-panel-ids","result-palette","show-support-forces","show-support-force-values","show-support-moments","show-support-moment-values","support-force-scale","support-force-diameter","show-support-fx","show-support-fy","show-support-fz","show-support-mx","show-support-my","show-support-mz",
     "deform-scale","animate","show-undeformed","undeformed-color","show-celas-labels","show-actuator-stiffness","show-reference-aero","show-deformed-aero","contour-select","compare-results","auto-mesh","auto-save","show-picked-axes","measure-snap-nodes"];
   const CHECK_IDS = new Set(CONTROL_IDS.filter((id) => id.startsWith("show-") || id.startsWith("mesh-labels-") || ["animate","auto-mesh","auto-save","compare-results","measure-snap-nodes"].includes(id)));
   const LEGACY_LABEL_IDS = new Set(["mesh-labels-none","mesh-labels-both"]);
@@ -67,9 +67,25 @@
     if (!bytes.length) throw new Error("An embedded reference file is empty.");
     return bytes;
   }
+  function migrateReactionControls(view) {
+    // Older Studies used the force-named controls for forces AND moments.
+    // Only absent new settings inherit those values; explicit split choices win.
+    const controls=view.controls||{},layers=view.layers||{};
+    if(!Object.hasOwn(controls,"show-support-moments")){
+      if(typeof controls["show-support-forces"]==="boolean")controls["show-support-moments"]=controls["show-support-forces"];
+      else if(typeof layers.SUPPORT_FORCES==="boolean")controls["show-support-moments"]=layers.SUPPORT_FORCES;
+      if(typeof layers.SUPPORT_FORCES==="boolean"&&!Object.hasOwn(layers,"SUPPORT_MOMENTS"))layers.SUPPORT_MOMENTS=layers.SUPPORT_FORCES;
+    }
+    if(!Object.hasOwn(controls,"show-support-moment-values")&&typeof controls["show-support-force-values"]==="boolean")controls["show-support-moment-values"]=controls["show-support-force-values"];
+    // Earlier Studies showed every recovered component with automatic line size.
+    for(const id of ["show-support-fx","show-support-fy","show-support-fz","show-support-mx","show-support-my","show-support-mz"])if(!Object.hasOwn(controls,id))controls[id]=true;
+    if(!Object.hasOwn(controls,"support-force-diameter"))controls["support-force-diameter"]="0";
+    return view;
+  }
   function validateView(view) {
     if (!object(view) || !object(view.controls) || !object(view.layers) || !object(view.camera) || !object(view.workspace))
       throw new Error("The model file has incomplete display settings.");
+    migrateReactionControls(view);
     for (const [id,value] of Object.entries(view.controls)) {
       if (!CONTROL_IDS.includes(id) && !LEGACY_LABEL_IDS.has(id)) throw new Error("Unsupported display setting: " + id);
       if (CHECK_IDS.has(id) || LEGACY_LABEL_IDS.has(id)) { if (typeof value !== "boolean") throw new Error("Invalid checkbox setting: "+id); }
@@ -85,12 +101,14 @@
       if (id === "ground-grid-spacing" && (value.trim()==="" || !Number.isFinite(Number(value)) || Number(value)<=0)) throw new Error("Ground grid spacing must be a finite number greater than zero.");
       if (id === "celas-radius" && (value.trim()==="" || !Number.isFinite(Number(value)) || Number(value)<1e-12 || Number(value)>1e12)) throw new Error("Spring radius must be between 1e-12 and 1e12 model units.");
       if (id === "rib-datum-size" && (value.trim()==="" || !Number.isFinite(Number(value)) || Number(value)<=0)) throw new Error("Rib datum square size must be a finite number greater than zero.");
+      if (id === "constraint-marker-size" && (value.trim()==="" || !Number.isFinite(Number(value)) || Number(value)<.1 || Number(value)>10)) throw new Error("Constraint size must be between 0.1 and 10.");
       if (["node-radius","marker-radius","id-label-size","deform-scale"].includes(id) &&
           (value.trim()==="" || !Number.isFinite(Number(value)) || id !== "deform-scale" && Number(value)<0))
         throw new Error("Invalid display number: "+id);
       if (id === "vlm-force-scale" && (!Number.isFinite(Number(value)) || Number(value)<0.01 || Number(value)>100)) throw new Error("VLM force scale must be between 0.01 and 100.");
       if (["fuel-inertia-scale","structural-inertia-scale"].includes(id) && (!Number.isFinite(Number(value)) || Number(value)<0.01 || Number(value)>100)) throw new Error("Mass inertia scale must be between 0.01 and 100.");
       if (id === "support-force-scale" && (!Number.isFinite(Number(value)) || Number(value)<0.01 || Number(value)>100)) throw new Error("Constraint-force scale must be between 0.01 and 100.");
+      if (id === "support-force-diameter" && (value.trim()==="" || !Number.isFinite(Number(value)) || Number(value)<0)) throw new Error("Constraint-force stem diameter must be finite and non-negative; use 0 for automatic size.");
       if(id==="surface-translucency"&&(value.trim()===""||!Number.isFinite(Number(value))||Number(value)<0||Number(value)>100))throw new Error("Surface translucency must be between 0 and 100 percent.");
     }
     if([...LEGACY_LABEL_IDS].some(id=>Object.hasOwn(view.controls,id))){
@@ -357,5 +375,5 @@
   function download(data,name,document) {
     downloadText(JSON.stringify(data,null,2),name,"application/json",document);
   }
-  return {FORMAT,VERSION,CONTROL_IDS,LAYER_GROUP_IDS,MAX_NOTE_LENGTH,MAX_NOTE_ENTRIES,normalizeNotes,notesForSave,completeView,newModelView,parse,parseObject,snapshot,captureView,applyControls,validateView,bytesToBase64,base64ToBytes,filename,download,requestSaveDestination,requestStudyDestination,writeDestination,downloadText,nativeHandle,writableHandle,nativeFile};
+  return {FORMAT,VERSION,CONTROL_IDS,LAYER_GROUP_IDS,MAX_NOTE_LENGTH,MAX_NOTE_ENTRIES,normalizeNotes,notesForSave,completeView,newModelView,parse,parseObject,snapshot,captureView,applyControls,validateView,migrateReactionControls,bytesToBase64,base64ToBytes,filename,download,requestSaveDestination,requestStudyDestination,writeDestination,downloadText,nativeHandle,writableHandle,nativeFile};
 });

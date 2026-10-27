@@ -207,21 +207,24 @@
     }
     return candidates;
   }
-  function supportValueCandidates(state) {
-    const layer=state.layers.get("SUPPORT_FORCES"),candidates=[];
-    if(!layer?.visible)return candidates;
+  function supportValueCandidates(state,showForces=true,showMoments=true) {
+    const candidates=[];
+    for(const name of ["SUPPORT_FORCES","SUPPORT_MOMENTS"]){
+    const layer=state.layers.get(name);if(!layer?.visible)continue;
     for(const mesh of layer.meshes){
       if(mesh.isDisposed?.()||mesh.isEnabled?.()===false||mesh.isVisible===false)continue;
       const vertices=mesh.getVerticesData?.("position"),matrix=mesh.computeWorldMatrix?.(true)?.m;
       if(!vertices)continue;
       for(const glyph of mesh.metadata?.glyphs||[]){
-        const offset=glyph.first_vertex+(glyph.kind==="moment"?glyph.vertex_count-4:1),local=Array.from(vertices.slice(3*offset,3*offset+3));
+        if(glyph.kind==="moment"?!showMoments:!showForces)continue;
+        const offset=glyph.label_vertex??glyph.first_vertex+(glyph.kind==="moment"?glyph.vertex_count-4:1),local=Array.from(vertices.slice(3*offset,3*offset+3));
         if(local.length!==3||!local.every(Number.isFinite)||!Number.isFinite(glyph.value))continue;
         const point=matrix?[0,1,2].map(a=>matrix[a]*local[0]+matrix[4+a]*local[1]+matrix[8+a]*local[2]+matrix[12+a]):local;
         const value=globalThis.WingNumbers?.format(glyph.value,5)??String(Number(glyph.value.toPrecision(5)));
         candidates.push({kind:"reaction",id:glyph.node_index,component:glyph.component,color:glyph.color,
           text:(glyph.kind==="moment"?"M":"F")+glyph.axis.toLowerCase()+" "+value+" "+(glyph.kind==="moment"?"N·m":"N"),point});
       }
+    }
     }
     return candidates;
   }
@@ -252,8 +255,10 @@
       const showRibs = !!control("mesh-labels-ribs")?.checked;
       const showStringers = !!control("mesh-labels-stringers")?.checked;
       const showPanels=control("show-panel-ids")?.checked!==false&&(!!state.panelView||!!state.panelExplosion?.active&&state.panelExplosion.by!=="property");
-      const showReactions=!!control("show-support-force-values")?.checked;
+      const showForceValues=!!control("show-support-force-values")?.checked,showMomentValues=!!control("show-support-moment-values")?.checked;
+      const showReactions=showForceValues||showMomentValues;
       const showCoordinates=!!control('show-coordinate-labels')?.checked;
+      const showGlobalAxes=!!control('show-global-axis-labels')?.checked;
       const showRbe3Dofs=!!control('show-rbe3-dofs')?.checked;
       const showSprings=!!control('show-celas-labels')?.checked;
       const showActuators=!!control('show-actuator-stiffness')?.checked;
@@ -263,7 +268,7 @@
       const width = canvas.clientWidth, height = canvas.clientHeight;
       const occluders = opaqueOccluders(scene);
       const occluderKey = occluders.map((mesh) => mesh.uniqueId + ":" + Array.from(mesh.computeWorldMatrix().m).join(",")).join(";");
-      const key = [width, height, showNodes, showElements, showRibs, showStringers, showPanels, showReactions,showCoordinates,showRbe3Dofs,showSprings,showActuators,showMaterialAxes,state.selectedCoordinate, size, state.selectedElement,
+      const key = [width, height, showNodes, showElements, showRibs, showStringers, showPanels, showForceValues,showMomentValues,showCoordinates,showGlobalAxes,showRbe3Dofs,showSprings,showActuators,showMaterialAxes,state.selectedCoordinate, size, state.selectedElement,
         occluderKey, ...scene.getTransformMatrix().m, ...Array.from(state.layers, ([, layer]) => +layer.visible)].join("|");
       const now = performance.now();
       if (!force && (!dirty && key === lastKey && state.data === lastData && positions === lastPositions || now - lastTime < 30)) return;
@@ -313,7 +318,7 @@
         if (!picked && occupied(rect)) return false;
         // Coordinate definitions are reference overlays. Their shared origin
         // may lie inside a closed shell although the defining axes are visible.
-        if (candidate && candidate.kind!=='coordinate' && depthIndex().isOccluded(candidate, point)) { if (!picked) stats.occluded++; return false; }
+        if (candidate && !['coordinate','global-axis'].includes(candidate.kind) && depthIndex().isOccluded(candidate, point)) { if (!picked) stats.occluded++; return false; }
         occupied({ x: rect.x - 2, y: rect.y - 2, w: rect.w + 4, h: rect.h + 4 }, true);
         ctx.fillStyle = picked ? "#251d08" : "#08121ee8"; ctx.fillRect(rect.x, rect.y, w, h);
         ctx.strokeStyle = color; ctx.lineWidth = picked ? 2 : .65; ctx.strokeRect(rect.x, rect.y, w, h);
@@ -375,12 +380,12 @@
       let coordinateSelected=false;
       if(pickedCoordinate){const point=project(pickedCoordinate.point);if(point)coordinateSelected=badge(pickedCoordinate.text,point,COLORS.selected,true,pickedCoordinate);}
       const coordinateGroups=showCoordinates?WingModelEntities.coordinateLabelGroups(coordinateLabels):[];
-      if (showNodes || showElements || showRibs || showStringers || showPanels || showReactions || showCoordinates || showRbe3Dofs || showSprings || showActuators || showMaterialAxes) {
+      if (showNodes || showElements || showRibs || showStringers || showPanels || showReactions || showCoordinates || showGlobalAxes || showRbe3Dofs || showSprings || showActuators || showMaterialAxes) {
         const materialLabels=showMaterialAxes?(state.materialAxisLabels||[]).filter(row=>{const el=state.elements.get(row.id);return el&&visibleElement(state,el);}).map(row=>({kind:'material-axis',id:row.id,ownEids:[row.id],point:displayedPoint(state,row.id,centroid(positions,row.nodes)),text:row.text,color:'#ffbfc6'})):[];
-        const candidates = [...materialLabels,...actuatorLabels,...springLabels,...(globalThis.WingRbe3Labels?.candidates(state,positions,showRbe3Dofs)||[]),...coordinateGroups,...(showReactions?supportValueCandidates(state):[]),...panelLabelCandidates(state,positions,showPanels),...labelCandidates(state, positions, showNodes, showElements),
+        const candidates = [...(showGlobalAxes?state.globalAxes||[]:[]),...materialLabels,...actuatorLabels,...springLabels,...(globalThis.WingRbe3Labels?.candidates(state,positions,showRbe3Dofs)||[]),...coordinateGroups,...(showReactions?supportValueCandidates(state,showForceValues,showMomentValues):[]),...panelLabelCandidates(state,positions,showPanels),...labelCandidates(state, positions, showNodes, showElements),
           ...physicalLabelCandidates(state, positions, showRibs, showStringers)].map((candidate) => ({ ...candidate, screen: project(candidate.point) }))
           .filter((item) => item.screen && item.screen.x >= 0 && item.screen.x <= width && item.screen.y >= 0 && item.screen.y <= height)
-          .sort((a, b) => (b.kind==='panel')-(a.kind==='panel') || a.screen.z - b.screen.z);
+          .sort((a, b) => (b.kind==='global-axis')-(a.kind==='global-axis') || (b.kind==='panel')-(a.kind==='panel') || a.screen.z - b.screen.z);
         stats.eligible = candidates.length;
         stats.panelsShown=[];
         stats.supportValuesShown=[];
@@ -388,10 +393,11 @@
         stats.actuatorStiffnessShown=[];
         stats.coordinateSystemsShown=[];
         stats.materialAxesShown=[];
+        stats.globalAxesShown=[];
         for (const item of candidates) {
           if(item.kind==='coordinate'&&coordinateSelected&&(item.ids||[item.id]).includes(state.selectedCoordinate)){stats.shown++;stats.coordinateSystemsShown.push(state.selectedCoordinate);continue;}
           if (["element","spring-label"].includes(item.kind) && item.id === state.selectedElement && stats.selected) { stats.shown++; if(item.kind==='spring-label')stats.springPropertiesShown.push(item.id);continue; }
-          if (badge(item.text, item.screen, item.color, false, item)){stats.shown++;if(item.kind==='material-axis')stats.materialAxesShown.push(item.id);if(item.kind==='panel')stats.panelsShown.push(item.id);if(item.kind==='reaction')stats.supportValuesShown.push(item.text);if(item.kind==='spring-label')stats.springPropertiesShown.push(item.id);if(item.kind==='actuator-label')stats.actuatorStiffnessShown.push(item.id);if(item.kind==='coordinate')stats.coordinateSystemsShown.push(...(item.ids||[item.id]));}
+          if (badge(item.text, item.screen, item.color, false, item)){stats.shown++;if(item.kind==='global-axis')stats.globalAxesShown.push(item.text);if(item.kind==='material-axis')stats.materialAxesShown.push(item.id);if(item.kind==='panel')stats.panelsShown.push(item.id);if(item.kind==='reaction')stats.supportValuesShown.push(item.text);if(item.kind==='spring-label')stats.springPropertiesShown.push(item.id);if(item.kind==='actuator-label')stats.actuatorStiffnessShown.push(item.id);if(item.kind==='coordinate')stats.coordinateSystemsShown.push(...(item.ids||[item.id]));}
         }
         stats.occlusion = occlusion && occlusion.metrics;
         setStatus(stats.shown + " / " + stats.eligible + " labels shown" + (stats.occluded ? " · labels behind opaque surfaces omitted" : "") + (stats.shown + stats.occluded < stats.eligible ? " · zoom in to separate overlapping labels" : ""));
@@ -402,7 +408,7 @@
       const host = control("id-label-status"); if (host) host.textContent = text;
     }
     legend();
-    for (const id of ["show-node-ids", "show-element-ids", "show-coordinate-labels", "show-rbe3-dofs", "show-celas-labels", "show-actuator-stiffness", "id-label-size", "mesh-labels-ribs", "mesh-labels-stringers", "show-panel-ids", "show-support-force-values"]) {
+    for (const id of ["show-node-ids", "show-element-ids", "show-coordinate-labels", "show-rbe3-dofs", "show-celas-labels", "show-actuator-stiffness", "id-label-size", "mesh-labels-ribs", "mesh-labels-stringers", "show-panel-ids", "show-support-force-values", "show-support-moment-values"]) {
       const input = control(id); if (input) input.addEventListener("input", invalidate);
     }
     const observer = scene.onAfterRenderObservable.add(() => render());

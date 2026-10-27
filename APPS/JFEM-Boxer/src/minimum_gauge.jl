@@ -42,10 +42,10 @@ function minimum_shell_dimensions(p,component,definition;prefix="")
 end
 
 function minimum_stringer_dimensions(p,dimensions;prefix="")
-    blade_only=shell_stringers(p)&&iszero(dimensions[1])
+    blade_only=iszero(dimensions[1])
     out=Dict{String,Any}[]
     for (index,field) in enumerate(RIB_STIFFENER_FIELDS)
-        # A zero-width shell blade has no attached flange. Its zero width is
+        # A zero-width shell or beam blade has no attached flange. Its zero width is
         # allowed only when the editable family width minimum is also zero.
         blade_only&&field=="flange_thickness"&&continue
         push!(out,minimum_dimension(prefix*field,dimensions[index],p["properties.stringer_"*field],
@@ -68,10 +68,11 @@ function property_minimum_gauge(p,pid::Integer;definition=nothing)
         "can_reduce"=>false,"dimensions"=>Any[],"reason"=>reason)
     haskey(p,"imported.native")&&return not_applicable("Imported properties have no user-defined family minimum gauge.")
     if is_movable_pid(pid)
-        if div(pid,1_000_000)==37
-            property=definition===nothing ? movable_shell_property(p,pid) : definition
+        property=definition===nothing ? movable_shell_property(p,pid) : definition
+        if div(pid,1_000_000)==37 || get(property,"attachment_rib",false)
+            attachment_index=property["attachment_index"]
             dimension=minimum_dimension("thickness",property["thickness_m"],property["thickness_m"],
-                "movable_structure.attachments#$(property["movable_surface"])#lug_thickness";label="Hinge lug thickness")
+                "movable_structure.attachments#$attachment_index#lug_thickness";label="TE rib thickness")
             return Dict{String,Any}("status"=>"known","at_minimum"=>true,"can_reduce"=>false,"dimensions"=>[dimension])
         end
         family,index=divrem(pid,1_000_000);surface_index=index÷1000
@@ -79,7 +80,6 @@ function property_minimum_gauge(p,pid::Integer;definition=nothing)
         1<=surface_index<=length(rows)||throw(ArgumentError("Unknown movable property $pid"))
         row=rows[surface_index]
         field=("upper_thickness","lower_thickness","web_thickness","web_thickness","rib_thickness")[family-30]
-        property=definition===nothing ? movable_shell_property(p,pid) : definition
         dimension=minimum_dimension("thickness",property["thickness_m"],row[field],
             "movable_structure.surfaces#$(row["surface"])#$field";label="$(row["surface"]) $field")
         return Dict{String,Any}("status"=>"known","at_minimum"=>dimension["at_minimum"],

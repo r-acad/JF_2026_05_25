@@ -59,6 +59,20 @@ function integrated_shear_energy(xy,Cs,a)
     value
 end
 
+# Independent scalar form of MacNeal (1978), Eqs. 23--25. The physical
+# sample strains are weighted by sqrt(2J); only the pair means cross-couple.
+function published_shear_energy(xy,Cs,a)
+    gp=inv(sqrt(3.0)); points=((0.,-gp),(0.,gp),(-gp,0.),(gp,0.))
+    physical=(a[1]-gp*a[2],a[1]+gp*a[2],a[3]-gp*a[4],a[3]+gp*a[4])
+    weighted=map(enumerate(points)) do (i,rs)
+        J=ForwardDiff.jacobian(t -> transpose(xy)*shape(t),collect(rs))
+        sqrt(2abs(det(J)))*physical[i]
+    end
+    x1,x2,y1,y2=weighted
+    Cs[1,1]*(x1*x1+x2*x2)+Cs[2,2]*(y1*y1+y2*y2)+
+        (Cs[1,2]+Cs[2,1])*(x1+x2)*(y1+y2)/2
+end
+
 function flexibility(xy,Cb,Cs;rigid_shear=false)
     T = promote_type(eltype(Cb),eltype(Cs))
     mw = F.create_macneal_shear_workspace(T)
@@ -84,7 +98,7 @@ end
     for xy in geometries
         D = tying_rows(xy); T = D*Q
         mw = flexibility(xy,Cb,Cs)
-        H = ForwardDiff.hessian(a -> integrated_shear_energy(xy,Cs,a)/2,zeros(4))
+        H = ForwardDiff.hessian(a -> published_shear_energy(xy,Cs,a)/2,zeros(4))
         expected = T*(H\transpose(T))
         @test mw.Zs ≈ expected rtol=3e-12 atol=1e-18
         @test mw.Zs ≈ transpose(mw.Zs) rtol=2e-13 atol=1e-18
@@ -93,7 +107,14 @@ end
         @test mw.Z_total ≈ mw.Zs+mw.Zb rtol=2e-13 atol=1e-18
         for a in coefficients
             sampled = D*(Q*a)
-            @test dot(sampled,mw.Zs\sampled) ≈ integrated_shear_energy(xy,Cs,a) rtol=4e-12
+            @test dot(sampled,mw.Zs\sampled) ≈ published_shear_energy(xy,Cs,a) rtol=4e-12
+        end
+        # The continuum natural-field integral remains an exact independent
+        # limiting check when transverse shear has no cross-coupling.
+        for a in coefficients
+            diagonal_Cs=diagm(diag(Cs))
+            @test published_shear_energy(xy,diagonal_Cs,a) ≈
+                  integrated_shear_energy(xy,diagonal_Cs,a) rtol=4e-12
         end
         K = transpose(D)*(mw.Z_total\D)
         @test K ≈ transpose(K) rtol=3e-12 atol=1e-10

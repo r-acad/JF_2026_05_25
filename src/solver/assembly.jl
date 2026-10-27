@@ -861,6 +861,26 @@ end
         max(abs(A[1,3]),abs(A[3,1]),abs(A[2,3]),abs(A[3,2])) <= tolerance
 end
 
+"""Keep the intrinsic uncoupled differential work under normal-moment transport.
+
+The normal-moment map changes rotational rows only. Its membrane and
+translation-only initial-stress work therefore retain the ordinary projected
+operator, composed with the existing finite-warp map once. Alternate surface,
+director and material-frame formulations keep their established dispatch.
+"""
+@inline function kg_quad4_normal_moment_differential_enabled(active::Bool,
+    is_pcomp::Bool, is_isotropic::Bool; Bmb=nothing, kernel_mode="macneal",
+    normal_moment::Bool=true, director::Bool=false, transform_only::Bool=false,
+    use_geom::Bool=false, mitc::Bool=false, curved_transform::Bool=false,
+    curvature=nothing, slope=nothing, surface_mode::Symbol=:flat, alternate_plate::Bool=false,
+    trans_mode::Symbol=:principal_transverse)
+    return active && (is_pcomp || is_isotropic) && Bmb === nothing &&
+        lowercase(string(kernel_mode)) == "macneal" && normal_moment &&
+        !director && !transform_only && !use_geom && !mitc && !curved_transform &&
+        curvature === nothing && slope === nothing && surface_mode === :flat && !alternate_plate &&
+        trans_mode === :principal_transverse
+end
+
 @inline function kg_quad4_iso_assumed_transverse_enabled(
     warp_ratio::Real, prop, mat;
     normal_transform::Bool=false, curvature=nothing, slope=nothing,
@@ -1956,6 +1976,82 @@ roundoff in rotated planar input without extending to physically warped cells.
     Bmb === nothing && curvature_membrane === nothing && slope_membrane === nothing || return false
     snorm_pq === nothing || !FEM.quad4_snorm_pq_has_active_rows(snorm_pq) || return false
     return lowercase(string(kernel_mode)) == "macneal"
+end
+
+"""Bounded ordinary GRID-reference offset differential law.
+
+Finite W projection is admitted; curved/director/normal and alternate metric
+laws retain their existing contracts. This is not enhanced LROFF support.
+"""
+@inline function q4_reference_offset_differential_enabled(sol_type,z;
+    projected_offset=false,finite_warp=true,snorm_pq=nothing,normal_transform=false,
+    curvature=nothing,slope=nothing,kernel_mode="macneal",alternate_plate=false,
+    mid4=false,variable_thickness=false,compatible_membrane=false,membrane_selc=false,
+    surface_operator=:flat,recovery_mode=:planar,trans_mode=:principal_transverse,
+    material_frame=true,research=false)
+    sol_type==105 && !iszero(z) && isfinite(z) || return false
+    projected_offset && finite_warp && material_frame || return false
+    snorm_pq===nothing && !normal_transform && curvature===nothing && slope===nothing || return false
+    !alternate_plate && !mid4 && !variable_thickness && !compatible_membrane && !membrane_selc || return false
+    kernel_mode=="macneal" && surface_operator===:flat && recovery_mode===:planar || return false
+    return trans_mode===:principal_transverse && !research
+end
+
+# Explicit ordinary defaults are idempotent. Unrecognized experimental keys
+# retain their established branch; diagnostics/storage never select physics.
+@inline function q4_reference_offset_research_overrides()
+    # These optional legacy stress scales live outside the JFEM_KG namespace.
+    # Preserve their experimental route when enabled with a nonunit value.
+    sol105_geom_pshell_iso_warped_kg_scale_enabled() &&
+        sol105_geom_pshell_iso_warped_kg_scale_value()!=1.0 && return true
+    sol105_geom_pshell_iso_skew_kg_scale_enabled() &&
+        sol105_geom_pshell_iso_skew_kg_scale_value()!=1.0 && return true
+    boolean_defaults=(
+        "JFEM_KG_SHELL_LOCAL_TRANS_SPLIT"=>false,
+        "JFEM_KG_SHELL_DRILL_ZERO"=>true,
+        "JFEM_KG_USE_COMPATIBLE_MEMBRANE_STRESS"=>false,
+        "JFEM_KG_CONSISTENT_MEMBRANE_OPERATOR"=>true,
+        "JFEM_KG_QUAD4_AUTO_GP_SPREAD"=>false,
+        "JFEM_KG_QUAD4_SHEAR_AVG_OPERATOR"=>false,
+        "JFEM_KG_SHELL_PRINCIPAL_TRANSVERSE_FLAT_ONLY"=>false,
+        "JFEM_KG_SHELL_PCOMP_NXY_ASPECT_SCALE"=>false,
+        "JFEM_KG_RECOVERY_CROSS_MEMBRANE_WEIGHTS"=>false)
+    scalar_defaults=(
+        "JFEM_KG_QUAD4_GP_FIELD_BLEND"=>1.0,
+        "JFEM_KG_QUAD4_GP_FIELD_EXTRAPOLATE_SCALE"=>1.0,
+        "JFEM_KG_QUAD4_GP_FIELD_PMIN_SPREAD_AVG_ALPHA"=>0.0,
+        "JFEM_KG_SHELL_NXY_AUTO_RELAX"=>0.0,
+        "JFEM_KG_SHELL_PCOMP_NXY_SCALE"=>1.0,
+        "JFEM_KG_SHELL_PCOMP_NXY_SHEAR_DOM_RELAX"=>0.0,
+        "JFEM_KG_SHELL_PRINCIPAL_SHEAR_YY_FACTOR"=>1.0,
+        "JFEM_KG_SHELL_PRINCIPAL_SHEAR_XY_FACTOR"=>1.0,
+        "JFEM_KG_SHELL_PRINCIPAL_SHEAR_Z_FACTOR"=>1.0,
+        "JFEM_KG_SHELL_PRINCIPAL_SHEAR_RATIO_MIN"=>1.0,
+        "JFEM_KG_SHELL_PRINCIPAL_SHEAR_GP_SPREAD_FACTOR"=>1.0)
+    for key in keys(ENV)
+        startswith(key,"JFEM_KG_") || continue
+        (startswith(key,"JFEM_KG_DIAG_") || key=="JFEM_KG_VALUES_ONLY_CSC") && continue
+        ib=findfirst(p->first(p)==key,boolean_defaults)
+        if ib!==nothing
+            default=last(boolean_defaults[ib])
+            solver_env_bool(key,default)==default || return true
+            continue
+        end
+        ix=findfirst(p->first(p)==key,scalar_defaults)
+        if ix!==nothing
+            default=last(scalar_defaults[ix])
+            solver_env_float(key,default)==default || return true
+            continue
+        end
+        ordinary = key=="JFEM_KG_SHELL_TRANSVERSE_W_FORM" ? lowercase(strip(ENV[key]))=="w" :
+            key=="JFEM_KG_SHELL_TRANS_DOF_MODE" ? kg_shell_trans_mode()===:principal_transverse :
+            key=="JFEM_KG_QUAD4_STRESS_FIELD_MODE" ? kg_quad4_stress_field_mode()===:gauss :
+            key=="JFEM_KG_QUAD4_MEMBRANE_RECOVERY_MODE" ? kg_quad4_membrane_recovery_mode()===:planar :
+            key=="JFEM_KG_SHELL_SURFACE_OPERATOR" ? kg_shell_surface_operator_mode()===:flat :
+            key=="JFEM_KG_QUAD4_ISO_REFERENCE_KDJJ" ? kg_quad4_iso_reference_kdjj_mode()===:all : false
+        ordinary || return true
+    end
+    return false
 end
 
 """Explicit legacy center-shear alternative to the complete membrane basis."""
@@ -3107,6 +3203,7 @@ end
     t3_idx     = Matrix{Int}(undef, n_t3, 3)
     t3_eid_int = zeros(Int,n_t3); t3_pid_int = zeros(Int,n_t3)
     t3_zoffs = zeros(n_t3)
+    t3_variable_corner = falses(n_t3)
     t3_h       = Vector{Float64}(undef, n_t3)
     t3_br      = Vector{Float64}(undef, n_t3)
     t3_tst     = Vector{Float64}(undef, n_t3)
@@ -3155,6 +3252,9 @@ end
         corner_data = shell_corner_thickness_model_data(model,prop,el)
         h = corner_data===nothing ? prop["T"] :
             corner_data.uniform ? first(corner_data.thickness) : corner_data.reference_thickness
+        triangle_section = corner_data!==nothing && !corner_data.uniform && n==3 ?
+            shell_tria3_corner_section(model,prop,el,corner_data) : nothing
+        triangle_section===nothing || (h=triangle_section.mean_thickness)
         br = get(prop, "BEND_RATIO", 1.0)
         tst = get(prop, "TS_T", 5.0/6.0)
         pcomp_is_isotropic = is_pcomp_clt && get(prop, "IS_ISOTROPIC", false)
@@ -3222,6 +3322,10 @@ end
             Cb_e = pshell_bending_constitutive_matrix(bend_mat, h, br, el_theta)
         end
 
+        if triangle_section!==nothing
+            Cb_e .*= triangle_section.bending_scale
+        end
+
         if br <= 1e-12
             # A PSHELL/Pcomp membrane-only shell should not retain transverse shear
             # or drilling stabilization; those artificial out-of-plane terms prevent
@@ -3280,6 +3384,7 @@ end
             it3 += 1
             t3_eid_int[it3]=parse(Int,string(el["ID"])); t3_pid_int[it3]=parse(Int,pid)
             t3_zoffs[it3]=Float64(get(el,"ZOFFS",0.0))
+            t3_variable_corner[it3]=triangle_section!==nothing
             i1 = id_vec[nids[1]]; i2 = id_vec[nids[2]]; i3 = id_vec[nids[3]]
             t3_idx[it3,1] = i1; t3_idx[it3,2] = i2; t3_idx[it3,3] = i3
             t3_h[it3] = h; t3_br[it3] = br; t3_tst[it3] = tst; t3_Eref[it3] = E_ref_e
@@ -3348,7 +3453,7 @@ end
     sep_coords3d = [zeros(4,3) for _ in 1:nt]
     sep_coords3d_local = [zeros(4,3) for _ in 1:nt]
     sep_directors3d_local = [zeros(4,3) for _ in 1:nt]
-    sep_snorm_pq = [zeros(4,2) for _ in 1:nt]
+    sep_snorm_pq = [zeros(4,3) for _ in 1:nt]
     sep_Cm      = [zeros(3,3) for _ in 1:nt]
     sep_Cb      = [zeros(3,3) for _ in 1:nt]
     sep_Cs      = [zeros(2,2) for _ in 1:nt]
@@ -3446,12 +3551,14 @@ end
         if snorm_curvature && !elem_use_geom_snorm &&
            (snorm_has[i1] || snorm_has[i2] || snorm_has[i3] || snorm_has[i4])
             snorm_pq_local = sep_snorm_pq[tid]
+            fill!(view(snorm_pq_local,:,3),0.0)
             @inbounds for (k, idx) in enumerate((i1, i2, i3, i4))
                 if snorm_has[idx]
                     n = snorm_vec[idx]
                     dot(n, v3) < 0.0 && (n = -n)
                     n3 = dot(n, v3)
                     if abs(n3) >= 1e-3
+                        snorm_pq_local[k,3] = 1.0
                         snorm_pq_local[k,1] = dot(n, v1) / n3
                         snorm_pq_local[k,2] = dot(n, v2) / n3
                     else
@@ -3463,7 +3570,7 @@ end
                     snorm_pq_local[k,2] = 0.0
                 end
             end
-            FEM.quad4_snorm_pq_has_active_rows(snorm_pq_local) &&
+            snorm_quad4_field_is_active(snorm_pq_local,(p1,p2,p3,p4),v1,v3) &&
                 (snorm_pq_arg = snorm_pq_local)
         end
         elem_snorm_curvature = snorm_pq_arg !== nothing
@@ -3992,8 +4099,11 @@ end
         # validation with TBD outcome.
         elem_macneal_rigid_shear =
             (mat8_blank_ts_rigid_limit &&
-             elem_is_flat &&
-             elem_kernel_planar &&
+             ((elem_is_flat && elem_kernel_planar) ||
+              (q4_kernel_mode_static == "macneal" && fem_env_bool_solver_warp_transform() &&
+               curvature_membrane === nothing && slope_membrane === nothing &&
+               !snorm_director && !snorm_transform_only &&
+               (snorm_pq_arg === nothing || FEM.quad4_snorm_normal_moment_mode()))) &&
              is_pcomp_ei &&
              !is_pcomp_iso_ei &&
              q4_pcomp_rigid_shear[ei] &&
@@ -4458,8 +4568,7 @@ end
                                       Bmb_local === nothing &&
                                       !elem_is_flat &&
                                       iso_corner_curvature !== nothing &&
-                                      abs(q4_curvature_gaussian(iso_corner_curvature)) <= 1e-10 &&
-                                      first(q4_curvature_principal_abs(iso_corner_curvature)) > 1e-8
+                                      q4_curvature_is_numerically_cylindrical(iso_corner_curvature, lc)
         elem_iso_exact_membrane =
             elem_flat_iso_exact_membrane || elem_flat_curved_iso_exact_membrane ||
             elem_saddle_iso_exact_membrane || elem_cyl_iso_exact_membrane
@@ -5085,6 +5194,26 @@ end
         # runtime, so this is an alias — no copy — on the hot path.
         Ke_m = Ke_t isa Matrix{Float64} ? Ke_t : Matrix{Float64}(Ke_t)
 
+        # Reference-plane shifts act in the projected material plane, before
+        # normal-moment and finite-warp pullbacks. Re-express the shift at this
+        # kernel boundary so every selected projected kernel keeps its field.
+        projected_offset_map = nothing
+        outer_zoffs = q4_zoffs[ei]
+        if !iszero(outer_zoffs) && shell_projected_reference_offset_enabled(model) &&
+           elem_q4_kernel_mode_static == "macneal" &&
+           !elem_mitc4_3d_kernel && !elem_flat_dkmq_branch &&
+           !elem_rect_plate_branch && !elem_flat_plate_branch &&
+           !snorm_director && !snorm_transform_only &&
+           !elem_flat_curved_iso_nodal_geomnormal_transform &&
+           !elem_static_pcomp_nodal_geomnormal_transform &&
+           curvature_membrane === nothing && slope_membrane === nothing &&
+           (snorm_pq_arg === nothing || FEM.quad4_snorm_normal_moment_mode())
+            projected_offset_map = shell_projected_reference_offset_map(
+                lc,c3d_local,outer_zoffs;snorm_pq=snorm_pq_arg)
+            Ke_m = transpose(projected_offset_map)*Ke_m*projected_offset_map
+            outer_zoffs = 0.0
+        end
+
         if sol101_line_node_drill_sqrt_scale != 1.0 &&
            (node_has_frame[i1] || node_has_frame[i2] || node_has_frame[i3] || node_has_frame[i4])
             node_has_frame[i1] && scale_shell_local_drilling_dof!(Ke_m, 1, sol101_line_node_drill_sqrt_scale)
@@ -5095,7 +5224,7 @@ end
 
         _quad4_transform_emit!(
             sep_global[tid], sep_T[tid], sep_tmp[tid], sep_dofs[tid],
-            Ke_m, ke_t_global_ready, q4_zoffs[ei],
+            Ke_m, ke_t_global_ready, outer_zoffs,
             ei, i1, i2, i3, i4,
             v1, v2, v3,
             snorm_transform_only, snorm_xf_ok, snorm_xf_v3,
@@ -5112,7 +5241,8 @@ end
             end
             cm_axes=sqrt.([elem_static_component_cm11_scale,elem_static_component_cm22_scale,elem_static_component_cm66_scale])
             blend=elem_shear_center_only && is_iso_ei ? elem_curved_iso_blend : curved_pcomp_blend
-            _analytic_shell_finish!(shell_capture,q4_eid_int[ei],q4_pid_int[ei],sep_dofs[tid],sep_T[tid],sep_global[tid];
+            _analytic_shell_finish!(shell_capture,q4_eid_int[ei],q4_pid_int[ei],sep_dofs[tid],
+                projected_offset_map === nothing ? sep_T[tid] : projected_offset_map*sep_T[tid],sep_global[tid];
                 blend=blend,macneal_blend=elem_pcomp_k_macneal_blend,drill=drill,
                 raw_shear=shear_center_only && elem_is_flat && is_pcomp_ei && !is_pcomp_iso_ei,
                 cm_scale=elem_static_component_cm_scale*(cm_axes*cm_axes'),
@@ -5172,6 +5302,13 @@ end
         p3 = SVector{3}(node_coords[i3,1], node_coords[i3,2], node_coords[i3,3])
         v1, v2, v3 = shell_element_frame_fast(p1, p2, p3, SVector{3}(0.0,0.0,0.0), 3)
         tri_snorm_pq = tria3_snorm_element_pq(v1, v2, v3, (i1, i2, i3), snorm_normals)
+        if t3_variable_corner[ei]
+            ordinary = (tri_snorm_pq===nothing || all(iszero,tri_snorm_pq)) &&
+                all(idx->!snorm_has[idx] || norm(cross(v3,snorm_vec[idx]))<=
+                    64eps(Float64)*norm(snorm_vec[idx]),(i1,i2,i3))
+            ordinary || throw(ArgumentError(
+                "CTRIA3 $(t3_eid_int[ei]) nonuniform corner thickness requires ordinary planar triangle kinematics"))
+        end
 
         # SNORM adjustment
         n_avg = SVector(0.0, 0.0, 0.0); nc = 0
@@ -6246,6 +6383,8 @@ end
         base_mat = mats[mid]
         mat = is_pcomp_clt ? base_mat : _effective_mat1_for_nodes(model, mid, nids)
         corner_data=shell_corner_thickness_model_data(model,prop,el)
+        corner_data!==nothing && !corner_data.uniform && length(corner_data.thickness)==3 &&
+            throw(ArgumentError("CTRIA3 $(get(el,"ID","?")) nonuniform corner-thickness geometric stiffness is not implemented"))
         h=corner_data===nothing ? Float64(prop["T"]) :
             corner_data.uniform ? first(corner_data.thickness) : corner_data.reference_thickness
         pcomp_is_isotropic = is_pcomp_clt && get(prop, "IS_ISOTROPIC", false)
@@ -6285,7 +6424,7 @@ end
                              (snorm_has[i1] || snorm_has[i2] || snorm_has[i3] || snorm_has[i4])
                 pq = snorm_element_pq(
                     v1, v2, v3, (i1, i2, i3, i4), snorm_normals_local)
-                pq !== nothing && FEM.quad4_snorm_pq_has_active_rows(pq) ? pq : nothing
+                pq !== nothing && snorm_quad4_field_is_active(pq,(p1,p2,p3,p4),v1,v3) ? pq : nothing
             else
                 nothing
             end
@@ -6735,8 +6874,7 @@ end
                                         !elem_is_flat_kg &&
                                         get(prop, "Bmb", nothing) === nothing &&
                                         iso_corner_curvature_kg !== nothing &&
-                                        abs(q4_curvature_gaussian(iso_corner_curvature_kg)) <= 1e-10 &&
-                                        first(q4_curvature_principal_abs(iso_corner_curvature_kg)) > 1e-8
+                                        q4_curvature_is_numerically_cylindrical(iso_corner_curvature_kg, lc_buf4)
             if flat_iso_dkmq_branch &&
                is_iso_kg &&
                elem_is_flat_kg &&
@@ -6828,16 +6966,41 @@ end
                                    elem_is_flat_kg &&
                                    get(prop, "Bmb", nothing) === nothing &&
                                    maximum(abs, prop["Cb"]) > 1e-30
+            kg_normal_moment_differential = kg_quad4_normal_moment_differential_enabled(
+                snorm_completion_active_kg, is_pcomp_clt, is_iso_kg;
+                Bmb=(!is_pcomp_clt && get(prop,"MID4",0)!=0) ? true : get(prop,"Bmb",nothing),
+                kernel_mode=q4_kernel_mode_kg,
+                normal_moment=FEM.quad4_snorm_normal_moment_mode(),
+                director=snorm_director, transform_only=snorm_transform_only,
+                use_geom=use_geom_snorm_kg, mitc=elem_mitc4_3d_kg_recovery,
+                curved_transform=elem_flat_curved_iso_nodal_geomnormal_transform_kg,
+                curvature=curvature_membrane, slope=slope_membrane_kg,
+                surface_mode=kg_surface_operator_mode,
+                alternate_plate=kg_flat_plate_branch || kg_flat_dkmq_branch,
+                trans_mode=kg_trans_mode_eff)
             if snorm_completion_active_kg
-                # An active PARAM,SNORM normal-moment operator must use the
-                # matching projected geometric-stiffness route. Standalone
-                # KDJJ/DKQ/DKMQ operators do not carry the same normal-moment
-                # and finite-warp maps, so quarantine them.
-                kg_reference_kdjj_iso_branch = false
+                # A normal-moment map leaves the intrinsic translation-only
+                # differential work unchanged. The common map below still
+                # composes it with finite warp and reference offset once.
+                # Other director/alternate-plate formulations stay quarantined.
+                kg_reference_kdjj_iso_branch &= kg_normal_moment_differential
                 kg_reference_kdjj_pcomp_branch = false
                 kg_flat_dkmq_branch = false
                 kg_flat_plate_branch = false
             end
+            # The default MacNeal cell is a projected material operator even
+            # when its physical corners exceed the geometric flatness limit.
+            # Its THETA section tensors and initial-stress interpolation must
+            # use the same projected plane as K. Keep distinct director,
+            # intrinsic-curvature, covariant and alternate-plate laws separate.
+            kg_projected_pcomp_frame = is_pcomp_clt && !pcomp_is_isotropic &&
+                q4_kernel_mode_kg == "macneal" && fem_env_bool_solver_warp_transform() &&
+                !elem_mitc4_3d_kg_recovery && !use_geom_snorm_kg &&
+                !snorm_director && !snorm_transform_only &&
+                (snorm_pq_kg === nothing || FEM.quad4_snorm_normal_moment_mode()) &&
+                curvature_membrane === nothing && slope_membrane_kg === nothing &&
+                kg_surface_operator_mode !== :covariant &&
+                !kg_flat_plate_branch && !kg_flat_dkmq_branch
             # A finite-warp MacNeal element keeps a planar material operator.
             # Match its prestress law without changing physical curvature flags.
             kg_projected_pcomp = get(model, "SOL", 101) == 105 && !elem_is_flat_kg &&
@@ -6931,7 +7094,7 @@ end
                 # :g12/:global_x betas already contain the frame angle).  Rotate
                 # Cm_override AND Bmb_kg (same membrane-strain frame).
                 if solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE", true) &&
-                   !pcomp_is_isotropic && (elem_is_flat_kg || kg_projected_pcomp)
+                   !pcomp_is_isotropic && (elem_is_flat_kg || kg_projected_pcomp || kg_projected_pcomp_frame)
                     mcid_kg_phi = shell_material_coordinate_id(el)
                     mcid_kg_phi_active = shell_material_coordinate_active(mcid_kg_phi, model["CORDs"])
                     if !mcid_kg_phi_active &&
@@ -6967,7 +7130,7 @@ end
                     # shear tensors in exactly the frame used by elastic K.
                     # The legacy optional plate branches keep their own law.
                     if (Bmb_kg !== nothing || (!kg_flat_plate_branch && !kg_flat_dkmq_branch)) &&
-                       elem_is_flat_kg && !pcomp_is_isotropic &&
+                       (elem_is_flat_kg || kg_projected_pcomp_frame) && !pcomp_is_isotropic &&
                        solver_env_bool("JFEM_SOL105_PCOMP_SKEW_CB_FRAME",true) &&
                        !shell_material_coordinate_active(shell_material_coordinate_id(el),model["CORDs"]) &&
                        kg_axis_mode_eff !== :g12 && kg_axis_mode_eff !== :global_x
@@ -6984,8 +7147,12 @@ end
                     end
                 end
             end
+            # A nonuniform Ti section is integrated in its projected plane;
+            # finite warp acts by work-conjugate maps on preload and Kg below.
+            # Retain every constitutive, director and curvature restriction.
+            kg_section_warp = corner_data !== nothing && !corner_data.uniform ? 0.0 : warp_ratio_kg
             kg_pshell_material_frame = q4_pshell_material_frame(
-                !is_pcomp_clt, warp_ratio_kg;
+                !is_pcomp_clt, kg_section_warp;
                 Bmb=get(prop,"MID4",0) == 0 ? nothing : zeros(3,3),
                 snorm_pq=snorm_pq_kg, curvature_membrane=curvature_membrane,
                 slope_membrane=slope_membrane_kg, kernel_mode=q4_kernel_mode_kg)
@@ -7007,6 +7174,27 @@ end
                     bmat === nothing && error("PSHELL $pid references missing MID4 $mid4")
                     Bmb_kg = pshell_mid4_bmb_matrix(bmat,h,beta)
                 end
+            end
+            projected_offset_map_kg = nothing
+            offset_grid_preload = nothing
+            kg_reference_offset_differential = false
+            zoffs_kg = Float64(get(el,"ZOFFS",0.0))
+            if !iszero(zoffs_kg) && shell_projected_reference_offset_enabled(model) &&
+               q4_kernel_mode_kg == "macneal" &&
+               !elem_mitc4_3d_kg_recovery && !kg_flat_plate_branch && !kg_flat_dkmq_branch &&
+               kg_surface_operator_mode !== :covariant &&
+               !snorm_director && !snorm_transform_only && !use_geom_snorm_kg &&
+               !elem_flat_curved_iso_nodal_geomnormal_transform_kg &&
+               curvature_membrane === nothing && slope_membrane_kg === nothing &&
+               (snorm_pq_kg === nothing || FEM.quad4_snorm_normal_moment_mode())
+                projected_offset_map_kg = shell_projected_reference_offset_map(
+                    lc_buf4,coords3d_local_buf4,zoffs_kg;snorm_pq=snorm_pq_kg)
+                # Undo the legacy outer shift already used to extract the
+                # preload, then supply C*u to the unchanged projected field.
+                shell_reference_offset_transform!(T_buf,-zoffs_kg)
+                shell_reference_offset_displacement!(u_elem24,-zoffs_kg)
+                offset_grid_preload = copy(u_elem24)
+                u_elem24 .= projected_offset_map_kg*u_elem24
             end
             # Compute membrane resultants from the SOL101 displacement. A
             # caller can still force compatible-only recovery through
@@ -7060,20 +7248,62 @@ end
                     Bmb_kg === nothing && !kg_membrane_selc && !kg_compatible_membrane &&
                     snorm_pq_kg === nothing && !use_geom_snorm_kg &&
                     !kg_flat_plate_branch && !kg_flat_dkmq_branch
-                # The compatible differential field is established for the
-                # projected-flat membrane operator. The finite-warp map proves
-                # covariance of its diagnostic extension, not a complete 3D
-                # initial-stress tangent including initial moments. Retain the
-                # existing warped recovery unless explicitly investigating that
-                # extension. This is exactly the finite-warp map's zero-height
-                # tolerance, not the looser flat-shell interpolation tolerance.
-                kg_differential_prestress = (kg_coupled_condensed || kg_pshell_differential) &&
+                # Curvature compatibility belongs to the projected initial-stress
+                # field. A normal-moment SNORM map acts on the completed operator
+                # below; it does not require a different intrinsic strain law.
+                kg_coupled_normal_moment = is_pcomp_clt &&
+                    (Bmb_kg !== nothing || kg_normal_moment_differential) &&
+                    Cb_kg !== nothing && Cs_kg !== nothing &&
+                    !kg_membrane_selc && !kg_compatible_membrane &&
+                    curvature_membrane === nothing && slope_membrane_kg === nothing &&
+                    snorm_pq_kg !== nothing && FEM.quad4_snorm_normal_moment_mode() &&
+                    !snorm_director && !snorm_transform_only && !use_geom_snorm_kg &&
+                    q4_kernel_mode_kg == "macneal" && !kg_flat_plate_branch && !kg_flat_dkmq_branch &&
+                    solver_env_bool("JFEM_Q4_COUPLED_CONDENSED_RECOVERY",true)
+                kg_differential_prestress =
+                    (kg_coupled_condensed || kg_coupled_normal_moment || kg_pshell_differential) &&
                     get(model,"SOL",101) == 105 &&
                     solver_env_bool("JFEM_Q4_DIFFERENTIAL_PRESTRESS",true) &&
-                    (solver_env_bool("JFEM_Q4_DIFFERENTIAL_PRESTRESS_WARPED",false) ||
+                    (solver_env_bool("JFEM_Q4_DIFFERENTIAL_PRESTRESS_WARPED",Bmb_kg !== nothing || kg_projected_pcomp_frame) ||
                      maximum(abs,FEM.quad4_local_z_from_coords3d(coords3d_local_buf4)) <=
                          1e-12 * max(maximum(abs,@view(lc_buf4[:,1])),1e-30))
-                if kg_coupled_projected
+                kg_reference_offset_differential = projected_offset_map_kg!==nothing &&
+                    q4_reference_offset_differential_enabled(
+                    get(model,"SOL",101),zoffs_kg;
+                    projected_offset=projected_offset_map_kg!==nothing,
+                    finite_warp=solver_env_bool("JFEM_Q4_WARP_TRANSFORM",true),
+                    snorm_pq=snorm_pq_kg,
+                    normal_transform=snorm_director || snorm_transform_only || use_geom_snorm_kg ||
+                        elem_snorm_curvature_kg || elem_mitc4_3d_kg_recovery ||
+                        snorm_completion_active_kg || elem_flat_curved_iso_nodal_geomnormal_transform_kg,
+                    curvature=curvature_membrane===nothing ? kg_curvature : curvature_membrane,
+                    slope=slope_membrane_kg,kernel_mode=q4_kernel_mode_kg,
+                    alternate_plate=kg_flat_plate_branch || kg_flat_dkmq_branch,
+                    mid4=!is_pcomp_clt && get(prop,"MID4",0)!=0,
+                    variable_thickness=corner_data!==nothing && !corner_data.uniform,
+                    compatible_membrane=kg_compatible_membrane,membrane_selc=kg_membrane_selc,
+                    surface_operator=kg_surface_operator_mode,recovery_mode=kg_membrane_recovery_mode,
+                    trans_mode=kg_trans_mode_eff,
+                    material_frame=is_pcomp_clt || is_iso_kg || kg_pshell_material_frame,
+                    research=q4_reference_offset_research_overrides() ||
+                        kg_coupled_projected || kg_reference_kdjj_pcomp_branch ||
+                        kg_pcomp_axis_mode_override ||
+                        !solver_env_bool("JFEM_Q4_DIFFERENTIAL_PRESTRESS",true) ||
+                        # Preserve the explicit warped legacy-field opt-out.
+                        # Unset/default and physically flat cells are unchanged.
+                        (!solver_env_bool("JFEM_Q4_DIFFERENTIAL_PRESTRESS_WARPED",true) &&
+                         maximum(abs,FEM.quad4_local_z_from_coords3d(coords3d_local_buf4)) >
+                             1e-12 * max(maximum(abs,@view(lc_buf4[:,1])),1e-30)) ||
+                        lowercase(strip(get(ENV,"JFEM_KG_SHELL_TRANSVERSE_W_FORM","w")))!="w" ||
+                        solver_env_bool("JFEM_KG_SHELL_LOCAL_TRANS_SPLIT",false))
+                if kg_reference_offset_differential
+                    A_differential = Cm_override===nothing ?
+                        h.*pshell_plane_stress_matrix(mat,0.0) : Cm_override
+                    N_gp,N_res,_=FEM.quad4_reference_section_membrane_force_field(
+                        lc_buf4,offset_grid_preload,A_differential,Bmb_kg,zoffs_kg;
+                        coords_3d=coords3d_local_buf4)
+                    kg_differential_prestress=true
+                elseif kg_coupled_projected
                     projected = FEM.quad4_coupled_projected_fields(lc_buf4,u_elem24,
                         Cm_override,Bmb_kg,zeros(3,3);coords_3d=coords3d_local_buf4)
                     N_gp=projected.N_geometric
@@ -7086,7 +7316,8 @@ end
                         h .* pshell_plane_stress_matrix(mat,0.0) : Cm_override
                     N_gp,N_res,_=FEM.quad4_differential_membrane_force_field(
                         lc_buf4,u_elem24,A_differential,Bmb_kg;
-                        coords_3d=coords3d_local_buf4)
+                        coords_3d=coords3d_local_buf4,
+                        snorm_pq=(kg_coupled_normal_moment && Bmb_kg!==nothing) ? snorm_pq_kg : nothing)
                 elseif kg_coupled_condensed
                     # Use the elastic element's complete enrichment and
                     # physical A/B/D law. For a warped facet, its work-dual
@@ -7193,15 +7424,19 @@ end
             variable_corner_Kg=nothing
             if variable_corner
                 shell_variable_thickness_domain(model,prop,el,lc_buf4,coords3d_local_buf4)
-                ordinary=kg_differential_prestress && !elem_mitc4_3d_kg_recovery &&
+                ordinary=kg_pshell_differential && !elem_mitc4_3d_kg_recovery &&
                     !elem_snorm_curvature_kg && curvature_membrane===nothing &&
                     slope_membrane_kg===nothing && (snorm_pq_kg===nothing || all(iszero,snorm_pq_kg)) &&
                     !use_geom_snorm_kg && !kg_compatible_membrane
                 ordinary || throw(ArgumentError(
-                    "CQUAD4 $(el["ID"]) nonuniform corner thickness requires ordinary planar differential prestress"))
+                    "CQUAD4 $(el["ID"]) nonuniform corner thickness requires ordinary projected differential prestress"))
                 Acorner=Cm_override===nothing ? h.*pshell_plane_stress_matrix(mat,0.) : Cm_override
+                # Preload and perturbation share the same reference-plane work.
+                # The common Kg congruence below applies W on the perturbation.
+                corner_warp=FEM.quad4_finite_warp_displacement_map(lc_buf4,coords3d_local_buf4)
+                corner_preload=corner_warp===nothing ? u_elem24 : corner_warp*u_elem24
                 variable_corner_Kg,N_gp=FEM.quad4_variable_thickness_geometric(
-                    lc_buf4,u_elem24,Acorner,h,corner_data.thickness)
+                    lc_buf4,corner_preload,Acorner,h,corner_data.thickness)
                 N_res=vec(sum(N_gp,dims=1))/4
             end
             gp_blend_override = kg_quad4_gp_field_blend_override()
@@ -7272,7 +7507,10 @@ end
                     end
                 end
             end
-            sigma_mem_input = if gp_blend_override !== nothing
+            sigma_mem_input = if kg_reference_offset_differential && gp_blend_override===nothing
+                stress_mode_label="GRID-reference differential quadrature"
+                N_gp./h
+            elseif gp_blend_override !== nothing
                 stress_mode_label = "override_blend"
                 kg_quad4_blend_gp_field!(N_gp_eff, N_gp, N_res, gp_blend_override) ./ h
             elseif shear_avg_candidate
@@ -7605,12 +7843,13 @@ end
                 kg_quad4_iso_assumed_transverse_enabled(
                     warp_ratio_kg, prop, mat;
                     finite_warp_projection=apply_finite_warp_kg,
-                    normal_transform=nc > 0 || snorm_completion_active_kg || elem_snorm_curvature_kg ||
+                    normal_transform=(nc > 0 || snorm_completion_active_kg || elem_snorm_curvature_kg ||
                         elem_mitc4_3d_kg_recovery || use_geom_snorm_kg ||
                         (snorm_transform_only && snorm_xf_ok) ||
                         elem_flat_curved_iso_nodal_geomnormal_transform_kg ||
                         (snorm_director && (snorm_has[i1] || snorm_has[i2] ||
-                                           snorm_has[i3] || snorm_has[i4])),
+                                           snorm_has[i3] || snorm_has[i4]))) &&
+                        !kg_normal_moment_differential,
                     curvature=curvature_membrane === nothing ? kg_curvature : curvature_membrane,
                     slope=slope_membrane_kg,
                 )
@@ -7626,6 +7865,13 @@ end
                 # The constant-thickness isotropic shortcut recovers its own N
                 # and must not replace this physical quadrature.
                 Kg_loc=variable_corner_Kg
+            elseif kg_reference_offset_differential
+                # Ordinary ELMOFF differential work is on the GRID reference
+                # surface. Do not re-enter self-recovering KDJJ or enriched
+                # research branches after constructing the reference N field.
+                Kg_loc=FEM.geometric_stiffness_quad4(
+                    lc_buf4,N_gp,1.0;trans_mode=:principal_transverse)
+                FEM.add_quad4_assumed_transverse_gradient_delta!(Kg_loc,lc_buf4,N_gp,1.0)
             elseif kg_reference_kdjj_iso_branch
                 # This kernel recovers its own prestress. Supply the same
                 # physical-to-projected preload used by elastic K and ordinary
@@ -7840,30 +8086,40 @@ end
             # Keep SOL105 in the same physical coordinates as the elastic
             # matrix: form projected Kg, then the selected PARAM,SNORM map,
             # then W, and only afterwards scatter through the element frame.
-            warp_map_for_snorm_kg =
-                if snorm_pq_kg !== nothing &&
-                   FEM.quad4_snorm_normal_moment_mode() &&
-                   apply_finite_warp_kg
-                    FEM.quad4_finite_warp_displacement_map(
-                        lc_buf4, coords3d_local_buf4)
-                else
-                    nothing
+            corner_map_kg=apply_finite_warp_kg ?
+                FEM.quad4_snorm_corner_warp_map(lc_buf4,coords3d_local_buf4,snorm_pq_kg) : nothing
+            if corner_map_kg !== nothing
+                FEM.quad4_apply_displacement_congruence!(Kg_loc,corner_map_kg)
+            else
+                warp_map_for_snorm_kg =
+                    if snorm_pq_kg !== nothing &&
+                       FEM.quad4_snorm_normal_moment_mode() &&
+                       apply_finite_warp_kg
+                        FEM.quad4_finite_warp_displacement_map(
+                            lc_buf4, coords3d_local_buf4)
+                    else
+                        nothing
+                    end
+                if snorm_pq_kg !== nothing
+                    if FEM.quad4_snorm_normal_moment_mode()
+                        snorm_relative_pq_kg =
+                            FEM.quad4_snorm_relative_to_finite_warp_pq(
+                                snorm_pq_kg, warp_map_for_snorm_kg)
+                        snorm_relative_pq_kg === nothing ||
+                            FEM.apply_quad4_snorm_normal_moment_completion!(
+                                Kg_loc, lc_buf4, snorm_relative_pq_kg)
+                    else
+                        FEM.apply_quad4_snorm_director_completion!(Kg_loc, snorm_pq_kg)
+                    end
                 end
-            if snorm_pq_kg !== nothing
-                if FEM.quad4_snorm_normal_moment_mode()
-                    snorm_relative_pq_kg =
-                        FEM.quad4_snorm_relative_to_finite_warp_pq(
-                            snorm_pq_kg, warp_map_for_snorm_kg)
-                    snorm_relative_pq_kg === nothing ||
-                        FEM.apply_quad4_snorm_normal_moment_completion!(
-                            Kg_loc, lc_buf4, snorm_relative_pq_kg)
-                else
-                    FEM.apply_quad4_snorm_director_completion!(Kg_loc, snorm_pq_kg)
+                if apply_finite_warp_kg
+                    FEM.apply_quad4_finite_warp_equilibrium!(
+                        Kg_loc, lc_buf4, coords3d_local_buf4)
                 end
             end
-            if apply_finite_warp_kg
-                FEM.apply_quad4_finite_warp_equilibrium!(
-                    Kg_loc, lc_buf4, coords3d_local_buf4)
+
+            if projected_offset_map_kg !== nothing && !kg_reference_offset_differential
+                Kg_loc = transpose(projected_offset_map_kg)*Kg_loc*projected_offset_map_kg
             end
 
             # Transform to global: Kg_global = T' * Kg_loc * T

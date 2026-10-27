@@ -5,6 +5,69 @@ and result interpretation. Run its commands from the **repository root** after
 following your [operating-system installation guide](../README.md).
 The helper files in this directory share that root Project/Manifest and sysimage.
 
+## Comparing eigenvalues and modes
+
+Use the same model, constraints, physical matrices and extraction request on
+both sides. SOL103 eigenvalues are squared angular frequencies in rad²/s²;
+convert frequency in Hz with `lambda = (2*pi*f)^2`. SOL105 eigenvalues are
+signed buckling load factors. Do not compare these different quantities.
+
+`compare_eigenvalue_spectra(reference, candidate)` compares real root lists
+without relying on their output order. It preserves signs, repeated-root
+multiplicity and original indices. The default strict error threshold is
+below 0.5% relative to each reference root. It reports a complete assignment
+with numerical errors and a separate maximum matching within tolerance.
+Equal counts with inaccurate values remain numerical gaps; missing roots,
+extra roots and sign differences remain coverage gaps. No large finite root
+is discarded. Nonfinite values prevent a pass.
+
+For JSON arrays, or JSON objects containing an `eigenvalues` array:
+
+```powershell
+julia --project=. utils/julia_tools/compare_spectra.jl reference.json candidate.json comparison.json
+```
+
+The command writes a new report and exits 0 for agreement, 1 for disagreement.
+It refuses to overwrite an existing report. Optional `--lower=value` and
+`--upper=value` apply the same inclusive interval to both lists, in eigenvalue
+units, with a ledger of every exclusion. They do not change the extraction
+request. `--absolute-tolerance=value` and `--zero-tolerance=value` default to
+zero; set them only when the units and independent rigid-mode evidence justify
+them. Zero tolerance changes the near-zero sign classification, not the roots.
+`--relative-tolerance=value` defaults to 0.005.
+
+For a complete repeated or clustered spectral group, compare the columns of
+its mode matrices with `compare_eigenspaces(U, V)`. This checks rank and
+principal angles, so signs, normalization, ordering and basis rotations inside
+the same space do not create mismatches. Both matrices must use identical
+physical DOF order. A positive definite `metric` can supply the energy inner
+product; a singular full-space mass matrix must first be represented in
+separately validated finite-mode coordinates. If ND cuts through a repeated
+cluster, extract the whole cluster before concluding that different partial
+bases indicate an error. Unrestricted individual-mode MAC must not reassign
+roots from different spectral groups.
+
+`eigenpair_diagnostics(A, B, values, vectors)` checks the original pencil
+`A*u = lambda*B*u`, independently of the shifted or inverted extraction.
+It reports action-relative and matrix-backward residuals with overflow-safe
+scaling, including rotated rigid modes. Residual acceptance does not prove
+eigenvalue accuracy for an ill-conditioned pencil. Root-list agreement,
+eigenspace agreement and interval completeness are separate claims: a small
+residual or the requested number of roots alone is not a completeness proof.
+
+Modal EIGRL input preserves whether each field was actually specified.
+Specify a positive ND for normal modal runs. A blank ND without V2 requests
+the lowest root. A blank ND with V2 requests every root in that interval;
+the current modal API rejects that unsupported request with a clear message,
+instead of silently using the parser's stored placeholder. An explicit METHOD
+must resolve to a supported EIGRL entry. Programmatic calls without METHOD
+retain their documented convenience mode-count default.
+SOL103 currently publishes real-frequency modes; negative finite roots are
+reported in diagnostics rather than as a complete signed modal spectrum.
+Use a positive frequency upper bound or leave V2 blank for an unbounded
+request; the current numeric modal API interprets nonpositive V2 as unbounded.
+These output/request limitations must remain separate from spectrum matching.
+
 ## Shared image workloads
 
 Normal setup includes representative static, modal, buckling, nonlinear,
@@ -972,11 +1035,50 @@ and exact zeros into large temporary arrays. Smaller models retain the
 original accumulation path. Solver phase messages are flushed immediately
 to redirected logs.
 
+Explicit shell normals use `SNORM,GID,CID,N1,N2,N3`. The vector is normalized
+and its coordinate system defaults to BASIC; cylindrical and spherical
+components use the coordinate basis at the referenced GRID. Explicit normals
+override generated normals for the supported CQUAD4/CQUADR/CTRIA3/CTRIAR cards.
+`PARAM,SNORM,0` disables generation while retaining explicit normals; a negative
+value disables both. A positive value enables generation followed by explicit
+overrides. The effective normals are shared by stiffness, mass, prestress and
+recovery, without changing the GRID displacement coordinate system.
+
+On supported SOL101/105 normal-moment paths, coupled laminate recovery uses
+the complete A/B/D section law. The geometric-stiffness preload uses its
+compatible differential membrane field and applies the physical normal map
+once before evaluating coupled curvature. Reference offsets and the outer
+perturbation-work transformation remain separate; elastic enrichment is not
+substituted into this differential field.
+
+Ordinary constant-thickness SOL101/105 normal-moment shells recover physical
+area-mean transverse shear from the same four-channel section-energy law as
+their elastic stiffness. The physical normal map is applied once; other section
+forces, stresses, strains and ply fields keep their recovery laws. This mean is
+not an element-centre extrapolation convention. Director, variable-thickness,
+research and alternative-backend routes retain their separate contracts.
+
+Supported projected offset shells evaluate geometric work on the GRID reference
+surface with the consistent shifted section law. Their verified material and
+thickness sensitivities retain the existing exclusions for other kinematics.
+Generated normal axes at sharp folds preserve prescribed normals and separate
+director paths. Geometry derivatives reject discrete normal or prestress branch
+crossings. The cylindrical-curvature classifier uses dimensionless numerical
+rank, so a change of length units cannot turn the same saddle into a cylinder.
+
+The native solver retains unsupported FORCE1/FORCE2/MOMENT1/MOMENT2 records
+and rejects an active nonzero selected load before assembly. These geometric
+follower definitions are not replaced by fixed-direction loads. Unselected
+records, zero card magnitudes and cancelled LOAD coefficients remain harmless.
+
 Concentrated follower forces are an explicit native-backend extension for
 SOL101 and experimental SOL106. `PARAM,JFFOLLOW,1` activates only `FORCE`
 entries whose optional field after `N3` is `ROT`; JSON FORCE records use
-`"FLLW":"ROT"`. Other FORCE entries, MOMENT entries and pressure/body loads
-remain fixed. In SOL101 the direction law is linearized at zero rotation,
+`"FLLW":"ROT"`. Other FORCE entries and body loads remain fixed. MOMENT
+directions remain fixed; the corotational shell route transforms their physical
+moments into the work coordinates of the rotation unknowns. Normal shell
+pressures have the separate SOL106 behavior described below. In SOL101 the
+direction law is linearized at zero rotation,
 `f=f0+theta cross f0`, and the solver retains the unsymmetric load stiffness
 in `(Kstruct-Kload)*u=F0`. This is a first-order load linearization, not a
 finite-rotation SOL101 formulation. In SOL106, force direction follows the
@@ -990,9 +1092,8 @@ Follower loads disable conservative potential-energy line-search acceptance;
 residual checks, cutbacks and accepted-state recovery remain active. Each
 exported subcase's solver diagnostics includes `follower_loading`, identifying
 the force law and actual BASIC force/rotation vectors at the exported state.
-The existing structural geometric
-formulation and linear constraint kinematics are unchanged, and no pressure
-update or aerodynamic iteration is implied. A follower SOL101 baseline at a
+This concentrated-force option does not change linear constraint kinematics
+or perform aerodynamic iteration. A follower SOL101 baseline at a
 different physical load must be solved again because its load stiffness changes;
 uniformly scaling a full-load result is not equivalent. The activation is
 OpenJFEM-specific and does not claim full external-solver FLLWER compatibility.
@@ -1000,16 +1101,42 @@ OpenJFEM-specific and does not claim full external-solver FLLWER compatibility.
 ### SOL106 increment and convergence controls
 
 With `PARAM,LGDISP,1` and `PARAM,NLMETHOD,AUTO` (or an omitted NLMETHOD),
-planar isotropic PSHELL models use a Green-Lagrange membrane-stretching energy
-with its actual internal-force gradient and consistent tangent. CBAR members
-retain their linear elastic behavior. The membrane strain includes quadratic
-gradients of all three displacement components, preserving rigid membrane
-rotations. Bending and shear retain their existing linear reference energy;
-this is not a general finite-rotation corotational shell formulation.
-Automatic selection excludes shell offsets, smoothed shell normals,
-composite/anisotropic shells, solids and nonlinear line-element families.
-Those models retain the existing experimental path. Diagnostics record the
-chosen method, selection reason and automatic-scope check.
+eligible quadrilateral-shell models use an objective corotational formulation.
+It removes the element's rigid translation and polar rotation, evaluates the
+existing isotropic or laminate section on its remaining distortions, and
+transforms physical forces and moments using consistent virtual work. Its
+Newton tangent is generally nonsymmetric. The line search uses a fixed linear
+compliance norm of the equilibrium residual; it does not assume the resulting
+force law is the gradient of the reported section energy.
+
+Supported planar isotropic membranes explicitly constrained to in-plane
+translations retain their established Green–Lagrange finite-strain energy.
+This selection uses the active SPC/SPCADD and permanent GRID constraints in
+their coordinate bases; numerical AUTOSPC decisions do not define a membrane.
+Free bending or normal motion retains the corotational route. Explicit
+`PARAM,NLMETHOD,COROT` still selects engineering-strain corotational work;
+explicit `FORMAL` retains the finite-strain energy method.
+
+The verified automatic scope is CQUAD4-only stiffness with uniform corner
+thickness, no element reference offsets, no smoothed or prescribed shell normals, no active
+MPC/RBE mapping, no added direct stiffness matrix and no selected nonzero
+RFORCE centrifugal loading. Rotation vectors must
+remain within the supported principal-rotation domain. Other AUTO models keep
+their previous formal-energy, linear or approximate geometric route. In the
+formal route, planar isotropic PSHELL models use Green-Lagrange membrane
+stretching with linear reference bending/shear energy; CBAR members remain
+elastic. Diagnostics identify the selected method and the reason a model is
+outside corotational scope. `PARAM,NLMETHOD,COROT` explicitly requests the new
+formulation and rejects an unsupported model instead of falling back.
+
+With LGDISP enabled, uniform normal `PLOAD`, `PLOAD2` and `PLOAD4` pressures on
+supported three- and four-node shell faces follow the current face and its
+current area, with consistent nodal integration and load tangent. This does
+not require `JFFOLLOW`. PLOAD4 entries with a prescribed
+nonzero direction remain fixed; CID alone or a zero direction still denotes
+normal pressure. Selected `SORL=LINE` edge loads on CQUADR/CTRIAR are unsupported
+and raise an error. SORL is ignored on other shell cards according to their
+card semantics.
 
 With AUTO, omitted or disabled LGDISP keeps geometric nonlinearity off;
 CBAR-only systems also remain elastic when LGDISP is enabled. Their selected
@@ -1024,6 +1151,13 @@ its canonical diagnostic name is `formal_shell_green_lagrange`. Historical
 Its wider experimental scope does not widen the automatic or analytic-adjoint
 scope. Fixed MPC/RBE dependencies use the same virtual-work transformation
 for nonlinear forces and tangents as for elastic stiffness.
+
+Corotational recovery uses each element's net distortions. Displacement
+reporting uses gimbal angles for `PARAM,LANGLE,1` (the default), or rotation
+vectors for `PARAM,LANGLE,2`. The internal GRID-coordinate rotation vectors are
+recorded separately. Gimbal reporting at its angular singularity requires
+rotation-vector output; Euler-angle triples cannot be transformed between
+coordinate systems by ordinary vector rotation.
 
 Use the standard `NLPARM` Bulk Data card and select its ID in Case Control.
 A global selection is inherited by each subcase; a subcase selection overrides

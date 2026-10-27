@@ -31,7 +31,7 @@
   const connections=[];
   const collect=(card,elements)=>{for(const e of elements){if(e.eid<=0||entityIds.has(e.eid))throw Error('Invalid or duplicate element ID '+e.eid);entityIds.add(e.eid);}if(elements.length)connections.push({name:'IMPORTED_'+card,card,elements});};
   collect('RBE2',p.rbe2s.map(e=>({eid:e.eid,type:'RBE2',nodes:[e.gn,...e.slaves].map(index),properties:{GN:e.gn,CM:e.cm,dependent_grids:e.slaves}})));
-  collect('RBE3',p.rbe3s.map(e=>({eid:e.eid,type:'RBE3',nodes:[e.refgrid,...e.deps].map(index),properties:{REFGRID:e.refgrid,REFC:e.refc,connected_grids:e.deps,note:'Original interpolation weights and UM definitions are not stored in the binary.'}})));
+  collect('RBE3',p.rbe3s.map(e=>({eid:e.eid,type:'RBE3',nodes:[e.refgrid,...e.deps].map(index),properties:{REFGRID:e.refgrid,REFC:e.refc,reference_grid:e.refgrid,reference_components:e.refc,connected_grids:e.deps,interpolation_details_available:false,note:'Original independent DOFs, interpolation weights and UM definitions are not stored in the binary.'}})));
   collect('CELAS',p.celas.map(e=>({eid:e.eid,type:'CELAS',nodes:[e.g1,e.g2].filter(n=>n>0).map(index),properties:{K:e.stiffness,G1:e.g1,C1:e.c1,G2:e.g2,C2:e.c2}})).filter(e=>e.nodes.length));
   const solidElements=[];
   for(const [type,els]of[['CTETRA',p.tetras],['CHEXA',p.hexas],['CPENTA',p.pentas]])for(const e of els){if(e.eid<=0||entityIds.has(e.eid))throw Error('Invalid or duplicate element ID '+e.eid);entityIds.add(e.eid);solidElements.push({eid:e.eid,pid:e.pid,type,nodes:e.nodes.map(index),source_type:type+(e.nodes.length===10?'10':''),properties:{PID:e.pid,note:'Original volume connectivity; complete material constants are not stored in binary results.'}});}

@@ -62,8 +62,24 @@ function section_definition(p::AbstractDict, pid::Integer)
     if base_pid in (PID_STRINGER,PID_RIB_STIFFENER)
         dimensions=base_pid==PID_STRINGER ? panel_stringer_dimensions(p,pid) :
             rib_stiffener_dimensions(p,pid==PID_RIB_STIFFENER ? 0 : pid%COMPONENT_PID_STRIDE)
-        validate_t_section_dimensions(dimensions,base_pid==PID_STRINGER ? "Stringer T section" : "Rib T stiffener")
+        if base_pid==PID_STRINGER
+            validate_stringer_dimensions(p,dimensions,"Stringer P$pid")
+        else
+            validate_t_section_dimensions(dimensions,"Rib T stiffener")
+        end
         b, h, tf, tw = dimensions
+        if base_pid==PID_STRINGER&&iszero(b)
+            # A blade remains a blade when changing FE representation. Never
+            # create a fictitious flange or retain its inactive thickness.
+            wide,narrow=max(h,tw),min(h,tw)
+            torsion=wide*narrow^3/3*(1-.63narrow/wide+.0525(narrow/wide)^5)
+            return Dict{String,Any}(
+                "type"=>"PBARL","shape"=>"BAR","dimensions_m"=>[tw,h],
+                "polygon_yz_m"=>[[h/2,-tw/2],[h/2,tw/2],[-h/2,tw/2],[-h/2,-tw/2]],
+                "offset_y_m"=>-h/2,"area_m2"=>tw*h,"I1_m4"=>tw*h^3/12,"I2_m4"=>h*tw^3/12,
+                "J_m4"=>torsion,"torsion_model"=>"JFEM PBARL rectangular-section approximation",
+                "placement"=>"Blade attached edge at skin; full height inward; centroid offset included in CBAR; no flange")
+        end
         hw = h - tf
         af, aw = b * tf, hw * tw
         area = af + aw

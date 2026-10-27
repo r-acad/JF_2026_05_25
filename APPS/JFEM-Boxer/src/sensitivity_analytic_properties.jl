@@ -55,7 +55,8 @@ function sensitivity_analytic_property_direction(m,d,property)
     if property["kind"]=="bar"
         section=property["section"];dims=section["dimensions_m"];ddims=zeros(length(dims))
         if base==PID_STRINGER
-            for (i,field) in enumerate(RIB_STIFFENER_FIELDS)
+            fields=section["shape"]=="BAR" ? ("web_thickness","height") : RIB_STIFFENER_FIELDS
+            for (i,field) in enumerate(fields)
                 ddims[i]=sensitivity_owned_derivative(p,pid,d,"stringer",field,"properties.stringer_"*field)
             end
         elseif base==PID_RIB_STIFFENER

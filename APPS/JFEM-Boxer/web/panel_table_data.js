@@ -39,8 +39,8 @@
    if(value.kind==='sandwich'){positive(value.face_thickness,'Each face thickness');positive(value.core_thickness,'Core thickness');material(value.face_material,'Face material');material(value.core_material,'Core material');}
    else{positive(value.thickness,'Monolithic thickness');material(value.material,'Monolithic material');}
   }else{
-   const shell=p?.['stringers.model']==='shell',blade=shell&&value.flange_width===0;
-   for(const f of FIELDS.stringers.filter(f=>f.type==='number')){if(shell&&(f.name==='flange_width'||blade&&f.name==='flange_thickness')){if(!Number.isFinite(value[f.name])||value[f.name]<0)throw Error(f.label+' must be zero or a finite positive number.');}else positive(value[f.name],f.label);}
+   const blade=value.flange_width===0;
+   for(const f of FIELDS.stringers.filter(f=>f.type==='number')){if(f.name==='flange_width'||blade&&f.name==='flange_thickness'){if(!Number.isFinite(value[f.name])||value[f.name]<0)throw Error(f.label+' must be zero or a finite positive number.');}else positive(value[f.name],f.label);}
    if(!blade&&value.flange_thickness>=value.height)throw Error('Flange thickness must be smaller than total height.');
    if(!blade&&value.web_thickness>=value.flange_width)throw Error('Web thickness must be smaller than flange width.');
    material(value.material,'Stringer material');
@@ -56,7 +56,7 @@
   const target=section(kind),value=String(raw??'').trim();row[target]={...row[target]};
   if(!value)delete row[target][field];
   else if(definition.type==='kind'){if(!['monolithic','sandwich'].includes(value))throw Error('Choose monolithic or sandwich construction.');row[target][field]=value;}
-  else{const number=Number(value)/(definition.scale||1),allowZero=kind==='stringers'&&snapshot.parameters?.['stringers.model']==='shell'&&(field==='flange_width'||field==='flange_thickness'&&effective(snapshot,panel,kind).flange_width===0);if(!Number.isFinite(number)||(allowZero?number<0:number<=0)||definition.type==='material'&&!Number.isInteger(number))throw Error(definition.label+' must be a valid '+(allowZero?'non-negative ':'positive ')+(definition.type==='material'?'material ID.':'number.'));row[target][field]=number;}
+  else{const number=Number(value)/(definition.scale||1),allowZero=kind==='stringers'&&(field==='flange_width'||field==='flange_thickness'&&effective(snapshot,panel,kind).flange_width===0);if(!Number.isFinite(number)||(allowZero?number<0:number<=0)||definition.type==='material'&&!Number.isInteger(number))throw Error(definition.label+' must be a valid '+(allowZero?'non-negative ':'positive ')+(definition.type==='material'?'material ID.':'number.'));row[target][field]=number;}
   validateSection({...inherited(snapshot,panel,kind),...row[target]},kind,snapshot.parameters);
   gauge.validate(snapshot.parameters,kind==='skins'?panel.skin+'_skin':'stringer',{...inherited(snapshot,panel,kind),...row[target]},'P'+panel.id);
   if(!Object.keys(row[target]).length)delete row[target];if(!row.skin&&!row.stringer){if(index>=0)list.splice(index,1);}else if(index<0)list.push(row);

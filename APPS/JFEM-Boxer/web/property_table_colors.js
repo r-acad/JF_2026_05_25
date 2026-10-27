@@ -2,9 +2,9 @@
 (function(root,factory){const api=factory(typeof module==='object'&&module.exports?require('./color_scales.js'):root.WingColorScales);if(typeof module==='object'&&module.exports)module.exports=api;else root.WingPropertyTableColors=api;})(globalThis,function(colors){
  'use strict';
  const PALETTES={viridis:'Viridis',spectrum:'Spectrum',inferno:'Inferno',coolwarm:'Blue–red',grayscale:'Grayscale',signed:'Signed red (-) / blue (+)'};
- const categorical=['#6db3dd','#e6a85a','#b799dc','#75c3a6','#df8da5','#c4c45a','#a4b3c3','#bf986b'];
+
  function dormant(kind,value,field){
-  if(kind==='stringers'&&value.model==='shell'&&value.flange_width===0&&field==='flange_thickness')return true;
+  if(kind==='stringers'&&value.flange_width===0&&field==='flange_thickness')return true;
   if(kind==='ribstiffeners'&&value.enabled===false&&field!=='enabled')return true;
   if(['stringers','ribstiffeners','sparcaps'].includes(kind))return false;
   return value.kind==='sandwich'?['thickness','material'].includes(field):['face_thickness','core_thickness','face_material','core_material'].includes(field);
@@ -21,9 +21,12 @@
   const entries=[...categories.values()].sort((a,b)=>field.type==='material'?Number(a.value)-Number(b.value):String(a.value).localeCompare(String(b.value)));
   return {cells,categories:entries,min:count&&field.type==='number'?min:null,max:count&&field.type==='number'?max:null,count,inactive,numeric:field.type==='number',unit:field.unit||'',field};
  }
- function categoryColor(value){let hash=0;for(const c of String(value))hash=(hash*31+c.charCodeAt(0))>>>0;return categorical[hash%categorical.length];}
+ function categoryColor(value,scale){const index=scale?.categories.findIndex(c=>String(c.value)===String(value));
+  if(index>=0)return colors.hex(colors.categoryColor(index));
+  const numeric=Number(value);return colors.hex(colors.categoryColor(Number.isFinite(numeric)?Math.max(0,numeric-1):0));}
+
  function valueColor(value,scale,palette='viridis'){
-  if(!scale.numeric)return categoryColor(value);
+  if(!scale.numeric)return categoryColor(value,scale);
   if(!Number.isFinite(value)||!Number.isFinite(scale.min)||!Number.isFinite(scale.max))return null;
   return colors.css(colors.valueColor(PALETTES[palette]?palette:'viridis',value,scale.min,scale.max));
  }

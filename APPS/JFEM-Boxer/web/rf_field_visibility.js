@@ -55,5 +55,28 @@
   }
   return{sync,restore,get active(){return active;},get allowed(){return lastAllowed;}};
  }
- return{geometry,create};
+ // Movable skins currently have property-wide material checks but no separate
+ // generated plate/column buckling metadata. Never paint missing RFs as an
+ // assessed solid region. Restore the user's material when leaving RF views.
+ function createMovableStyle({state}){
+  const records=new Map();
+  function sync(contour){
+   for(const [mesh,r]of records)if(mesh.isDisposed?.()||!contour||!state.shellMeshes?.includes(mesh)||mesh.material!==r.material){
+    if(!mesh.isDisposed?.())Object.assign(r.material,r.original);records.delete(mesh);
+   }
+   if(!contour)return;
+   for(const mesh of state.shellMeshes||[]){
+    const group=mesh.metadata?.feGroup,properties=group?.properties;
+    if(!properties?.movable_surface&&!/^MOVABLE_/.test(group?.name||''))continue;
+    const material=mesh.material;if(!material)continue;
+    let record=records.get(mesh);
+    if(!record){record={material,original:{wireframe:material.wireframe,zOffset:material.zOffset,zOffsetUnits:material.zOffsetUnits}};records.set(mesh,record);}
+    if(record.contour!==contour){record.contour=contour;record.wire=contour.stale||!Array.from(mesh.elementIds||[]).some(id=>contour.byId.has(id));}
+    if(record.wire){material.wireframe=true;material.zOffset=0;material.zOffsetUnits=0;}
+    else Object.assign(material,record.original);
+   }
+  }
+  return{sync,restore:()=>sync(null)};
+ }
+ return{geometry,create,createMovableStyle};
 });

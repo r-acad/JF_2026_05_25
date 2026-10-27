@@ -2,8 +2,8 @@ using Test
 module ShellCornerThicknessAssemblyFixture
 using Test,LinearAlgebra,OpenJFEM
 const S=OpenJFEM.Solver;const F=OpenJFEM.FEM
-function fixture(path;ti=[.0018,.0027,.0045,.0033],h=.003,rotation=Matrix{Float64}(I,3,3),cyclic=0,offset=0.)
-    x=[-.25 -.15 0.;.25 -.15 0.;.25 .15 0.;-.25 .15 0.]*rotation'
+function fixture(path;ti=[.0018,.0027,.0045,.0033],h=.003,rotation=Matrix{Float64}(I,3,3),cyclic=0,offset=0.,warp=0.)
+    x=[-.25 -.15 warp;.25 -.15 -warp;.25 .15 warp;-.25 .15 -warp]*rotation'
     order=circshift(collect(1:4),-cyclic)
     lines=["SOL 105","CEND","SUBCASE 1"," SPC=1"," LOAD=1",
         "SUBCASE 2"," METHOD=2"," SPC=1"," STATSUB(BUCKLING)=1","BEGIN BULK",
@@ -50,6 +50,38 @@ mktempdir() do dir
     ar=assemble(fixture(joinpath(dir,"rotation.bdf");rotation=R));T=kron(Matrix{Float64}(I,8,8),R)
     @test ar.K≈T*a.K*T' rtol=5e-12
     @test ar.M≈T*a.M*T' rtol=5e-12
+    # Warp is a single work-conjugate map. Rigid motions, changes of basic
+    # coordinates and cyclic connectivity must preserve the complete operator.
+    for warp in (-.006,.006),offset in (0.,.002)
+        mw=fixture(joinpath(dir,"warped.bdf");warp=warp,offset=offset);aw=assemble(mw)
+        @test aw.K≈aw.K' rtol=4e-12
+        for j in 1:6
+            ur=zeros(24);tr=zeros(3);omega=zeros(3)
+            j<=3 ? (tr[j]=1) : (omega[j-3]=1)
+            for i in 1:4
+                ur[6i-5:6i-3]=tr+cross(omega,aw.X[i,:]);ur[6i-2:6i]=omega
+            end
+            @test norm(aw.K*ur)<=3e-12*norm(aw.K)*max(norm(ur),1)
+        end
+        mr=fixture(joinpath(dir,"warped_rot.bdf");warp=warp,offset=offset,rotation=R);arw=assemble(mr)
+        @test arw.K≈T*aw.K*T' rtol=5e-12
+        @test arw.M≈T*aw.M*T' rtol=5e-12
+        gw=Matrix(S.assemble_geometric_stiffness(mw,aw.ids,aw.X,aw.R,aw.nd,u,aw.normals,aw.mapping;snorm_angle_override=0.))
+        gr=Matrix(S.assemble_geometric_stiffness(mr,arw.ids,arw.X,arw.R,arw.nd,T*u,arw.normals,arw.mapping;snorm_angle_override=0.))
+        @test gr≈T*gw*T' rtol=5e-11 atol=1e-8
+        for shift in 1:3
+            mc=fixture(joinpath(dir,"warped_cyclic.bdf");warp=warp,offset=offset,cyclic=shift);ac=assemble(mc)
+            @test ac.K≈aw.K rtol=5e-12
+            gc=Matrix(S.assemble_geometric_stiffness(mc,ac.ids,ac.X,ac.R,ac.nd,u,ac.normals,ac.mapping;snorm_angle_override=0.))
+            @test gc≈gw rtol=5e-11 atol=1e-8
+        end
+        # The nonuniform section tends to the ordinary warped shell as all
+        # four corner values approach a common positive thickness.
+        uniform=assemble(fixture(joinpath(dir,"warped_uniform.bdf");warp=warp,offset=offset,ti=fill(.004,4)))
+        regular=assemble(fixture(joinpath(dir,"warped_regular.bdf");warp=warp,offset=offset,ti=nothing,h=.004))
+        @test uniform.K≈regular.K rtol=3e-12
+        @test uniform.M≈regular.M rtol=3e-12
+    end
     for hnew in (.002,.004)
         au=assemble(fixture(joinpath(dir,"uniform$hnew.bdf");ti=fill(hnew,4)))
         ac=assemble(fixture(joinpath(dir,"constant$hnew.bdf");ti=nothing,h=hnew))
@@ -65,9 +97,10 @@ mktempdir() do dir
     @test_throws ArgumentError S.shell_corner_thickness_model_data(bad,bad["PSHELLs"]["1"],bad["CSHELLs"]["1"])
     blank=deepcopy(model);blank["CSHELLs"]["1"]["CORNER_THICKNESSES"]=fill(nothing,4);blank["GRAVs"]=[1]
     @test S.shell_corner_thickness_model_data(blank,blank["PSHELLs"]["1"],blank["CSHELLs"]["1"])===nothing
-    @test_throws ArgumentError S.shell_variable_thickness_domain(model,model["PSHELLs"]["1"],model["CSHELLs"]["1"],xy+[0. 0.;0. 0.;.02 0.;0. 0.])
+    @test S.shell_variable_thickness_domain(model,model["PSHELLs"]["1"],model["CSHELLs"]["1"],xy+[0. 0.;0. 0.;.02 0.;0. 0.])!==nothing
+    @test_throws ArgumentError S.shell_variable_thickness_domain(model,model["PSHELLs"]["1"],model["CSHELLs"]["1"],xy[[1,3,2,4],:])
     xyz=hcat(xy,[0.,0.,.001,0.])
-    @test_throws ArgumentError S.shell_variable_thickness_domain(model,model["PSHELLs"]["1"],model["CSHELLs"]["1"],xy,xyz)
+    @test S.shell_variable_thickness_domain(model,model["PSHELLs"]["1"],model["CSHELLs"]["1"],xy,xyz)!==nothing
 end
 end
 end

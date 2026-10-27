@@ -149,7 +149,137 @@ function pcomp_energy_shear(ply_data::AbstractVector, total_t)
     return [c11 c12; c12 c22]
 end
 
-"""Diagonal correction-factor view; use `pcomp_energy_shear` for the full law."""
+function _laminate_isotropic_membrane(A)
+    K=Diagonal([1.0,1.0,sqrt(2.0)])*A*Diagonal([1.0,1.0,sqrt(2.0)])
+    J=[.5 .5 0.;.5 .5 0.;0. 0. 0.]
+    H=Matrix{Float64}(I,3,3)-J
+    isotropic=sum(K.*J)*J+(sum(K.*H)/2)*H
+    return norm(K-isotropic) <= 64eps(Float64)*norm(K)
+end
+
+"""Stiffest cylindrical membrane direction, with the material axis at isotropy."""
+function _laminate_stiffest_axis(A;check_unique=false)
+    scale=norm(A)
+    scale > 0 || throw(ArgumentError("Laminate membrane stiffness must be positive"))
+    _laminate_isotropic_membrane(A) && return 0.0
+    # Stationarity of n_i*n_j*A_ijkl*n_k*n_l, in ascending powers of tan(theta).
+    # This is Abar16(theta)=0; select the largest directional elastic work.
+    p=[A[1,3],A[1,2]+2A[3,3]-A[1,1],3(A[2,3]-A[1,3]),
+       A[2,2]-A[1,2]-2A[3,3],-A[2,3]]
+    p[abs.(p).<=64eps(Float64)*scale].=0.0
+    candidates=[0.0,pi/2]
+    # Two projective charts keep roots near pi/2 well conditioned. No angular
+    # sampling or rounded angle is used in this section convention.
+    for reciprocal in (false,true)
+        q=reciprocal ? reverse(p) : copy(p)
+        while length(q)>1 && iszero(q[end]);pop!(q);end
+        n=length(q)-1;n==0 && continue
+        companion=zeros(n,n)
+        for j in 1:n-1;companion[j+1,j]=1.0;end
+        companion[:,n].=-q[1:n]/q[end]
+        for root in eigvals(companion)
+            abs(imag(root)) <= 128eps(Float64)*max(1.0,abs(real(root))) || continue
+            angle=reciprocal ? atan(1.0,real(root)) : atan(real(root))
+            push!(candidates,mod(angle,pi))
+        end
+    end
+    work(theta)=begin c=cos(theta);s=sin(theta);v=[c*c,s*s,2c*s];dot(v,A*v) end
+    values=work.(candidates)
+    index=argmax(values);angle=candidates[index]
+    if check_unique
+        # Directions differing by pi/2 describe the same two-axis energy
+        # calculation. Other tied maxima have no unique orientation tangent.
+        any(i -> abs(values[i]-values[index])<=64eps(Float64)*scale &&
+            abs(sin(2(candidates[i]-angle)))>sqrt(eps(Float64)),eachindex(candidates)) &&
+            throw(ArgumentError("Legacy laminate shear axis has tied non-equivalent maxima; its orientation derivative is undefined"))
+    end
+    return angle
+end
+
+_laminate_primal(x)=x
+_laminate_primal(x::ForwardDiff.Dual)=_laminate_primal(ForwardDiff.value(x))
+
+function _laminate_isotropic_jet(A)
+    _laminate_isotropic_membrane(_laminate_primal.(A)) || return false
+    eltype(A) <: ForwardDiff.Dual || return true
+    return _laminate_isotropic_jet(ForwardDiff.value.(A)) &&
+        all(i -> _laminate_isotropic_jet(map(x -> ForwardDiff.partials(x)[i],A)),
+            eachindex(ForwardDiff.partials(first(A))))
+end
+
+function _laminate_axis_stationarity(A,theta)
+    c=cos(theta);s=sin(theta);cs=c*s;d=c*c-s*s
+    v=[c*c,s*s,2cs];dv=[-2cs,2cs,2d];ddv=[-2d,2d,-8cs]
+    return 2dot(dv,A*v),2dot(ddv,A*v)+2dot(dv,A*dv)
+end
+
+function _laminate_differentiable_axis(A)
+    primal=_laminate_primal.(A)
+    if _laminate_isotropic_membrane(primal)
+        _laminate_isotropic_jet(A) || throw(ArgumentError("Legacy laminate shear axis derivative is undefined when an isotropic membrane tensor becomes anisotropic"))
+        return zero(first(A))
+    end
+    angle=_laminate_stiffest_axis(primal;check_unique=true)
+    _,curvature=_laminate_axis_stationarity(primal,angle)
+    abs(curvature)>64eps(Float64)*norm(primal) ||
+        throw(ArgumentError("Legacy laminate shear axis has a flat maximum; its orientation derivative is undefined"))
+    lifted=angle+zero(first(A))
+    # F(A,theta)=d(Abar11)/dtheta=0 gives dtheta=-Fx/Ftheta. Two
+    # Newton lifts propagate first and nested second Dual derivatives while
+    # keeping the primal root selected by the physical stiffness maximum.
+    for _ in 1:2
+        gradient,hessian=_laminate_axis_stationarity(A,lifted)
+        lifted-=gradient/hessian
+    end
+    return lifted
+end
+
+"""
+Legacy PCOMP section convention: apply the directional energy law in the
+stiffest cylindrical membrane frame, then rotate the shear tensor back.
+
+The maximum is defined by the physical laminate A tensor, independently of
+element geometry. It is covariant away from a degeneracy. At numerical
+isotropy the supplied material frame resolves the tie. This legacy choice
+can be discontinuous near a direction crossing and is not a globally smooth
+full-tensor homogenization law. `pcomp_energy_shear` remains the fixed-frame
+energy primitive for callers that explicitly choose their frame.
+
+Automatic differentiation includes the implicit orientation derivative at a
+nondegenerate maximum, through second order. Isotropic tensors with isotropic
+tangents keep the material frame. A flat maximum, a non-equivalent maximum
+tie, or an anisotropic perturbation of isotropy has no unique derivative and
+is rejected explicitly.
+"""
+function pcomp_legacy_axis_shear(ply_data::AbstractVector,total_t)
+    isempty(ply_data) && throw(ArgumentError("Laminate shear needs at least one ply"))
+    all(p -> haskey(p,"Qbar") && haskey(p,"Qshear"),ply_data) ||
+        throw(ArgumentError("Laminate shear requires physical ply bending and transverse shear laws"))
+    A=sum((p["z_top"]-p["z_bot"])*p["Qbar"] for p in ply_data)
+    angle=if eltype(A) <: ForwardDiff.Dual
+        _laminate_differentiable_axis(A)
+    else
+        _laminate_stiffest_axis(A)
+    end
+    # ForwardDiff.iszero tests the primal value only: a zero-valued angle
+    # can still carry the orientation derivative needed by the rotations.
+    !(angle isa ForwardDiff.Dual) && iszero(angle) &&
+        return pcomp_energy_shear(ply_data,total_t)
+    c=cos(angle);s=sin(angle);R=[c -s;s c]
+    Te=[c*c s*s -c*s;s*s c*c c*s;2c*s -2c*s c*c-s*s]
+    rotated=[merge(p,Dict("Qbar"=>Te'*p["Qbar"]*Te,"Qshear"=>R'*p["Qshear"]*R)) for p in ply_data]
+    C=R*pcomp_energy_shear(rotated,total_t)*R'
+    reciprocal=(C[1,2]+C[2,1])/2
+    return [C[1,1] reciprocal;reciprocal C[2,2]]
+end
+
+function pcomp_shear_for_convention(ply_data,total_t,convention)
+    convention=="legacy_stiffest_axis" && return pcomp_legacy_axis_shear(ply_data,total_t)
+    convention=="material_frame" && return pcomp_energy_shear(ply_data,total_t)
+    throw(ArgumentError("Unknown laminate shear convention: $convention"))
+end
+
+"""Fixed-frame diagonal correction-factor view; use the full tensor for assembly."""
 function pcomp_whitney_kappa(ply_data::AbstractVector, total_t)
     isempty(ply_data) && return (5.0/6.0,5.0/6.0)
     cs=pcomp_energy_shear(ply_data,total_t)
@@ -651,7 +781,7 @@ function build_model(cards, cc)
             ts_t_default = 5.0/6.0
             whitney_on = pcomp_whitney_shear_enabled()
             if whitney_on && length(ply_data) > 0
-                Cs_lam = pcomp_energy_shear(ply_data, total_t)
+                Cs_lam = pcomp_legacy_axis_shear(ply_data, total_t)
             else
                 Cs_lam = ts_t_default .* Ash
             end
@@ -689,6 +819,7 @@ function build_model(cards, cc)
                                 "PLY_DATA" => ply_data,
                                 "PCOMP_Z0_DEFAULT"=>get(pc, "Z0_DEFAULT", false), "PCOMP_Z0"=>z0,
                                 "PCOMP_LAM"=>get(pc, "LAM", ""), "PCOMP_WHITNEY_SHEAR"=>whitney_on,
+                                "PCOMP_SHEAR_CONVENTION"=>"legacy_stiffest_axis",
                                 "NSM"=>Float64(get(pc,"NSM",0.0)))
         end
     end
@@ -745,6 +876,7 @@ function build_model(cards, cc)
     model = Dict{String,Any}(
         "CASE_CONTROL" => cc,
         "GRIDs"       => haskey(cards,"GRID")   ? ReferenceParser.extract_grid(cards["GRID"]; grdset=grdset) : Dict(),
+        "SNORMs"      => haskey(cards,"SNORM") ? ReferenceParser.extract_snorm(cards["SNORM"]) : Dict{String,Any}(),
         "CORDs"       => merge(haskey(cards,"CORD2R") ? ReferenceParser.extract_coords(cards["CORD2R"]; coord_type="RECTANGULAR") : Dict(),
                                haskey(cards,"CORD1R") ? ReferenceParser.extract_coords1(cards["CORD1R"]; coord_type="RECTANGULAR") : Dict(),
                                haskey(cards,"CORD1C") ? ReferenceParser.extract_coords1(cards["CORD1C"]; coord_type="CYLINDRICAL") : Dict(),
@@ -792,6 +924,10 @@ function build_model(cards, cc)
         "TABLEM1s"    => haskey(cards,"TABLEM1") ? ReferenceParser.extract_tablem1(cards["TABLEM1"]) : Dict{String,Dict{String,Any}}(),
         "FORCEs"      => haskey(cards,"FORCE")  ? ReferenceParser.extract_loads(cards["FORCE"]) : [],
         "MOMENTs"     => haskey(cards,"MOMENT") ? ReferenceParser.extract_moments(cards["MOMENT"]) : [],
+        "FORCE1s" => haskey(cards,"FORCE1") ? ReferenceParser.extract_unsupported_directional_loads(cards["FORCE1"],"FORCE1") : [],
+        "FORCE2s" => haskey(cards,"FORCE2") ? ReferenceParser.extract_unsupported_directional_loads(cards["FORCE2"],"FORCE2") : [],
+        "MOMENT1s" => haskey(cards,"MOMENT1") ? ReferenceParser.extract_unsupported_directional_loads(cards["MOMENT1"],"MOMENT1") : [],
+        "MOMENT2s" => haskey(cards,"MOMENT2") ? ReferenceParser.extract_unsupported_directional_loads(cards["MOMENT2"],"MOMENT2") : [],
         "PLOAD4s"     => pload4s,
         "PLOADs"      => haskey(cards,"PLOAD") ? ReferenceParser.extract_pload(cards["PLOAD"]) : [],
         "PLOAD1s"     => haskey(cards,"PLOAD1") ? ReferenceParser.extract_pload1(cards["PLOAD1"]) : [],
@@ -1150,7 +1286,7 @@ function build_model_from_json(raw::AbstractDict)
         ts_t_default2 = 5.0/6.0
         whitney_on2 = pcomp_whitney_shear_enabled()
         if whitney_on2 && length(ply_data) > 0
-            Cs_lam = pcomp_energy_shear(ply_data, total_t)
+            Cs_lam = pcomp_legacy_axis_shear(ply_data, total_t)
         else
             Cs_lam = ts_t_default2 .* Ash
         end
@@ -1184,6 +1320,7 @@ function build_model_from_json(raw::AbstractDict)
             "PLY_DATA"=>ply_data,
             "PCOMP_Z0_DEFAULT"=>z0_default, "PCOMP_Z0"=>z0,
             "PCOMP_LAM"=>lam_field, "PCOMP_WHITNEY_SHEAR"=>whitney_on2,
+            "PCOMP_SHEAR_CONVENTION"=>"legacy_stiffest_axis",
             "NSM"=>Float64(get(pc,"NSM",0.0)))
     end
 
@@ -1297,6 +1434,7 @@ function build_model_from_json(raw::AbstractDict)
         "CASE_CONTROL" => cc,
         "GRIDs"       => get(bd, "GRID", Dict()),
         "CORDs"       => cords,
+        "SNORMs"      => ReferenceParser.normalize_snorm_map(get(bd,"SNORM",Dict())),
         "CSHELLs"     => _merge_entity_groups_preserve_ids(
                                get(bd, "CTRIA3", Dict()), get(bd, "CTRIA6", Dict()),
                                get(bd, "CQUAD4", Dict()), get(bd, "CQUADR", Dict()), get(bd, "CQUAD8", Dict()),
@@ -1330,6 +1468,10 @@ function build_model_from_json(raw::AbstractDict)
         "TABLEM1s"    => tablem1s,
         "FORCEs"      => get(bd, "FORCE", []),
         "MOMENTs"     => get(bd, "MOMENT", []),
+        "FORCE1s" => [ReferenceParser.normalize_unsupported_directional_load(c,"FORCE1") for c in get(bd,"FORCE1",[])],
+        "FORCE2s" => [ReferenceParser.normalize_unsupported_directional_load(c,"FORCE2") for c in get(bd,"FORCE2",[])],
+        "MOMENT1s" => [ReferenceParser.normalize_unsupported_directional_load(c,"MOMENT1") for c in get(bd,"MOMENT1",[])],
+        "MOMENT2s" => [ReferenceParser.normalize_unsupported_directional_load(c,"MOMENT2") for c in get(bd,"MOMENT2",[])],
         "PLOAD4s"     => vcat(collect(get(bd, "PLOAD4", [])), collect(get(bd, "PLOAD2", []))),
         "PLOADs"      => get(bd, "PLOAD", []),
         "PLOAD1s"     => get(bd, "PLOAD1", []),

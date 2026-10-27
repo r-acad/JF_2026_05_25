@@ -5,6 +5,206 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Eigenvalue extraction and comparison
+
+- Make the fallback modal mass-participation floor homogeneous under common
+  matrix scaling for certified positive semidefinite mass. Preserve the
+  regular-pencil quadratic bound, infinite-chain direction exclusion,
+  residual checks and independent-mode checks.
+- Use relative matrix scales for modal massless-coordinate classification and
+  positive-shift selection. A common change of matrix units no longer moves
+  the extraction away from the same finite spectrum.
+- Restrict positive-branch buckling inertia diagnostics to certified positive
+  definite elastic stiffness. Document negative and zero-crossing branches
+  separately; unknown completeness remains unknown.
+- Add signed, multiplicity-preserving eigenvalue assignment, repeated-mode
+  subspace comparison and scaled original-pencil residual diagnostics.
+  Keep numerical disagreement, missing roots and explicit interval exclusions
+  separate. Provide a JSON comparison command and independent oracle tests.
+- Resolve literal modal EIGRL requests before assembling mass. Missing explicit
+  METHOD entries and unsupported all-interval requests now fail clearly rather
+  than silently substituting a numeric placeholder or default mode count.
+
+### Finite-rotation shell equilibrium and pressure
+
+- Add an objective quadrilateral-shell corotational route with consistent
+  physical force and moment work, a nonsymmetric Newton tangent and element
+  recovery from net distortions. Preserve the previous AUTO selection outside
+  its supported scope; explicit COROT requests reject unsupported models.
+- Preserve Green–Lagrange finite-strain energy in AUTO for supported planar
+  membranes explicitly constrained to in-plane motion. Determine that physical
+  subspace from the selected constraints and GRID coordinate bases; retain
+  explicit method choices and shells with bending freedom.
+- Use a fixed linear-compliance norm for this route's equilibrium line search.
+  Reevaluate internal force at higher precision when geometry subtraction
+  reaches its arithmetic limit, retaining Float64 unknowns, tangent and the
+  requested convergence tolerances. Record those refinements in diagnostics.
+- Integrate supported normal shell pressures over the current surface during
+  large-displacement analysis, including the consistent load tangent. Preserve
+  prescribed PLOAD4 directions and reject unsupported reduced-shell edge loads.
+- Separate internal rotation vectors from reported gimbal angles or rotation
+  vectors, including GRID-coordinate transformations. Stabilize small-angle
+  rotation coefficients and retain exact zero-state derivatives.
+- Add independent force, virtual-work, coordinate, pressure, arithmetic and
+  compatibility checks; retain the explicit formal-energy method's physics.
+- Retain unsupported geometric force/moment card identifiers and magnitudes.
+  Reject active nonzero FORCE1/FORCE2/MOMENT1/MOMENT2 loads before force
+  accumulation; preserve harmless zero magnitudes and cancelled LOAD weights.
+
+### Laminate sections and compatible shell prestress
+
+- Recover ordinary constant-thickness SOL101/105 normal-moment transverse
+  shear from the same four-channel section-energy law used by the element.
+  Preserve the other force, stress, strain and ply fields, and retain separate
+  director, variable-thickness, research and alternative-backend laws.
+- Preserve the explicit warped-prestress diagnostic opt-out while testing
+  the supported GRID geometric metric through complete frame and work checks.
+- Evaluate supported offset-shell geometric work on the GRID reference
+  surface, using consistent section coupling and compatible twisting curvature.
+  Preserve alternate kinematics and nondefault research settings; verify the
+  supported buckling sensitivities against independent work and full solves.
+- Average generated normal axes coherently at sharp shell folds while
+  preserving prescribed normals and other director consumers. Reject geometry
+  sensitivities that cross a discrete normal-selection branch.
+- Use a dimensionless numerical-rank test for the supported cylindrical
+  curvature path. Keep identical geometry independent of its length units,
+  and guard finite differences that cross a geometric-stiffness branch.
+- Read explicit SNORM node normals in BDF and JSON input. Resolve their
+  coordinate basis at the GRID, normalize them and preserve precedence over
+  generated normals, including zero and negative PARAM,SNORM settings. Share
+  the effective field across operators and sensitivity guards; reject active
+  prescribed normals outside the supported tangent-map domain.
+- Build smoothed quadrilateral shell normals from unit corner tangents of
+  the bilinear surface. Apply accepted normal-moment constraints once after
+  finite-warp translations, with matching stiffness, prestress, offset and
+  recovery transformations. Retain rejected-row and unsupported-route guards.
+- Preserve the compatible differential prestress and assumed transverse
+  gradient under uncoupled normal-moment transport. Keep the elastic operator
+  and physical preload unchanged; retain separate director and coupled paths.
+- Apply the complete physical normal map once to coupled-laminate preload
+  curvature. Recover the full A/B/D section fields on supported SOL101/105
+  normal-moment paths, preserving elastic stiffness, preload and uncoupled
+  arithmetic. Verify section energy, offset ordering and frame covariance.
+- Use the actual MacNeal projection contract for corner-normal transport, and
+  distinguish inactive planar normal metadata from active warped normal maps
+  during recovery. Preserve full-field identity for aligned planar normals.
+- Compute laminate transverse-shear energy in its stiffest cylindrical
+  membrane frame and rotate the full tensor back. Record the section
+  convention, propagate nondegenerate orientation derivatives, and reject
+  undefined derivatives at direction ties and isotropic crossings.
+- Form coupled triangular-shell residual bending flexibility from the
+  componentwise neutral section before edge projection. Bound its ordered
+  complementary-energy coupling in an orthogonal physical frame, retaining
+  the established fallback for undefined section channels.
+- Use sampled geometric volume factors in quadrilateral assumed-shear
+  flexibility on distorted anisotropic cells. Preserve affine and isotropic
+  limits and retain first and second derivatives at aligned material axes.
+- Restore varying compatible twist in quadrilateral buckling prestress;
+  use consistent projected warp maps for variable-thickness stiffness,
+  preload and force recovery while retaining unsupported-kinematics guards.
+- Preserve the rigid transverse-shear limit and consistent material axes in
+  projected warped laminate stiffness and initial-stress operators.
+- Apply shell reference-plane offsets before the projected warping and
+  normal-moment maps, with matching stiffness, prestress, recovery and
+  sensitivity replay transformations.
+- Support static isotropic triangular shells with nonuniform corner
+  thickness using a consistent averaged membrane and midpoint-integrated
+  bending section. Keep unverified mass and prestress calls explicit.
+- Add independent energy, coordinate, thickness, recovery and sensitivity
+  regression checks for the new shell paths.
+
+### Planar thickness variation and buckling constraint selections
+
+- Use the polar second moment Iy + Iz for CBEAM lumped torsional inertia;
+  keep the Saint-Venant torsion constant in elastic stiffness only.
+- Apply centroid and independent nonstructural-mass axis offsets to lumped
+  CBEAM mass as well as coupled mass; keep line-mass inertia separate from
+  the structural section's rotary inertia.
+- Extend nonuniform CQUAD4 corner-thickness integration to convex planar
+  skewed and tapered elements. Reject folded or collapsed mappings and retain
+  existing guards for unsupported kinematics.
+- Separate centre section reporting from physical area integration for
+  variable-thickness shells; identify transverse shear output as an area mean.
+- Allow native SOL105 preload and buckling subcases to select different MPC
+  sets. Assemble each operator with its own constraint map, preserve preload
+  recovery and distinguish constraint selections in the geometric-stiffness
+  cache. Keep unsupported changing-map adjoint sensitivities explicitly guarded.
+- Add independent energy, mass, invariance and analytic constrained-buckling
+  regression checks.
+
+### Boxer sizing context, hinge stays and reaction display
+
+- Provide an explicit 100-term, mode-guided plate RF approximation when nested
+  refinement does not converge. Keep convergence status and recovery checks;
+  cap displayed RFs at 999 while selecting governing cases from uncapped values.
+- Show the critical RF and all failing checks in the local property editor,
+  including their load cases, physical scopes and estimate status.
+- Offer independent box-side and movable-side RBE2 hinge stays to the next
+  outboard upper spar cap, tying dependent translations 123 only. Enable the
+  box stay by default and leave the movable stay off by default.
+- Render solid constraint-force arrows with an editable stem diameter and
+  independent force/moment component filters; retain these settings in Studies.
+- Add movable-surface and hinge-line visibility to Aerodynamic geometry.
+  Show unassessed movable shells as wireframe in RF fields and restore their
+  previous appearance when the field is cleared.
+- Clarify the Stress Report table switch as **RF values**; it changes the
+  presentation without launching an analysis.
+
+### Boxer rib alignment and reserve-factor display
+
+- Show labelled spar-point crosses in the Ribs drawing and provide an explicit
+  rib-to-point snap, preserving oblique rib directions and physical intersections.
+- Default new fuel tanks to a 0.9 fill-efficiency factor; preserve saved values.
+- Separate constraint force and moment visibility and value labels in Results
+  and Loads&Constraints, with migration of saved combined settings.
+- Give categorical fields distinct colors instead of a continuous numerical
+  ramp, retaining matching legend swatches and stable load-case colors.
+- Retain conservative plate-energy bounds for unresolved cases that can be
+  proved non-governing. Missing recovery remains unassessed; a finite truncated
+  RF is labelled as an approximation rather than a converged eigenvalue.
+
+### Boxer form consistency and field help
+
+- Harmonize narrow and maximized sub-tab forms. Keep drawing settings within
+  their pane, arrange related wide-form sections in columns and constrain numeric
+  field widths. Consolidate duplicate help actions and redundant empty selectors.
+- Add contextual hover and keyboard help for schema inputs, dynamic editors,
+  display controls and imported-analysis settings, preserving existing explanations.
+
+### Boxer mesh guidance, blade conversion and attachment ribs
+
+- Generate valid meshes with element-shape warnings instead of blocking Study
+  loading. Review affected regions and deduplicated corrective actions from a
+  compact toolbar control. Retain hard checks for collapsed/inverted geometry.
+- Preserve blade-only stringers when switching from shells to beams by exporting
+  rectangular PBARL sections; retain flanged T-sections and explain invalid dimensions.
+- Make movable-surface lateral stays optional. Rename the attachment thickness to
+  **TE rib thickness (m)** and apply it to both attachment fans and their movable rib.
+
+### Coincident shell-joint drilling coordinates
+
+- Extend automatic singularity processing to inactive shell-normal rotations
+  shared across coincident RBE2 joints. Remove only verified stiffness-null
+  coordinate gauges, preserving translations and physical hinge motion without
+  adding stays or exported support constraints. Exclude loaded moments, non-shell
+  elements, concentrated masses, external interpolation relations and explicit
+  drilling stiffness from this narrowly scoped treatment.
+
+### Boxer inspection, movable previews and mesh quality
+
+- Inspect all RBE3 families, including engine mounts and imported connections.
+  Engine mounts now use cap nodes at adjacent physical ribs, without intermediate
+  mesh-node attachments; engine beams are red.
+- Add constraint glow, independent marker size, stronger green/blue direction
+  colors and optional global x/y/z axis-tip labels.
+- Extend underside movable fittings through the secondary spar. Keep movable
+  geometry previews available when a structural mesh exists and accept any finite
+  signed preview angle.
+- Handle local spar/stringer kinks without propagating narrow strips across the
+  main wing and leading edge; distribute optional mesh rows between physical anchors.
+- Simplify Stress Report with one assessment selector and a shared numerical RF
+  palette for tables and 3D fields, retaining critical-case and failure-mode views.
+
 ### Boxer line clarity and engine thrust
 
 - Draw mesh and connection lines with a consistent screen width and stronger
@@ -19,8 +219,8 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ### Engine attachments at the CG and spar caps
 
-- Join the engine CG directly to two upper front-spar-cap nodes on each side
-  of the selected front rib using an RBE3.
+- Join the engine CG directly to the upper front-spar-cap nodes at the physical
+  ribs immediately inboard and outboard of the selected front rib using an RBE3.
 - Join the aft beam end to the corresponding lower-cap nodes around its rib
   and the nearest existing lower-rib node to the requested x/c. Report the
   requested and actual position in Inspect; remove intermediate RBE2 arms.

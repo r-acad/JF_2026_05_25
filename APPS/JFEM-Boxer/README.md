@@ -16,6 +16,39 @@ them to faint hairlines on high-DPI displays. Edges retain depth testing, model
 colors, picking and deformation; hidden lines do not show through solid parts.
 WebGPU remains preferred, with WebGL as fallback.
 
+Main-box and leading-edge meshing distributes optional spanwise divisions
+between physical ribs and loft stations. A local spar or stringer kink splits
+only the affected shell edges instead of adding a narrow strip across the wing.
+Connected skins, webs and caps share the inserted nodes. The mesh retains
+physical rib and kink positions, including closely spaced ones.
+
+In **Structure / Ribs**, crosses mark the front and rear spar perturbation
+points. Select a rib and a spar point, then use **Snap rib** to align them.
+For an angled rib, alignment uses its intersection with the selected spar;
+the rib datum eta can therefore differ from the spar point eta. Review the
+result and regenerate the FEM after adjusting these physical boundaries.
+
+New Studies use a fuel **Fill efficiency factor** of **0.9**. Existing saved
+values remain unchanged. Category fields such as critical load case, failure
+mode and property ID use distinct discrete colors, with matching legend swatches;
+they do not interpolate a numerical color scale between IDs.
+
+Poorly shaped but valid shells remain visible in the generated FEM. Open
+**Review mesh** in the top bar to see affected components and rib bays, element
+IDs, measured angles/edge ratios, and a deduplicated list of suggested edits.
+The editor buttons take you to the relevant geometry form without changing
+values. For example, align a near-rib spar point with the rib if they should
+coincide, or separate those features and refine the long element direction.
+Quality warnings allow inspection, deck export and analysis; they are not a
+mesh-convergence assessment or a guarantee of solution accuracy.
+
+The shape guidance is an edge ratio no greater than 15 and corners between
+10 and 170 degrees. Collapsed, inverted or inconsistent geometry still stops
+generation with a corrective message. The last valid mesh remains visible,
+marked out of date. Opening such a Study loads its parameters and reference
+images for correction without retaining another Study's results. Geometry
+points are never silently moved to satisfy quality guidance.
+
 The forms follow the modelling workflow: **Geometry** and **Structure** define
 the lifting surface; **Materials**, **Properties** and **Constraints** define
 its FE model; **Loads → Cases** defines the conditions to solve. Shared VLM
@@ -37,15 +70,16 @@ and the aft mount by its physical rib and local airfoil x/c. Both mounts may
 use the same rib. Create FEM refreshes the available ribs after a geometry
 edit. Definitions are saved with the Study.
 
-The front RBE3 connects the **beam midpoint / CG** directly to the first two
-**upper front-spar-cap** mesh nodes inboard and first two outboard of the
-front attachment rib (four nodes; the nominal rib node is excluded).
-The aft RBE3 connects the **aft beam end** to the corresponding four
+The front RBE3 connects the **beam midpoint / CG** directly to the
+**upper front-spar-cap** nodes at the immediately adjacent physical ribs,
+one inboard and one outboard of the front attachment rib. Intermediate mesh
+nodes and the nominal cap node are excluded.
+The aft RBE3 connects the **aft beam end** to the corresponding two
 **lower front-spar-cap** nodes around the aft attachment rib, plus the
 existing lower-surface node on that rib nearest the specified x/c. Requested
 and actual x/c are available in Inspect. A target outside the box snaps to
-its nearest boundary node. Each rib needs at least two distinct cap nodes on
-each side; choose an interior rib or refine the span mesh if needed.
+its nearest boundary node. Choose an interior attachment rib with an existing
+physical rib on either side; refining the mesh does not create extra mount nodes.
 
 This is a **flexible beam with concentrated engine mass**: one CONM2 at the CG carries the mass
 and uniform slender-beam inertia, `Iyy = Izz = mass * length² / 12`, `Ixx = 0`.
@@ -57,7 +91,8 @@ or nearly collinear patches also use the cap rotation needed to recover
 rotation about the cap line without adding other attachment nodes.
 The attachment idealisation adds no pylon material mass or flexible pylon
 shells. Beam cylinder radius is only a display
-size. Use Inspect to identify the beam, CG mass or attachment. Engine mass is
+size; engine beams are red. Use Inspect → RBE3 elements to pick either engine
+attachment, or inspect by element ID. Engine mass is
 included in modal analysis even when acceleration loads are disabled. In
 Loads, **Include structural inertia** applies the case's signed acceleration
 and load multiplier to each engine CG. Weight summaries and load plots show
@@ -121,6 +156,12 @@ states, including the Deck, Log, Sensitivity, Load plots and TOML preview.
 Detailed explanations and less frequent settings are under
 expandable headings; warnings and current status remain visible. The same
 controls and values are saved regardless of whether their section is expanded.
+Expanded image, grid and snap settings stay inside the drawing pane. Maximized
+Loft schedules, movable attachments and load-case groups use columns; ordinary
+numeric forms keep a readable width. Duplicate group-help actions are consolidated.
+Hover over an input for its meaning, units and effect, or focus it with the
+keyboard to show the same explanation. F1 opens field help; Escape dismisses it.
+Newly added rows receive the same contextual help as existing rows.
 Fuel density is in **Fuel tank**. Display → Environment groups each plane's
 visibility, finish, color and position; choose **Customize lighting** for
 individual light intensities and directions.
@@ -186,8 +227,10 @@ an imported source analysis, its authored output requests remain authoritative.
 If they suppress strain output, choose an explicit solution in **Analysis of
 imported model** and rerun to obtain laminate strain checks.
 
-**Results → Stress Report** contains two property tables: **Von Mises stress**
-and **Reserve Factor**. It includes current SOL101 and converged, full-load
+**Results → Stress Report** uses one **Assessment** selector for the tables and
+the 3D model. For Von Mises, choose **Stress values** or **RF values**;
+this switches the table presentation, without running another analysis.
+other assessments present their reserve-factor table. It includes current SOL101 and converged, full-load
 SOL106 physical solutions; modal solutions and SOL105, including its static
 preload, are outside this report. Choose all eligible load cases or a particular
 case. In a generated SOL106 comparison, the full-load linear SOL101 comparison
@@ -203,16 +246,26 @@ different failing sets: a property may pass von Mises yet fail buckling. Missing
 coverage remains **Unassessed** and is not converted into a passing reserve factor.
 Edit material allowables in **Materials > Material library**.
 
-Under **3D model fields**, choose **Minimum RF**, an individual failure-mode
-RF, **Critical case for minimum RF**, or **Critical failure mode for minimum RF**,
-then click **Show field**. The field uses the load-case scope and property
+Under **3D model fields**, choose **Reserve factor for selected assessment**,
+**Critical load case (minimum RF)**, or **Critical failure mode (minimum RF)**,
+then click **Show field**. The two categorical views select Minimum RF above.
+The field uses the load-case scope and stress
 envelope selected above; the table's text filter does not exclude model regions.
 Changing these settings, allowables or assessment fixities refreshes the active
 field. **Clear field** restores ordinary result viewing. The RF field uses the
 undeformed model because an envelope can be governed by different cases in
 different regions. It works with shell surfaces, beam lines and 3D sections.
+Movable-surface shells can receive material stress/strain checks when their
+recovery and allowables are available. Dedicated movable panel and member
+buckling checks are not yet implemented. Unassessed movable shells appear as
+wireframe in RF fields; the aerodynamic movable preview also becomes wireframe
+so it cannot conceal those fields. Clearing the field restores normal rendering.
+In **Display → Aerodynamic geometry**, toggle **Movable surfaces** and
+**Movable hinge lines** independently. These control geometry previews, not
+the structural mesh or its analysis settings.
 
-Numerical fields offer the table palettes, with fixed RF limits 0 and 2 and
+The **Color scale** control is shared by the RF table and numerical 3D field,
+with fixed RF limits 0 and 2 and
 minimum-gauge yellow where verified. Critical cases and failure modes use
 named category colors. Gray means unassessed or inapplicable. Inspect an element
 to see its RF, governing case, failure mode, physical scope and missing-check
@@ -263,6 +316,10 @@ field; turn off the filter to inspect or edit it again. **Inspect**
 also shows the selected element's minimum RF and governing failure mode and
 provides **Edit property**, using the same dialog and update behavior.
 The blue **Edit property** button opens the local property editor. The picked
+property's critical RF, failure mode and load case appear above the dimensions,
+along with every assessed RF below 1 and its physical scope. Incomplete checks
+remain identified, and fixed-load estimates are labelled.
+The picked
 element has a cyan glow, and the other visible elements with the same property
 have an amber highlight. These inspection overlays follow the displayed shape
 and explosion settings and respect hidden layers and the RF filter.
@@ -425,14 +482,15 @@ For SOL106 the ratio compares recovered compression with an elastic capacity;
 it is not a prediction of the nonlinear failure load.
 
 Choose **Assessment → Stringer blade instability** to assess local buckling
-of the free web of a generated PBARL T stringer. The table shows critical stress,
+of the free web of a generated PBARL T stringer or rectangular PBARL BAR blade. The table shows critical stress,
 average compressive stress, RF, governing case and the web dimensions. It uses
 the conventional long-outstand-plate expression
 
 `σcr = 0.425 × π² E / [12(1 − ν²)] × (tw / hw)²`,
 
 where `tw` is the current web thickness and `hw = H − tf` is the clear blade
-height from the attached flange to the free tip. The attached longitudinal edge
+height from the attached flange to the free tip; a flange-free blade uses its
+full height `hw = H`. The attached longitudinal edge
 is treated as simply supported and the opposite edge is free; no extra flange
 rotational restraint or finite-length benefit is credited. This coefficient
 and the plate equation are documented in
@@ -496,8 +554,12 @@ aspect ratio alone can miss it. Both mode directions are increased, both parity
 families are retained, and two successive RF changes must remain within 0.5%.
 Isotropic or specially orthotropic bending uses exact diagonal normalization to
 keep the larger check efficient. Details show the actual recovery coverage,
-basis size and refinement change. Missing forces and an unconverged calculation
-are identified separately; neither is replaced by a passing RF. The need for
+basis size and refinement change. If refinement still fails to converge, Boxer
+selects 100 physical sine terms guided by the unresolved buckling mode and
+re-solves that truncated problem. The result is explicitly marked **100-term
+approximation**, not converged. A truncated Ritz basis can overestimate capacity.
+Missing forces and invalid panel definitions are not replaced by estimated RFs.
+The need for
 additional Ritz terms under combined tension and shear is also discussed in
 [Sathiyaseelan and Baskar's plate study](https://doi.org/10.12989/sem.2012.42.6.867).
 
@@ -526,8 +588,15 @@ constraints. Editing it refreshes the RF table without another FE solve.
 The lowest RF across current SOL101 and converged full-load SOL106 cases governs.
 The table and exports retain signed mean stresses, measured dimensions, fixity,
 governing case and recovery/convergence information. Complete cases with no
-destabilizing averaged membrane loading show **99**. Missing recovery, unsupported
-panel boundaries and unresolved numerical convergence remain unassessed.
+destabilizing averaged membrane loading show **99**. Missing recovery and
+unsupported panel boundaries remain unassessed. An unconverged case with a
+resolved positive root in the 100-term truncation supplies an approximate RF,
+including when that case is selected alone. If no positive root is resolved,
+the app explains that limitation; a valid lower bound can still certify that
+the case cannot govern an otherwise converged envelope. RFs above **999** display
+as **999** in tables, fields, inspection and exports. Uncapped values continue
+to determine the governing case and failure mode. This display cap is separate
+from the no-demand sentinel of 99.
 
 For **spars and ribs**, the Assessment selector also provides **Spar-web
 buckling**, **Rib-web buckling**, **Spar cap column buckling**, **Rib stiffener
@@ -712,7 +781,11 @@ control footprints so the reference image remains visible; dashed lines identify
 the hinges. **3D preview finish** selects **Translucent** (default), **Solid**,
 **Wireframe** or **Metallic** for all movable-surface geometry previews, retaining
 the individual surface colors. The choice is saved with the Study and does not
-change materials or structural properties. The 3D preview rotates the trimmed
+change materials or structural properties. The preview remains available for
+structurally meshed surfaces and accepts any finite signed angle in degrees.
+It does not rotate an existing FE mesh or solved displacement field; use
+**Mesh at preview deflection** and regenerate to change the structural model.
+The 3D preview rotates the trimmed
 loft about the straight axis joining the two
 hinge endpoints, including their z/t offsets. Positive deflection lowers a horizontal trailing
 edge. Use the question-mark help for the sign convention and curved-loft limits.
@@ -751,7 +824,11 @@ a main-box rib directly, or a requested eta that snaps to the closest eligible
 rib. The rib and eta controls stay synchronized. Select the front/rear main-box
 spar for the lug. New attachments use **Triangular shell lugs**: shell fans extend from the
 two box edges to separate, coincident nodes on the true hinge line. Choose their
-material and minimum thickness. For flaps, each lug lies in a plane in the line
+material and **TE rib thickness (m)**. This thickness applies to the attachment
+triangles on both boxes and to the movable-surface rib at that attachment.
+The movable rib retains its selected rib material; other movable ribs retain
+the surface's ordinary rib thickness. Two attachments on the same surface may
+not occupy the same rib. For flaps, each lug lies in a plane in the line
 of flight (constant BASIC Y). For other types it lies normal to the true 3D
 hinge line. The plane passes through the selected main-box rib's spar midpoint;
 its intersection with a swept hinge can have a different eta from that rib.
@@ -769,17 +846,18 @@ attaches to the **front spar**, including hinges close to or behind that spar.
 An underside lug is used only when z/t is below -0.5 and the actual straight
 hinge line is below the local lower airfoil contour. Its plane is normal to the
 hinge, including for flaps. The underside fitting follows the existing lower
-rib edges all the way to the front spar; it cannot end on an isolated skin cell.
+rib edges from the front spar through the secondary spar; it cannot end on an isolated skin cell.
 The hinge position is preserved, and a fitting that would cross the section is
 rejected with an explanation. At a hinge coincident with a front-spar node,
 the existing node is used directly instead of generating zero-area triangles.
-**Lateral RBE2 stays** connect each hinge tip
-to the upper spar-cap node of its own box's next outboard rib; at the last rib,
-the previous rib is used. These are rigid arms tying all three target
-translations, not axial-only rods. The app rejects conflicting dependent cap nodes.
-The arms are required for a rigid joint to transmit rotational restraint without
-relying on shell drilling stabilization. They are optional for an axial actuator,
-whose real spar-cap endpoints provide its force lever arm.
+Attachment triangles connect directly through the relative hinge. **Main-box
+lateral stay** is enabled by default; **Movable lateral stay** is optional
+and off by default. Each rigid RBE2 arm links its triangle's hinge tip to an
+upper spar-cap node at the next outboard physical rib: the rear cap of the box,
+or the front cap of the movable. Only dependent translations **123** are tied.
+No dependent rotations are added, and the relative hinge rotation stays free.
+If no outboard rib exists, disable that stay or move the attachment inboard.
+The axial actuator retains its real spar-cap endpoints and force lever arm.
 
 Manual **Create FEM** and the **G** shortcut preserve the current 3D camera,
 including its target, orientation, zoom and projection. The first model is
@@ -952,8 +1030,8 @@ repository root, or in this app folder. Setup builds the shared JFEM/app sysimag
 and loads it. The Julia entry point is **JFEM-Boxer.jl**. Existing `.wingfem.json`
 studies and internal parameter keys remain readable.
 
-**Structure / Stringers / Stringer elements** selects the existing **Beam**
-T-section or **Shell** webs with an attached flange. In **Properties / Stringers**,
+**Structure / Stringers / Stringer elements** selects **Beam (PBARL)** or
+**Shell** webs with an attached flange. In **Properties / Stringers**,
 set **Stringer flange width** to **0** for a blade without a flange; panel-table
 overrides can do the same for individual panels. Positive flange widths refine
 the skin at their edges and share its nodes. Each flange footprint replaces the
@@ -967,6 +1045,16 @@ layers or inward offsets use a combined PCOMP. The skin is included once in
 stiffness and mass. No normal
 stringer beam is retained in shell mode; small run-out connectors remain beams.
 
+Switching a blade-only shell stringer to Beam preserves its zero flange width
+and emits a rectangular **PBARL BAR**, with the same blade height, web thickness,
+section area and moments of area. It does not invent a flange. Positive-width
+flanged sections use **PBARL T** and require a positive flange thickness. This
+also applies to local panel overrides. The centroid remains inside the skin;
+switching representation requires a new FEM and analysis. Rectangular BAR
+sections retain axial-stress, Euler-column and blade-instability assessment;
+the current equivalent-stress recovery is T-specific, so BAR von Mises RF is
+explicitly unavailable unless suitable recovered equivalent stress is supplied.
+
 In **Properties / Stringers**, the added-flange material initially follows the
 stringer material, including panel overrides. Clear **Use stringer material**
 to assign a separate monolithic material or sandwich. For a sandwich flange,
@@ -975,7 +1063,7 @@ that total minus twice the face thickness. Panel thickness overrides use the
 same rule. The combined PCOMP places added-flange layers inside and the selected
 skin layers outside, preserving their individual materials and thicknesses.
 
-For shell stringers, **Blade direction** follows the inward skin normal or a
+For shell and beam stringers, **Blade direction** follows the inward skin normal or a
 selected coordinate-system **X**, **Y** or **Z** axis. ID **0** means global BASIC;
 a positive ID selects a generated skin, spar or rib frame visible under
 **Display / Axes & labels**. The inward sign is selected on each skin. An axis
@@ -1016,11 +1104,12 @@ are omitted from the catalogue; shared variables moving all tied skins together
 remain available. Strictly thinner skins retain their dependent flange properties
 in the sensitivity calculation.
 
-**Display constraint reactions** shows the reaction arrows. The separate
-**Label constraint forces and moments** toggle immediately below it shows signed
-force components in N and moment components in N·m. Both controls are available
+**Display constraint forces** shows solid reaction arrows; **Display constraint
+moments** independently shows right-hand moment arcs. Each has its own label toggle:
+signed force components in N or moment components in N·m. These controls are available
 in FE Results and Display / Loads&Constraints, including static preload results.
-Labels become available when reaction arrows are shown for a result with reactions.
+Each label toggle becomes available while its corresponding arrows are visible.
+Studies saved before this split retain their previous combined display choice.
 
 Right-click and drag on the model to pan: the point under the cursor stays under
 it throughout the drag. Dragging empty space uses a plane through the camera
@@ -1144,6 +1233,16 @@ unit-specific scales fitted to the displayed values. Numbers use at most five
 significant digits; CSV retains full precision. Units sit beside the scales.
 
 **Display / Axes & labels** includes RBE3 component, weight and UM markers.
+**Global axis tip labels · x / y / z** labels the BASIC reference directions.
+Under **Display / Loads&Constraints**, **Glow all constraints** adds a halo
+to visible constraint markers; opaque model surfaces still occlude them.
+**Constraint size ×** scales those markers independently of loads and other
+symbols. Green y and blue z constraints use distinct saturated colors.
+These display settings are saved in the Study. **Inspect / RBE3 elements**
+includes aerodynamic, engine and imported RBE3 connections. Archived results
+that omit RBE3 weights or local constraint frames identify that information
+as unavailable.
+
 **CELAS properties and coordinate axes** labels visible springs with their
 element ID, PELAS property or directly specified stiffness, and each endpoint's
 DOF and GRID displacement coordinate system (CD, type and parent). Scalar or
@@ -1811,8 +1910,8 @@ available.
 Entity lists have independent collapse/expand buttons saved in the Study.
 RBE3 lines are light pink. Aerodynamic-load reference nodes at rib planes are
 magenta; fuel/structural-mass reference nodes at bay centers are dark green.
-**Label constraint force and moment values** adds signed
-component values at the visible reaction arrows, using the axis colors.
+**Label constraint forces** and **Label constraint moments** independently add signed
+component values at their visible reaction arrows, using the axis colors.
 **Undeformed model color** changes the reference lines and beam sections without
 changing result contours. The color and CELAS label option are saved with the
 Study. Clicking **Inspect** again leaves inspection; its entity selector appears
@@ -2091,13 +2190,21 @@ for element-set syntax and supported request qualifiers.
 Buckling modes use their own normalized display amplitude; changing the static
 preload magnitude does not change the displayed mode size.
 
-**Constraint reactions** shows recovered forces and moments for ordinary SOL101,
+**Constraint reactions** provides independent force and moment displays for ordinary SOL101,
 accepted SOL106 states, and their sensitivity baselines. SOL105 sensitivity
 baselines retain a separate **SOL101 preload** variant; its reactions also follow
 the buckling static-preload shape. Reaction arrows and numeric labels follow the
 displayed constrained nodes, while the arrow multiplier changes only glyph size.
 Normalized eigenmodes do not inherit physical preload reactions. Missing or
 suppressed SPCFORCES output is explained beside the disabled controls.
+
+In **Display / Loads&Constraints / Constraint reactions**, select the global
+**Fx, Fy, Fz, Mx, My, Mz** components independently. **Force stem diameter** controls
+the width of the solid force arrows; use **0** for automatic sizing. Its units are
+metres for generated models, or the source model's length units for imported
+models. **Arrow length multiplier** controls length separately. Component filters
+also filter the numeric labels and visible-only geometry exports; they do not
+change the calculated reactions. These display settings are saved in the Study.
 
 ## Portable checks
 

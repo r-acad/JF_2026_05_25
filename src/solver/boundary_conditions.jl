@@ -695,11 +695,9 @@ end
 
 """
 Whether the directional singularity test also runs on the 3x3 TRANSLATIONAL
-block. Default ON, matching the reference solver, which tests both blocks.
+block. Default ON.
 
-Validated against purpose-built reference runs under
-`VALIDATION_FILES/GRID_POINT_SINGULARITY_2026_08_04/` -- rods and bars, since a
-pure-shell deck cannot produce a translational singularity. A single rod resists
+A single rod resists
 only along its own axis, so its free node's translational stiffness is rank 1
 with a two-dimensional null space; three rods spanning an oblique plane leave a
 one-dimensional null space along that plane's normal, which no DOF axis lies
@@ -708,6 +706,8 @@ near and which therefore no per-DOF diagonal test can find.
 @inline function gpst_translational_enabled()
     return solver_env_bool("JFEM_AUTOSPC_GRID_POINT_SINGULARITY_TRANS", true)
 end
+
+include("coincident_shell_drilling.jl")
 
 """
     _grid_point_singularity_autospc!(fixed_dofs, spc_dofs, K, ndof, model, id_map, protected_trans_dofs)
@@ -832,12 +832,15 @@ function _grid_point_singularity_autospc!(fixed_dofs::Set{Int}, spc_dofs::Union{
         end
     end
 
+    joint_entries=_coincident_shell_drilling_autospc!(fixed_dofs,spc_dofs,K,model,id_map)
+    n_rot+=length(joint_entries);append!(entries,joint_entries)
     return Dict(
         "dofs" => n_trans + n_rot,
         "translational_dofs" => n_trans,
         "rotational_dofs" => n_rot,
         "eps_zero" => eps_zero,
         "entries" => entries,
+        "coincident_joint_rotational_dofs" => length(joint_entries),
     )
 end
 

@@ -6,11 +6,15 @@ const MOVABLE_STRUCTURE_DEFAULTS=Dict{String,Any}("surface"=>"","enabled"=>true,
     "secondary_spar"=>.5,"mesh_deflected"=>false,"end_eta"=>0.,"max_rib_pitch_ratio"=>1.5)
 const MOVABLE_ATTACHMENT_DEFAULTS=Dict{String,Any}("surface"=>"","eta"=>.5,"rib"=>1,"spar"=>"rear",
     "kind"=>"hinge","translation_stiffness"=>1e9,"tilt_stiffness"=>1e6,"hinge_stiffness"=>1e4,
-    "fitting"=>"idealized","lug_material"=>1,"lug_thickness"=>.003,"lateral_stay"=>false,"actuator"=>false,"actuator_stiffness"=>1e7)
+    "fitting"=>"idealized","lug_material"=>1,"lug_thickness"=>.003,"actuator"=>false,"actuator_stiffness"=>1e7,
+    "box_lateral_stay"=>true,"movable_lateral_stay"=>false)
 is_movable_pid(pid)=31<=pid÷1_000_000<=35 || pid÷1_000_000==37
 movable_structural_end(row,s)=get(row,"end_eta",0.)==0 ? s["eta_end"] : row["end_eta"]
 movable_structure_rows(p)=get(p,"movable_structure.surfaces",Any[])
-movable_attachments(p)=get(p,"movable_structure.attachments",Any[])
+# Older Studies may contain the retired stay flag. Ignore it on input, without
+# carrying it into generated attachments, exports or newly saved parameters.
+movable_attachments(p)=[haskey(a,"lateral_stay") ? Dict(k=>v for (k,v) in a if k!="lateral_stay") : a
+    for a in get(p,"movable_structure.attachments",Any[])]
 movable_enabled(p)=any(r->get(r,"enabled",false),movable_structure_rows(p))
 
 """Resolve eta against physical main-box ribs; legacy rib numbers are advisory only."""
@@ -35,16 +39,19 @@ function normalize_movable_structure(value,key)
     value isa AbstractVector&&length(value)<=(attachment ? 1000 : 100)||throw(ArgumentError("$key must be a bounded table of $(attachment ? 1000 : 100) rows"))
     out=Dict{String,Any}[];seen=Set()
     for raw in value
-        raw isa AbstractDict&&all(k->k in keys(defaults),keys(raw))||throw(ArgumentError("$key contains missing or unknown structure fields"))
+        raw isa AbstractDict&&all(k->k in keys(defaults)||(attachment&&k=="lateral_stay"),keys(raw))||throw(ArgumentError("$key contains missing or unknown structure fields"))
         row=merge(defaults,raw);name=row["surface"]
+        attachment&&pop!(row,"lateral_stay",nothing)
         name isa AbstractString&&!isempty(strip(name))&&length(name)<=80||throw(ArgumentError("$key needs a movable-surface name"))
         row["surface"]=strip(name)
         if attachment
             row["kind"] in ("hinge","rigid")||throw(ArgumentError("$name: attachment must be hinge or rigid"))
             row["fitting"] in ("idealized","shell_lugs")||throw(ArgumentError("$name: choose idealized fittings or triangular shell lugs"))
-            for k in ("lateral_stay","actuator");row[k] isa Bool||throw(ArgumentError("$name: $k must be on or off"));end
+            for k in ("actuator","box_lateral_stay","movable_lateral_stay")
+                row[k] isa Bool||throw(ArgumentError("$name: $k must be on or off"))
+            end
             row["lug_material"]=material_integer(row["lug_material"],"$name lug material")
-            row["lug_thickness"]=material_positive(row["lug_thickness"],"$name lug thickness")
+            row["lug_thickness"]=material_positive(row["lug_thickness"],"$name TE rib thickness")
             row["spar"] in ("front","rear")||throw(ArgumentError("$name: choose front or rear main-box spar"))
             eta=row["eta"];eta isa Real&&!(eta isa Bool)&&isfinite(eta)&&0<=eta<=1||throw(ArgumentError("$name: attachment eta must be between 0 and 1"))
             row["eta"]=Float64(eta);row["rib"]=material_integer(row["rib"],"$name attachment main-box rib")
@@ -96,9 +103,6 @@ function validate_movable_structure(p)
             s["eta_start"]<=a["eta"]<=structural_end||throw(ArgumentError("$name: attachment eta is outside the movable structure"))
             a["rib"]<=length(ribs)||throw(ArgumentError("$name: main-box rib $(a["rib"]) does not exist"))
             a["fitting"]=="shell_lugs"&&material_definition(p,a["lug_material"])
-            if a["fitting"]=="shell_lugs"&&!a["lateral_stay"]&&a["kind"]=="rigid"
-                throw(ArgumentError("$name: a rigid physical lug joint requires lateral RBE2 stays to transfer hinge-axis torque through a geometric lever arm. An axial actuator transfers its force directly through the upper spar-cap nodes and does not require this option."))
-            end
         end
         if s["edge"]=="leading"&&p["leading_edge.enabled"]
             throw(ArgumentError("$name: turn off the existing Leading Edge structure before meshing a leading-edge movable surface, to avoid overlapping structures"))
@@ -123,6 +127,24 @@ function validate_movable_run(p;solution=String(get(p,"output.solution","101")))
     nothing
 end
 
+"""Input attachment owning one physical movable rib; ordinary ribs return nothing.
+
+The same snapping and master-rib construction used by the mesh resolve this
+without adding generated topology to Study parameters. Duplicate attachments
+on one surface/rib are rejected; different surfaces retain independent inputs.
+"""
+function movable_rib_attachment(p,row,station)
+    s=only(filter(s->s["name"]==row["surface"],get(p,"movable_surfaces.items",Any[])))
+    etas,ribs,_=span_stations(make_wing(p),p)
+    aa=snapped_movable_attachments(p,s,row,etas[ribs.+1])
+    layout=movable_master_rib_layout(s["eta_start"],movable_structural_end(row,s),row,aa)
+    1<=station<=length(layout)||throw(ArgumentError("$(row["surface"]): unknown movable rib $station"))
+    ai=layout[station]["attachment"];ai==0&&return nothing
+    attachment=aa[ai]
+    index=findfirst(a->a["surface"]==row["surface"]&&a["eta"]==attachment["requested_eta"],movable_attachments(p))
+    return (;attachment,index)
+end
+
 function movable_shell_property(p,pid)
     family,index=divrem(pid,1_000_000);surface_index,station=divrem(index,1000)
     if family==37
@@ -131,16 +153,22 @@ function movable_shell_property(p,pid)
         return Dict{String,Any}("type"=>"PSHELL","construction"=>"monolithic","thickness_m"=>thickness,
             "material_id"=>material["id"],"material"=>material_payload(material),"nonstructural_mass_kg_m2"=>0.,
             "areal_mass_kg_m2"=>thickness*material["rho"],"movable_surface"=>surface,"movable_part"=>"hinge lugs",
-            "display_label"=>surface*" - hinge lugs - attachment "*string(index),"attachment_eta"=>row["eta"])
+            "display_label"=>surface*" - attachment triangles - attachment "*string(index),
+            "attachment_eta"=>row["eta"],"attachment_index"=>index,"thickness_source"=>"TE rib thickness")
     end
     rows=movable_structure_rows(p);1<=surface_index<=length(rows)||throw(ArgumentError("Unknown movable property $pid"))
     row=rows[surface_index];part=("upper skin","lower skin","front spar","secondary spar","rib")[family-30]
     thickness=row[("upper_thickness","lower_thickness","web_thickness","web_thickness","rib_thickness")[family-30]]
+    owner=family==35 ? movable_rib_attachment(p,row,station) : nothing
+    owner===nothing||(thickness=owner.attachment["lug_thickness"])
     material=material_definition(p,row[family<=32 ? "skin_material" : family<=34 ? "web_material" : "rib_material"])
-    Dict{String,Any}("type"=>"PSHELL","construction"=>"monolithic","thickness_m"=>thickness,
+    property=Dict{String,Any}("type"=>"PSHELL","construction"=>"monolithic","thickness_m"=>thickness,
         "material_id"=>material["id"],"material"=>material_payload(material),"nonstructural_mass_kg_m2"=>0.,
         "areal_mass_kg_m2"=>thickness*material["rho"],"movable_surface"=>row["surface"],"movable_part"=>part,
         "display_label"=>row["surface"]*" · "*part*" · "*(family==35 ? "rib " : "bay ")*string(station))
+    owner===nothing||merge!(property,Dict("attachment_index"=>owner.index,
+        "attachment_eta"=>owner.attachment["eta"],"attachment_rib"=>true,"thickness_source"=>"TE rib thickness"))
+    return property
 end
 
 function movable_rotation(w,s,deflected)
@@ -168,11 +196,12 @@ end
 New cut GRIDs are massless interpolation references on existing shell edges;
 six explicit MPC equations interpolate their displacement and rotation without
 adding an elastic member. An existing GRID on the plane is reused directly.
-Only real quadrilateral boundary edges are interpolated: an invented diagonal
-would not use the four-node shell's actual shape functions. The fitting edge
-joins consecutive boundary intersections within the exact fitting plane.
+Only actual shell edges are interpolated, including the real edges of locally
+triangulated spar kink cells. An invented quadrilateral diagonal would not use
+the four-node shell's shape functions. The fitting edge joins consecutive
+boundary intersections within the exact fitting plane.
 """
-function movable_spar_cut!(reg,quads,origin,normal,free,tol,label)
+function movable_spar_cut!(reg,faces,origin,normal,free,tol,label)
     position(n)=reg.xyz[3n-2:3n]
     links=Any[];segments=Set{Tuple{Int,Int}}();cache=Dict{NTuple{3,Int},Int}()
     function crossing(n1,n2,d1,d2)
@@ -184,15 +213,16 @@ function movable_spar_cut!(reg,quads,origin,normal,free,tol,label)
             ref=free(point);push!(links,Dict{String,Any}("ref"=>ref,"nodes"=>[n1,n2],"weights"=>[1-t,t],"components"=>123456));ref
         end
     end
-    for quad in quads
-        d=[sum(normal.*(position(n).-origin)) for n in quad]
+    for face in faces
+        d=[sum(normal.*(position(n).-origin)) for n in face]
         all(x->abs(x)<=tol,d)&&throw(ArgumentError("$label: fitting plane lies along the spar instead of crossing it; change the hinge or spar geometry"))
         hits=Int[]
-        for (i,j) in ((1,2),(2,3),(3,4),(4,1))
+        for i in eachindex(face)
+            j=mod1(i+1,length(face))
             if abs(d[i])<=tol&&abs(d[j])<=tol
-                append!(hits,(quad[i],quad[j]))
+                append!(hits,(face[i],face[j]))
             elseif abs(d[i])<=tol||abs(d[j])<=tol||signbit(d[i])!=signbit(d[j])
-                push!(hits,crossing(quad[i],quad[j],d[i],d[j]))
+                push!(hits,crossing(face[i],face[j],d[i],d[j]))
             end
         end
         unique!(hits)
@@ -219,6 +249,19 @@ include("movable_rib_layout.jl")
 """Add movable shells, physical/idealized fittings and separate aerodynamic load references."""
 function add_movable_structure!(reg,g,p,groups,eid)
     metadata=Dict{String,Any}("surfaces"=>Any[],"attachments"=>Any[],"load_references"=>Any[],"node_etas"=>Dict{Int,Float64}())
+    # Local spar-kink recovery may replace a structured cell by triangles.
+    # Fit to those actual FE faces, never the old unsplit corner quadrilateral,
+    # which shortcuts the physical spar and omits its new load-carrying GRIDs.
+    main_spar_faces=Dict(i=>Vector{Int}[] for i in (0,ni(g)))
+    for group in groups
+        group.kind in (:quad,:tria)&&component_base_pid(group.pid)==PID_SPAR_WEB||continue
+        count=group.kind===:quad ? 4 : 3
+        for index in eachindex(group.eids)
+            nodes=group.conn[count*(index-1)+1:count*index];side=reg.keys[first(nodes)][1]
+            haskey(main_spar_faces,side)&&all(n->reg.keys[n][1]==side,nodes)||continue
+            push!(main_spar_faces[side],nodes)
+        end
+    end
     surfaces=Dict(s["name"]=>s for s in get(p,"movable_surfaces.items",Any[]));w=g.wing
     for (si,row) in enumerate(movable_structure_rows(p))
         row["enabled"]||continue
@@ -293,6 +336,7 @@ function add_movable_structure!(reg,g,p,groups,eid)
             perimeter=unique(vcat([node(i,j,k) for i in 0:length(us)-1 for k in (0,nh)],
                 [node(i,j,k) for i in (0,length(us)-1) for k in 0:nh]))
             push!(rib_sections,Dict("eta"=>eta,"front_lower"=>node(0,j,0),"front_upper"=>node(0,j,nh),
+                "secondary_lower"=>row["secondary_spar"]>0 ? node(findfirst(==(row["secondary_spar"]),us)-1,j,0) : 0,
                 "edge_lower"=>node(length(us)-1,j,0),"edge_upper"=>node(length(us)-1,j,nh),"perimeter_nodes"=>perimeter,
                 "lower_nodes"=>[node(i,j,0) for i in 0:length(us)-1],"upper_nodes"=>[node(i,j,nh) for i in 0:length(us)-1],
                 "master_attachment"=>rib_layout[ri]["attachment"],"gap_refinement"=>get(rib_layout[ri],"gap_refinement",false)))
@@ -320,11 +364,11 @@ function add_movable_structure!(reg,g,p,groups,eid)
             plane_normal=attachment["plane_normal"]
             interpolation_links=Any[];hinge_eta=attachment["hinge_eta"];underside_fitting=nothing
             if attachment["fitting"]=="shell_lugs"
-                main_quads=[(node!(reg,g,column,j,k),node!(reg,g,column,j+1,k),node!(reg,g,column,j+1,k+1),node!(reg,g,column,j,k+1)) for j in 0:nj(g)-1 for k in 0:g.nh-1]
-                base,main_links=movable_spar_cut!(reg,main_quads,center,plane_normal,free,tol,"$(s["name"]) main-box lug at rib $(attachment["rib"])")
+                base,main_links=movable_spar_cut!(reg,main_spar_faces[column],center,plane_normal,free,tol,"$(s["name"]) main-box lug at rib $(attachment["rib"])")
                 if attachment["underside_lug"]
                     underside_fitting=movable_underside_fitting(reg,[node(i,j,0) for i in 0:length(us)-1],[node(i,j,nh) for i in 0:length(us)-1],
-                        center,plane_normal,"$(s["name"]) underside fitting at rib $(attachment["rib"])")
+                        center,plane_normal,"$(s["name"]) underside fitting at rib $(attachment["rib"])",
+                        minimum_end=row["secondary_spar"]>0 ? findfirst(==(row["secondary_spar"]),us) : 2)
                     fitting_nodes=underside_fitting.foot_nodes
                 end
                 append!(interpolation_links,main_links)
@@ -343,7 +387,7 @@ function add_movable_structure!(reg,g,p,groups,eid)
             boxnodes=unique(vcat(base,[node!(reg,g,neighbor,jr,k) for k in (0,g.nh)]))
             rec=merge(copy(attachment),Dict{String,Any}("box_ref"=>boxref,"surface_ref"=>moveref,
                 "box_nodes"=>boxnodes,"surface_nodes"=>fitting_nodes,"origin"=>collect(center),"axis"=>collect(rot.axis),
-                "lateral_links"=>Any[],"lug_eids"=>Int[],"interpolation_links"=>interpolation_links,
+                "lug_eids"=>Int[],"interpolation_links"=>interpolation_links,
                 "hinge_eta"=>hinge_eta,"lug_plane_normal"=>collect(plane_normal),"lug_orientation"=>s["kind"]=="flap"&&!attachment["underside_lug"] ? "flight direction" : "normal to hinge",
                 "control_lug_attachment"=>attachment["underside_lug"] ? "lower skin" : "front spar","master_rib_index"=>argmin(abs.(rib_etas.-eta))))
             rec["lug_shape"]=underside_fitting===nothing ? "front-spar fan" : underside_fitting.shape
@@ -368,24 +412,34 @@ function add_movable_structure!(reg,g,p,groups,eid)
                     end
                 end
                 push!(groups,lug);rec["lug_pid"]=pid
-                if attachment["lateral_stay"]
-                    nr=attachment["rib"]<length(g.ribs) ? attachment["rib"]+1 : attachment["rib"]-1
-                    nr>=1||throw(ArgumentError("$(s["name"]): a lateral stay needs a neighboring main-box rib"))
-                    rj=argmin(abs.(rib_etas.-eta));next=rj<length(rib_etas) ? rj+1 : rj-1
-                    next>=1||throw(ArgumentError("$(s["name"]): a lateral stay needs a neighboring movable rib"))
-                    targets=(node!(reg,g,column,g.ribs[nr],g.nh),node(0,argmin(abs.(etas.-rib_etas[next]))-1,nh))
-                    for (tip,target) in zip((boxref,moveref),targets)
-                        # The hinge tip is independent. Only translations of the
-                        # adjacent upper-cap node are dependent on this arm.
-                        push!(rec["lateral_links"],Dict("eid"=>eid,"ref"=>tip,"node"=>target,"components"=>123));eid+=1
-                    end
-                end
             else
                 for key in ("box_rbe3_eid","surface_rbe2_eid");rec[key]=eid;eid+=1;end
             end
             rec["joint_eid"]=eid;eid+=1
             rec["pid"]=36_000_000+length(metadata["attachments"])+1
             rec["cid"]=80_000_000+si;rec["frame_origin"]=collect(rot.h0)
+            rec["lateral_stays"]=Any[]
+            if attachment["fitting"]=="shell_lugs"
+                if get(attachment,"box_lateral_stay",true)
+                    ri=attachment["rib"]+1
+                    ri<=length(g.ribs)||throw(ArgumentError("$(s["name"]), main-box rib $(attachment["rib"]): the main-box lateral stay needs an outboard rib. Move this attachment inboard or turn off Main-box lateral stay."))
+                    cap=node!(reg,g,ni(g),g.ribs[ri],g.nh)
+                    # Keep the cap independent. Multiple same-body fittings
+                    # can use it without assigning its translations twice.
+                    push!(rec["lateral_stays"],Dict("side"=>"main box","eid"=>eid,"independent"=>cap,"dependent"=>boxref,
+                        "hinge_node"=>boxref,"cap_node"=>cap,"target_rib"=>ri,"components"=>123));eid+=1
+                end
+                if get(attachment,"movable_lateral_stay",false)
+                    ri=rec["master_rib_index"]+1
+                    ri<=length(rib_sections)||throw(ArgumentError("$(s["name"]), movable rib $(rec["master_rib_index"]): the movable lateral stay needs an outboard rib. Move this attachment inboard, extend the movable structure, or turn off Movable lateral stay."))
+                    cap=rib_sections[ri]["front_upper"]
+                    # The movable hinge translations already depend on the
+                    # main-box tip. Use the outboard cap as GM to avoid a
+                    # duplicate 123 assignment on that relative hinge.
+                    push!(rec["lateral_stays"],Dict("side"=>"movable surface","eid"=>eid,"independent"=>moveref,"dependent"=>cap,
+                        "hinge_node"=>moveref,"cap_node"=>cap,"target_rib"=>ri,"components"=>123));eid+=1
+                end
+            end
             eid=add_movable_actuator!(reg,rec,node!(reg,g,ni(g),jr,g.nh),node(0,j,nh),length(metadata["attachments"])+1,eid)
             push!(metadata["attachments"],rec)
         end
@@ -398,11 +452,15 @@ function add_movable_structure!(reg,g,p,groups,eid)
                 dependent[n]="idealized fitting"
             end
         end
+        if a["kind"]=="rigid"||a["fitting"]=="shell_lugs"
+            dependent[a["surface_ref"]]="relative hinge"
+        end
+        for link in get(a,"interpolation_links",Any[]);dependent[link["ref"]]="lug interpolation MPC";end
     end
-    for a in metadata["attachments"],link in a["lateral_links"]
-        n=link["node"]
-        haskey(dependent,n)&&throw(ArgumentError("$(a["surface"]): lateral stays share an upper-cap node with a structural constraint, another stay or fitting. Use distinct unconstrained adjacent ribs or disable one lateral stay."))
-        dependent[n]="lateral stay"
+    for a in metadata["attachments"],stay in a["lateral_stays"]
+        n=stay["dependent"]
+        haskey(dependent,n)&&throw(ArgumentError("$(a["surface"]), attachment at main-box rib $(a["rib"]): the $(stay["side"]) lateral stay would reuse translations already assigned by $(dependent[n]). Move the attachment or turn off that lateral stay; no duplicate rigid/MPC constraint has been generated."))
+        dependent[n]="$(a["surface"]) $(stay["side"]) lateral stay"
     end
     # Keep generated topology separate from input/Study parameters.
     return eid,metadata
@@ -411,8 +469,8 @@ end
 function movable_connection_payload(m)
     definitions=(("MOVABLE_BOX_FITTINGS","RBE3"),("MOVABLE_SURFACE_FITTINGS","RBE2"),
         ("MOVABLE_HINGES","CBUSH"),("MOVABLE_RIGID_ATTACHMENTS","RBE2"),
-        ("MOVABLE_LATERAL_STAYS","RBE2"),("MOVABLE_AERO_LOADS","RBE3"),("MOVABLE_REVOLUTE_JOINTS","RBE2"),
-        ("MOVABLE_LUG_INTERPOLATION","MPC"))
+        ("MOVABLE_AERO_LOADS","RBE3"),("MOVABLE_REVOLUTE_JOINTS","RBE2"),
+        ("MOVABLE_LUG_INTERPOLATION","MPC"),("MOVABLE_BOX_LATERAL_STAYS","RBE2"),("MOVABLE_SURFACE_LATERAL_STAYS","RBE2"))
     collections=[Dict{String,Any}("name"=>name,"card"=>card,"point_mass"=>false,"elements"=>Any[]) for (name,card) in definitions]
     add(i,eid,nodes,properties)=push!(collections[i]["elements"],Dict("eid"=>eid,"type"=>definitions[i][2],"nodes"=>nodes.-1,"properties"=>properties))
     for a in movable_structure_data(m)["attachments"]
@@ -424,17 +482,20 @@ function movable_connection_payload(m)
         end
         physical_hinge=a["fitting"]=="shell_lugs"&&a["kind"]=="hinge"
         physical_hinge&&(properties["Relative joined components"]="12356";properties["Released hinge component"]=4)
-        add(a["kind"]=="rigid" ? 4 : physical_hinge ? 7 : 3,a["joint_eid"],[a["box_ref"],a["surface_ref"]],properties)
+        add(a["kind"]=="rigid" ? 4 : physical_hinge ? 6 : 3,a["joint_eid"],[a["box_ref"],a["surface_ref"]],properties)
         haskey(a,"actuator_eid")&&add(3,a["actuator_eid"],a["actuator_nodes"],merge(properties,Dict(
             "Role"=>"Axial actuator; only local K1","pid"=>a["actuator_pid"],"axis_system"=>a["actuator_cid"],
             "K1_N_per_m"=>a["K1_N_per_m"],"stiffness_units"=>"axial translation N/m")))
-        for link in a["lateral_links"];add(5,link["eid"],[link["ref"],link["node"]],merge(properties,link));end
         for link in get(a,"interpolation_links",Any[])
-            add(8,link["eid"],vcat(link["ref"],link["nodes"]),merge(properties,link,Dict("Role"=>"Spar-edge interpolation for planar hinge lug")))
+            add(7,link["eid"],vcat(link["ref"],link["nodes"]),merge(properties,link,Dict("Role"=>"Spar-edge interpolation for planar hinge lug")))
+        end
+        for stay in get(a,"lateral_stays",Any[])
+            add(stay["side"]=="main box" ? 8 : 9,stay["eid"],[stay["independent"],stay["dependent"]],merge(properties,stay,
+                Dict("Role"=>"$(stay["side"]) lateral stay to outboard upper spar cap","Dependent components"=>"123","Relative hinge rotation"=>"unchanged")))
         end
     end
     for r in get(movable_structure_data(m),"load_references",Any[])
-        add(6,r["eid"],vcat(r["ref"],r["nodes"]),Dict("surface"=>r["surface"],"Role"=>"Movable aerodynamic load distribution","eta"=>r["eta"]))
+        add(5,r["eid"],vcat(r["ref"],r["nodes"]),Dict("surface"=>r["surface"],"Role"=>"Movable aerodynamic load distribution","eta"=>r["eta"]))
     end
     filter(c->!isempty(c["elements"]),collections)
 end
@@ -483,9 +544,6 @@ function write_movable_attachments(io,m)
                 card!(io,"MPC",fields)
             end
         end
-        for link in a["lateral_links"]
-            card!(io,"RBE2",(link["eid"],m.node_ids[link["ref"]],link["components"],m.node_ids[link["node"]]))
-        end
         if a["kind"]=="rigid"
             card!(io,"RBE2",(a["joint_eid"],m.node_ids[a["box_ref"]],123456,m.node_ids[a["surface_ref"]]))
         elseif a["fitting"]=="shell_lugs"
@@ -496,6 +554,10 @@ function write_movable_attachments(io,m)
             kt,kr,kh=a["translation_stiffness"],a["tilt_stiffness"],a["hinge_stiffness"]
             card!(io,"PBUSH",(a["pid"],"K",kt,kt,kt,kh,kr,kr))
             card!(io,"CBUSH",(a["joint_eid"],a["pid"],m.node_ids[a["box_ref"]],m.node_ids[a["surface_ref"]],nothing,nothing,nothing,a["cid"]))
+        end
+        for stay in get(a,"lateral_stays",Any[])
+            comment!(io,stay["side"]*" lateral stay: dependent translations 123 only; relative hinge rotation remains free")
+            card!(io,"RBE2",(stay["eid"],m.node_ids[stay["independent"]],123,m.node_ids[stay["dependent"]]))
         end
         write_movable_actuator(io,m,a)
     end

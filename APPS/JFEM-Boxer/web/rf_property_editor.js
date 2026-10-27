@@ -13,6 +13,27 @@
   16:['ribstiffeners','rib_stiffener'],17:['sparwebs','front_web'],18:['sparwebs','rear_web']};
  const FAMILIES={sparwebs:'spar_web',sparcaps:'spar_cap',ribwebs:'rib_web',ribstiffeners:'rib_stiffener',leskins:'leading_edge_skin',leribs:'leading_edge_rib'};
  const numberText=value=>finite(value)?String(Number(value.toPrecision(10))):String(value??'');
+ // Keep the underlying RF for sorting and governing-case selection. The UI
+ // caps only the number it prints, never the physical assessment.
+ const rfText=value=>finite(value)?Number(Math.min(999,value).toPrecision(5)).toString():'Unavailable';
+ function assessmentSummary(report,pid){
+  const row=report?.rows?.find(item=>Number(item.pid)===Number(pid));
+  if(!row)return{available:false,reason:'No reserve-factor assessment is available for this property.',failures:[]};
+  const assessments=row.combined?.assessments||[],failures=[];
+  for(const item of assessments){
+   const cases=(item.caseResults||[]).filter(c=>finite(c.reserveFactor)&&c.reserveFactor<1&&!c.noDemand);
+   const records=cases.length?cases:[item];
+   for(const c of records)if(finite(c.reserveFactor)&&c.reserveFactor<1&&!c.noDemand)failures.push({
+    value:c.reserveFactor,mode:item.modeLabel||item.failureMode,scope:item.scope||'',caseLabel:c.label||c.caseLabel||item.caseLabel||'',
+    approximate:!!(c.approximate||c.approximation)});
+  }
+  failures.sort((a,b)=>a.value-b.value||a.mode.localeCompare(b.mode));
+  return{available:row.complete===true&&finite(row.reserveFactor),value:row.reserveFactor,
+   mode:row.combined?.governingModeLabel||'',caseLabel:row.envelopeCaseLabel||'',scope:row.combined?.governingScope||'',
+   reason:row.reserveFactorReason||'',failures,estimated:!!report.estimated,stale:!!report.stale&&!report.estimated,
+   approximate:!!(row.approximate||row.approximation||assessments.some(a=>a.approximate||a.approximation)),
+   incomplete:assessments.filter(a=>!a.complete).map(a=>(a.modeLabel||a.failureMode)+': '+a.reason)};
+ }
  function inputs(context={}){
   const data=context.data||context;
   return{...context,parameters:context.parameters||{},panels:context.panels||data.stiffened_panels?.panels||[],
@@ -61,7 +82,7 @@
   const kind=descriptor.kind;
   if(kind==='ribstiffeners'&&value.enabled===false)return field==='enabled';
   if(['skins','sparwebs','ribwebs','leskins','leribs'].includes(kind))return field==='kind'||(value.kind==='sandwich'?['face_thickness','core_thickness','face_material','core_material'].includes(field):['thickness','material'].includes(field));
-  if(kind==='stringers'&&descriptor.sectionModel==='shell'&&value.flange_width===0&&field==='flange_thickness')return false;
+  if(kind==='stringers'&&value.flange_width===0&&field==='flange_thickness')return false;
   return true;
  }
  function parse(field,raw,inherited){
@@ -84,11 +105,11 @@
   if(descriptor.parameter==='properties.components'&&values.kind==='sandwich'&&finite(values.legacy_total_thickness)&&!explicitCore)
    values.core_thickness=values.legacy_total_thickness-2*values.face_thickness;
   const add=(field,message)=>{if(!errors[field])errors[field]=message;};
-  const shell=descriptor.kind==='stringers'&&descriptor.sectionModel==='shell',blade=shell&&values.flange_width===0;
+  const stringer=descriptor.kind==='stringers',blade=stringer&&values.flange_width===0;
   for(const field of descriptor.fields){
    const name=field.name,value=values[name];if(!activeField(descriptor,values,name))continue;
    if(field.type==='number'){
-    const zero=shell&&(name==='flange_width'||blade&&name==='flange_thickness');
+    const zero=stringer&&(name==='flange_width'||blade&&name==='flange_thickness');
     if(!finite(value)||(zero?value<0:value<=0))add(name,field.label+' must be a finite '+(zero?'non-negative':'positive')+' value.');
    }else if(field.type==='material'&&(!Number.isInteger(value)||!descriptor.materialChoices.some(material=>material.id===value)))add(name,'Choose a material from the Study library.');
    else if(field.type==='kind'&&!['monolithic','sandwich'].includes(value))add(name,'Choose monolithic or sandwich construction.');
@@ -134,6 +155,19 @@
   const win=doc.defaultView,prior=doc.activeElement,dialog=doc.createElement('dialog');dialog.className='rf-property-editor';dialog.setAttribute('aria-label','Edit property');
   const header=doc.createElement('header'),title=doc.createElement('h2'),closeButton=doc.createElement('button');title.textContent='Edit '+(descriptor.label||'property');closeButton.type='button';closeButton.className='rf-property-close';closeButton.textContent='×';closeButton.setAttribute('aria-label','Close property editor');header.append(title,closeButton);dialog.append(header);
   const note=doc.createElement('p');note.className='rf-property-note';note.textContent=descriptor.editable?descriptor.note:descriptor.reason;dialog.append(note);
+  const assessment=doc.createElement('section');assessment.className='rf-property-assessment';assessment.setAttribute('aria-label','Property reserve factors');dialog.append(assessment);
+  function renderAssessment(){
+   assessment.replaceChildren();const a=descriptor.assessment||{reason:'No current reserve factors are available. Run the analysis and open Stress Report.',failures:[]};
+   const heading=doc.createElement('h3');heading.textContent=a.available?'Critical RF '+rfText(a.value)+' · '+a.mode:'Critical RF unavailable';assessment.append(heading);
+   const context=doc.createElement('p');context.textContent=a.available?[a.caseLabel,a.scope].filter(Boolean).join(' · '):a.reason;assessment.append(context);
+   if(a.stale||a.estimated||a.approximate){const status=doc.createElement('p');status.className='rf-property-note';status.textContent=[a.stale?'Previous analysis; model and results are not in sync.':'',a.estimated?'Fixed-load sizing estimate; rerun to include load redistribution.':'',a.approximate?'Contains a truncated plate-basis approximation; see assessment details.':''].filter(Boolean).join(' ');assessment.append(status);}
+   if(a.failures?.length){
+    const table=doc.createElement('table'),caption=doc.createElement('caption');caption.textContent='All assessed RFs below 1 for this property';table.append(caption);
+    const head=doc.createElement('tr');for(const title of['RF','Failure mode','Load case / physical region']){const th=doc.createElement('th');th.textContent=title;head.append(th);}table.append(head);
+    for(const item of a.failures){const tr=doc.createElement('tr');for(const text of[rfText(item.value)+(item.approximate?' (approx.)':''),item.mode,[item.caseLabel,item.scope].filter(Boolean).join(' · ')]){const td=doc.createElement('td');td.textContent=text;tr.append(td);}table.append(tr);}assessment.append(table);
+   }else if(a.available){const clear=doc.createElement('p');clear.textContent='No assessed failure mode has RF below 1.';assessment.append(clear);}
+   if(a.incomplete?.length){const missing=doc.createElement('p');missing.className='rf-property-note';missing.textContent='Incomplete checks: '+a.incomplete.join(' ');assessment.append(missing);}
+  }
   const instructions=doc.createElement('p');instructions.className='rf-property-note';instructions.textContent='Dimensions are in mm. Clear a value to inherit its current default. Apply updates the Study and estimates reserve factors using the previous element forces and moments with the edited sections. Estimated values and colors are sizing guidance; rerun the FE analysis to include load redistribution.';instructions.hidden=!descriptor.editable;dialog.append(instructions);
   const totalMinimum=descriptor.minimums?.find(row=>row.field==='total_thickness');if(totalMinimum){const minimum=doc.createElement('p');minimum.className='rf-property-minimum';minimum.textContent='Minimum total skin/web thickness: '+numberText(totalMinimum.minimum*1000)+' mm (including both faces and the core for a sandwich).';dialog.append(minimum);}
   const grid=doc.createElement('div');grid.className='rf-property-fields';dialog.append(grid);
@@ -155,6 +189,7 @@
    apply.disabled=!descriptor.editable||pending||!drafts()||!checked.valid;cancel.disabled=pending;closeButton.disabled=pending;notify();
   }
   function render(){
+   renderAssessment();
    grid.replaceChildren();controls=new Map();
    for(const field of descriptor.fields||[]){
     const wrap=doc.createElement('label');wrap.className='rf-property-cell';wrap.dataset.field=field.name;
@@ -186,5 +221,5 @@
   win?.setTimeout(()=>{if(!closed)([...controls.values()].find(control=>!control.wrap.hidden&&!control.input.disabled)?.input||closeButton).focus();},0);
   return{close,hasDrafts:drafts,element:dialog,setError,getState:()=>({pid:descriptor.pid,rawValues:{...rawValues},...checked}),setDescriptor(next){if(drafts()||pending)throw Error('Finish or cancel the current property edits before replacing the editor.');descriptor=next;title.textContent='Edit '+(descriptor.label||'property');render();}};
  }
- return{resolve,validate,prepare,open,activeField};
+ return{resolve,validate,prepare,open,activeField,assessmentSummary};
 });

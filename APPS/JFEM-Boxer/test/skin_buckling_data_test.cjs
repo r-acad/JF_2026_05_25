@@ -50,7 +50,7 @@ test('Invalid dimensions and nonpositive or nonsymmetric plate matrices remain u
  for(const args of [[0,1,D],[1,NaN,D],[1,1,[[1,2,0],[2,1,0],[0,0,1]]],[1,1,[[1,0,1],[0,1,0],[0,0,1]]],[1,1,[[0,0,0],[0,0,0],[0,0,0]]]])assert.ok(P.solvePlate(...args,[1,0,0]).reason);
 });
 test('A truncated unconverged basis never yields a usable reserve factor, including cache replay',()=>{
- const a=P.solvePlate(1,1,D,[0,0,1],{maxDimension:9}),b=P.solvePlate(1,1,D,[0,0,1],{maxDimension:9});assert.equal(a.converged,false);assert.equal(a.reserveFactor,null);assert.match(a.reason,/not converged/);assert.equal(b.reserveFactor,null);
+ const a=P.solvePlate(1,1,D,[0,0,1],{maxDimension:9,truncatedFallback:false}),b=P.solvePlate(1,1,D,[0,0,1],{maxDimension:9,truncatedFallback:false});assert.equal(a.converged,false);assert.equal(a.reserveFactor,null);assert.match(a.reason,/not converged/);assert.equal(b.reserveFactor,null);
 });
 test('Only a non-destabilizing mean membrane tensor receives RF 99',()=>{
  for(const n of [[0,0,0],[-1,-2,0],[-10,-10,1]]){const r=P.solvePlate(1,1,D,n);assert.equal(r.reserveFactor,99);assert.equal(r.noDestabilizingLoad,true);}
@@ -138,7 +138,7 @@ test('The diagonal bending shortcut equals a full Cholesky congruence and retain
 });
 
 test('Explicit basis limits and near-noise positive eigenvalues remain unassessed rather than RF99',()=>{
- const d=[[1,.33,0],[.33,1,0],[0,0,.335]],limited=P.solvePlate(4,1,d,[-1,-.002,.0525],{maxDimension:256});assert.equal(limited.converged,false);assert.equal(limited.reserveFactor,null);assert(limited.history.every(s=>s.stage==='geometry'));assert.equal(limited.modeLimit,256);
+ const d=[[1,.33,0],[.33,1,0],[0,0,.335]],limited=P.solvePlate(4,1,d,[-1,-.002,.0525],{maxDimension:256,truncatedFallback:false});assert.equal(limited.converged,false);assert.equal(limited.reserveFactor,null);assert(limited.history.every(s=>s.stage==='geometry'));assert.equal(limited.modeLimit,256);
  const cancellation=P.criticalForBasis(1,1,d,[1,-1+1e-15,0],1,1);assert.equal(cancellation.reserveFactor,null);assert(cancellation.largestEigenvalue<=cancellation.eigenvalueResolution);
  const almostTensile=P.solvePlate(4,1,d,[-1,-1,1+1e-12]);assert.equal(almostTensile.converged,false);assert.equal(almostTensile.reserveFactor,null);assert.notEqual(almostTensile.noDestabilizingLoad,true);
  for(const options of[{tolerance:0},{tolerance:NaN},{maxDimension:0},{maxDimension:NaN}])assert(P.solvePlate(1,1,D,[1,.4,.6],options).reason);

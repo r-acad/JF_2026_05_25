@@ -28,11 +28,11 @@ if(!url||!out)throw Error('Expected URL and output folder');fs.mkdirSync(out,{re
   assert.deepEqual(record.center_of_gravity_m,[.3,1.2,-1.4]);
   assert.equal(record.mounts[0].ref,record.cg_node);assert.equal(record.cg_node,record.beam_nodes[1]);
   assert.equal(record.mounts[1].ref,record.beam_nodes[2]);
-  assert.equal(record.mounts[0].nodes.length,4);assert.equal(new Set(record.mounts[0].nodes).size,4);
-  assert.equal(record.mounts[1].nodes.length,5);assert.equal(new Set(record.mounts[1].nodes).size,5);
+  assert.equal(record.mounts[0].nodes.length,2);assert.equal(new Set(record.mounts[0].nodes).size,2);
+  assert.equal(record.mounts[1].nodes.length,3);assert.equal(new Set(record.mounts[1].nodes).size,3);
   for(const mount of record.mounts){
-    assert.equal(mount.inboard_cap_nodes.length,2);assert.equal(mount.outboard_cap_nodes.length,2);
-    assert.equal(mount.cap_nodes.length,4);assert.deepEqual([...mount.cap_span_indices].sort((a,b)=>a-b),mount.cap_span_indices);
+    assert.equal(mount.inboard_cap_nodes.length,1);assert.equal(mount.outboard_cap_nodes.length,1);
+    assert.equal(mount.cap_nodes.length,2);assert.deepEqual([...mount.cap_span_indices].sort((a,b)=>a-b),mount.cap_span_indices);
   }
   assert.deepEqual(record.mounts[0].nodes,record.mounts[0].cap_nodes);
   assert.deepEqual(record.mounts[1].nodes,[...record.mounts[1].cap_nodes,record.mounts[1].rib_node]);
@@ -53,10 +53,10 @@ if(!url||!out)throw Error('Expected URL and output folder');fs.mkdirSync(out,{re
       hasArmCollection:state.data.imported_connections.some(c=>c.name==='ENGINE_MOUNT_ARMS')};
   });
   assert.deepEqual(connections.elements,record.mounts.map(m=>({eid:m.eid,nodes:[m.ref,...m.nodes]})));
-  assert.deepEqual(connections.legOwners,[0,0,0,0,1,1,1,1,1]);
-  assert.deepEqual(connections.picked,[...Array(4).fill(record.mounts[0].eid),...Array(5).fill(record.mounts[1].eid)]);
+  assert.deepEqual(connections.legOwners,[0,0,1,1,1]);
+  assert.deepEqual(connections.picked,[...Array(2).fill(record.mounts[0].eid),...Array(3).fill(record.mounts[1].eid)]);
   assert(connections.verticesMatch&&connections.visible&&connections.upperAboveLower);assert(!connections.hasArmLayer&&!connections.hasArmCollection);
-  checks.push('Front RBE3 starts at the engine CG with four cap legs; aft RBE3 starts at the aft beam end with five legs; each rendered leg retains its correct inspection ID and no rigid-arm layer remains');
+  checks.push('Front RBE3 starts at the engine CG with two adjacent-rib cap legs; aft RBE3 starts at the aft beam end with three legs; each rendered leg retains its correct inspection ID and no rigid-arm layer remains');
   const rendering=await page.evaluate(()=>{
     const records=state.deformable.filter(row=>row.engineBeam),B=BABYLON,report=[];
     for(const row of records){const nodes=row.engineBeam.nodes,positions=state.baseline.slice();positions[3*nodes[1]]+=.17;positions[3*nodes[1]+1]-=.23;positions[3*nodes[1]+2]+=.11;

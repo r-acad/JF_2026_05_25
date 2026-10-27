@@ -21,7 +21,7 @@ function quality_parameters(; kind="flap", secondary=.500001, refinement=7,
             "height_elements"=>2, "secondary_spar"=>secondary, "mesh_deflected"=>deflected))]
     p["movable_structure.attachments"] = [merge(W.MOVABLE_ATTACHMENT_DEFAULTS,
         Dict("surface"=>"Control", "eta"=>eta, "fitting"=>"shell_lugs",
-            "lateral_stay"=>true, "actuator"=>true)) for eta in (.26,.74)]
+             "actuator"=>true)) for eta in (.26,.74)]
     first(W.normalize_params(p))
 end
 
@@ -91,7 +91,7 @@ end
     @test occursin(r"(?i)geometry|station|rib",sprint(showerror,error))
 end
 
-@testset "Fitting selection follows the airfoil lower contour and reaches the front spar" begin
+@testset "Fitting selection follows the airfoil lower contour and reaches both spars" begin
     for z in (0.,-.499,-.5,-.501,-2.), aft in (false,true)
         p=quality_parameters(;secondary=.5,hinge_z=z,hinge_x=aft ? .83 : .77)
         # Rectangular, symmetric, untwisted foil makes the exact z/t=-0.5
@@ -111,6 +111,13 @@ end
                 @test all(in(Set(rib["lower_nodes"])),joint["surface_nodes"])
                 lugs=only(filter(g->g.pid==joint["lug_pid"],m.groups))
                 @test rib["front_lower"] in lugs.conn
+                @test rib["secondary_lower"] in joint["surface_nodes"]
+                @test rib["secondary_lower"] in lugs.conn
+                # The skin-to-fitting boundary is a continuous chain of the
+                # actual rib edges, through the subspar; no nearest-cell stub.
+                through=findfirst(==(rib["secondary_lower"]),rib["lower_nodes"])
+                edges=Set(Tuple(sort([a,b])) for tri in eachcol(reshape(lugs.conn,3,:)) for (a,b) in zip(tri,circshift(tri,-1)))
+                @test all(Tuple(sort(rib["lower_nodes"][i:i+1])) in edges for i in 1:through-1)
             end
         end
     end

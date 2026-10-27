@@ -2170,20 +2170,31 @@ function _model_has_cquadr_shells(model::AbstractDict)::Bool
     return false
 end
 
-function _model_with_selected_mpc(model::Dict)
-    cc = get(model, "CASE_CONTROL", Dict())
-    global_mpc = get(cc,"MPC",get(get(cc, "GLOBAL", Dict()), "MPC", nothing))
-    selections = Any[get(sub, "MPC", global_mpc) for sub in values(get(cc, "SUBCASES", Dict()))]
-    isempty(selections) && push!(selections, global_mpc)
-    normalized = [raw === nothing ? nothing :
-        (raw isa Number ? Int(raw) : parse(Int, strip(string(raw)))) for raw in selections]
-    all(sid -> sid === nothing || sid > 0, normalized) ||
-        throw(ArgumentError("MPC selections must be positive set IDs"))
-    length(unique(normalized)) == 1 || throw(ArgumentError(
-        "Different MPC selections across subcases require separate stiffness assemblies. Run those selections as separate models; JFEM will not combine their constraints."))
+function _subcase_mpc_selection(cc, sub)
+    global_mpc = get(cc, "MPC", get(get(cc, "GLOBAL", Dict()), "MPC", nothing))
+    raw = get(sub, "MPC", global_mpc)
+    sid = raw === nothing ? nothing :
+        (raw isa Number ? Int(raw) : parse(Int, strip(string(raw))))
+    sid === nothing || sid > 0 || throw(ArgumentError("MPC selections must be positive set IDs"))
+    return sid
+end
+
+function _model_for_mpc_selection(model::Dict, sid)
+    haskey(model, "_active_mpc_id") && model["_active_mpc_id"] === sid && return model
     scoped = copy(model)
-    scoped["_active_mpc_id"] = only(unique(normalized))
+    scoped["_active_mpc_id"] = sid
     return scoped
+end
+
+function _model_with_selected_mpc(model::Dict; allow_subcase_changes::Bool=false)
+    cc = get(model, "CASE_CONTROL", Dict())
+    normalized = [_subcase_mpc_selection(cc, sub) for sub in values(get(cc, "SUBCASES", Dict()))]
+    isempty(normalized) && push!(normalized, _subcase_mpc_selection(cc, Dict()))
+    allow_subcase_changes || length(unique(normalized)) == 1 || throw(ArgumentError(
+        "Different MPC selections across subcases require separate stiffness assemblies. Run those selections as separate models; JFEM will not combine their constraints."))
+    # A changing SOL105 selection is assembled separately for each preload
+    # and perturbation below. This first assembly is only a reusable seed.
+    return _model_for_mpc_selection(model, first(normalized))
 end
 
 function solve_model(backend::TACSFormulationBackend, model::Dict)
@@ -2234,7 +2245,10 @@ end
 
 function solve_model(backend::ReferenceParityBackend, model::Dict)
     _require_import_analysis(model)
-    return _solve_model_parity(backend, _model_with_selected_mpc(model))
+    cc = get(model, "CASE_CONTROL", Dict())
+    sol = _canonical_sol_type(get(model, "SOL", get(cc, "SOL", 101)))
+    return _solve_model_parity(backend,
+        _model_with_selected_mpc(model; allow_subcase_changes=(sol == 105)))
 end
 
 function _solve_model_parity(backend::ReferenceParityBackend, model::Dict)
@@ -2341,12 +2355,14 @@ function _solve_sol106(model, cc, K, id_map, X, ndof, node_R,
         if nl_method_raw in ("formal", "formal_shell_green_lagrange", "green_lagrange",
                              "formal_shell_von_karman", "formal_von_karman", "formal_shell_vk")
             :formal_shell_green_lagrange
+        elseif nl_method_raw in ("corot", "corotational", "corotational_shell")
+            :corotational_shell
         elseif nl_method_raw in ("legacy", "legacy_geometric")
             :legacy_geometric
         elseif nl_method_raw in ("", "auto")
             :auto
         else
-            throw(ArgumentError("Unsupported SOL106 NLMETHOD=$nl_method_raw; use AUTO, FORMAL or LEGACY"))
+            throw(ArgumentError("Unsupported SOL106 NLMETHOD=$nl_method_raw; use AUTO, COROT, FORMAL or LEGACY"))
         end
 
     subcases_results = []
@@ -2430,6 +2446,7 @@ function _solve_sol106(model, cc, K, id_map, X, ndof, node_R,
             "solver_diagnostics" => get(sub_res, "solver_diagnostics", Dict{String,Any}()),
             "nonlinear_diagnostics" => get(sub_res, "nonlinear_diagnostics", Dict{String,Any}()),
             "nonlinear_intermediate_results" => get(sub_res, "nonlinear_intermediate_results", Any[]),
+            "nonlinear_rotation_coordinates" => get(sub_res,"nonlinear_rotation_coordinates",nothing),
             "raw_displacement" => collect(u),
             "element_vonmises" => stresses,
             "u_analysis" => u_analysis,
@@ -2566,6 +2583,54 @@ end
 # ============================================================================
 # SOL 103: Normal Modes
 # ============================================================================
+# Preserve literal EIGRL presence flags before a modal extraction starts.
+# The EIGRL contract distinguishes a missing ND from
+# the parser's legacy numeric placeholder: V2 with blank ND means all roots
+# in the interval, while blank ND without V2 requests the lowest root.
+function _resolve_sol103_eigen_request(model, cc, sub, sid::Integer)
+    method_raw = let local_method = get(sub, "METHOD", nothing)
+        isnothing(local_method) ? get(cc, "METHOD", nothing) : local_method
+    end
+    if isnothing(method_raw)
+        # Retain the existing non-EIGRL programmatic convenience path.
+        num_modes = Int(get(sub, "MODES", 10))
+        num_modes <= 0 && (num_modes = 10)
+        return (method_id=nothing, nd=num_modes, v1=0.0, v2=0.0,
+            norm="MASS", v1_specified=false, v2_specified=false,
+            nd_specified=false, source="implicit_legacy_modes")
+    end
+    if !(method_raw isa Real) || !isfinite(method_raw) ||
+       !isinteger(method_raw) || method_raw <= 0 || method_raw > typemax(Int)
+        throw(ArgumentError("SOL 103 subcase $sid has invalid METHOD=$(repr(method_raw)); expected a positive integer"))
+    end
+    method_id = Int(method_raw)
+    eigrl = _sol105_request_lookup(get(model, "EIGRLs", Dict()), method_id)
+    isnothing(eigrl) && throw(ArgumentError(
+        "SOL 103 subcase $sid METHOD=$method_id does not reference a supported EIGRL entry; " *
+        "an explicit missing or unsupported METHOD cannot use the default mode count"))
+    v1 = Float64(get(eigrl, "V1", 0.0))
+    v2 = Float64(get(eigrl, "V2", 0.0))
+    isfinite(v1) && isfinite(v2) || throw(ArgumentError(
+        "SOL 103 EIGRL SID=$method_id requires finite V1 and V2 values"))
+    v1_specified = _sol105_request_bool(eigrl, "V1_SPECIFIED", v1 != 0.0)
+    v2_specified = _sol105_request_bool(eigrl, "V2_SPECIFIED", v2 != 0.0)
+    nd_specified = _sol105_request_bool(eigrl, "ND_SPECIFIED", haskey(eigrl, "ND"))
+    if !nd_specified && v2_specified
+        throw(ArgumentError(
+            "SOL 103 EIGRL SID=$method_id has blank ND and a specified V2: this requests all roots " *
+            "in the frequency interval. That complete-interval request is not supported by the " *
+            "current modal API; specify an explicit positive ND. The parser's numeric placeholder " *
+            "must not silently limit the spectrum."))
+    end
+    nd = nd_specified ? _sol105_request_count(eigrl, "EIGRL", method_id) : 1
+    num_modes = Int(get(sub, "MODES", nd))
+    num_modes <= 0 && (num_modes = max(nd,1))
+    return (method_id=method_id, nd=num_modes, v1=v1, v2=v2,
+        norm=string(get(eigrl, "NORM", "MASS")),
+        v1_specified=v1_specified, v2_specified=v2_specified,
+        nd_specified=nd_specified, source="EIGRL")
+end
+
 function _solve_sol103(model, cc, K, id_map, X, ndof, node_R,
                        max_elem_stiff, rbe3_map, orig_diag, sorted_sids, mesh;
                        modal_mass_builder=nothing)
@@ -2584,6 +2649,10 @@ function _solve_sol103(model, cc, K, id_map, X, ndof, node_R,
         push!(modal_sids, sorted_sids[1])
     end
 
+    # Resolve every selected request before any modal mass assembly or solve.
+    modal_requests = Dict(sid => _resolve_sol103_eigen_request(
+        model, cc, cc["SUBCASES"][sid], sid) for sid in modal_sids)
+
     all_eigenvalues = Float64[]
     all_frequencies = Float64[]
     all_mode_shapes = Vector{Vector{Float64}}()
@@ -2598,19 +2667,12 @@ function _solve_sol103(model, cc, K, id_map, X, ndof, node_R,
 
     for sid in modal_sids
         sub = cc["SUBCASES"][sid]
-        method_id = get(sub, "METHOD", global_method)
-        eigrl = nothing
-        if !isnothing(method_id)
-            eigrl = get(model["EIGRLs"], string(Int(method_id)), nothing)
-        end
-
-        default_modes = eigrl === nothing ? 10 : Int(get(eigrl, "ND", 10))
-        num_modes = Int(get(sub, "MODES", default_modes))
-        num_modes <= 0 && (num_modes = max(default_modes, 1))
-
-        eigrl_v1 = eigrl === nothing ? 0.0 : Float64(get(eigrl, "V1", 0.0))
-        eigrl_v2 = eigrl === nothing ? 0.0 : Float64(get(eigrl, "V2", 0.0))
-        eigrl_norm = eigrl === nothing ? "MASS" : string(get(eigrl, "NORM", "MASS"))
+        request = modal_requests[sid]
+        method_id = request.method_id
+        num_modes = request.nd
+        eigrl_v1 = request.v1
+        eigrl_v2 = request.v2
+        eigrl_norm = request.norm
         spc_id = get(sub, "SPC", get(cc, "SPC", nothing))
         temp_load_id = Solver._subcase_temp_load_sid(sub, cc)
         needs_temp_reassembly = !isnothing(temp_load_id) && _model_has_temperature_dependent_mat1(model)
@@ -2800,7 +2862,7 @@ function _sol105_static_results!(results, static_sid::Int)
     return get!(cache, static_sid) do
         recovery = state.recovery
         residual = recovery.K * state.u_static - recovery.force
-        model = results["model"]
+        model = hasproperty(state, :model) ? state.model : results["model"]
         fields = Dict{Int,NTuple{3,Float64}}()
         _, _, data = _with_active_temperature_material(model, state.temp_load_id) do
             Solver._with_solver_thermal_state(model, state.temp_load_id, recovery.load_scale) do
@@ -2853,16 +2915,17 @@ function _sol105_static_fields!(results, static_sid::Int)
     end
     return get!(cache, static_sid) do
         state = states[static_sid]
+        model = hasproperty(state, :model) ? state.model : results["model"]
         started = time_ns()
         recovery_diagnostics = Dict{String,Any}()
-        fields = _with_active_temperature_material(results["model"], state.temp_load_id) do
+        fields = _with_active_temperature_material(model, state.temp_load_id) do
             # Binary-only output needs the same thermal strain and load scale
             # as full preload recovery. Material activation alone does not
             # establish the selected nodal temperature field.
             recovery = hasproperty(state, :recovery) ? state.recovery : nothing
             scale = recovery !== nothing && hasproperty(recovery, :load_scale) ? recovery.load_scale : 1.0
-            Solver._with_solver_thermal_state(results["model"], state.temp_load_id, scale) do
-                _recover_sol105_static_fields(results["model"], state.id_map, state.X,
+            Solver._with_solver_thermal_state(model, state.temp_load_id, scale) do
+                _recover_sol105_static_fields(model, state.id_map, state.X,
                     state.node_R, state.u_static, state.snorm_normals; recovery_diagnostics=recovery_diagnostics)
             end
         end
@@ -3069,7 +3132,8 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
     static_states = Dict{Int,Any}()
     static_recovery_states = Dict{Int,Any}()
     energy_shear_maps = Dict{Int,Any}()
-    kg_cache = Dict{Int,Any}()
+    kg_cache = Dict{Tuple{Int,Union{Int,Nothing}},Any}()
+    eigen_assembly_cache = Dict{Tuple{Int,Union{Int,Nothing}},Any}()
     # Custom builders may depend on buckling-subcase identity. Diagnostic CSV
     # output also needs one assembly per subcase to preserve its rows.
     reuse_kg = geometric_stiffness_builder === nothing &&
@@ -3106,17 +3170,26 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
     last_fixed_dofs = Set{Int}()
     last_K = K
     last_K_eig = K_eig
+    last_rbe3_map = rbe3_map
 
     for (buck_sid, stat_sid) in buckling_subcases
         sub_buck = cc["SUBCASES"][buck_sid]
         sub_static = cc["SUBCASES"][stat_sid]
+        static_mpc_id = _subcase_mpc_selection(cc, sub_static)
+        buckling_mpc_id = _subcase_mpc_selection(cc, sub_buck)
+        static_model = _model_for_mpc_selection(model, static_mpc_id)
+        eigen_model = _model_for_mpc_selection(model, buckling_mpc_id)
         load_id = get(sub_static, "LOAD", nothing)
         spc_id_static = get(sub_static, "SPC", nothing)
         temp_load_id_static = Solver._subcase_temp_load_sid(sub_static, cc)
         needs_temp_reassembly = !isnothing(temp_load_id_static) && _model_has_temperature_dependent_mat1(model)
         static_membrane_incomp_default = Solver.sol105_static_membrane_incomp_enabled()
         static_membrane_incomp_for_load = static_membrane_incomp_default
-        needs_static_reassembly = needs_temp_reassembly
+        # Low-level callers may supply their own assembled K without the
+        # orchestration marker. Retain that assembly for their preload, as
+        # before; the public dispatcher always records the seed selection.
+        needs_static_reassembly = needs_temp_reassembly ||
+            static_mpc_id !== get(model, "_active_mpc_id", static_mpc_id)
         static_wall_seconds = 0.0
 
         if !haskey(static_cache, stat_sid)
@@ -3138,7 +3211,7 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
                 if needs_static_reassembly
                     K_static, id_map_static, X_static, ndof_static, node_R_static, max_elem_stiff_static, rbe3_map_static, snorm_normals_static, orig_diag_static =
                         Solver.assemble_stiffness(
-                            model;
+                            static_model;
                             snorm_angle_override=sol105_snorm_angle,
                             membrane_incomp=static_membrane_incomp_for_load,
                             sol105_context=true,
@@ -3146,7 +3219,7 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
                     K_eig_static = K_static
                 end
                 _, _, _, u_static_analysis, fixed_dofs_static = Solver.solve_case(
-                    K_static, ndof_static, model, id_map_static, X_static, load_id, spc_id_static, node_R_static;
+                    K_static, ndof_static, static_model, id_map_static, X_static, load_id, spc_id_static, node_R_static;
                     max_elem_stiff=max_elem_stiff_static, rbe3_map=rbe3_map_static, snorm_normals=snorm_normals_static, orig_diag=orig_diag_static,
                     temp_load_id=temp_load_id_static, linear_cache=static_linear_solve_cache,
                     build_results=false, recovery_state=recovery_state)
@@ -3156,7 +3229,7 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
             t_static_ref = time_ns()
             u_static_analysis, fixed_dofs_static =
                 !isnothing(temp_load_id_static) ?
-                    _with_active_temperature_material(model, temp_load_id_static, run_static) :
+                    _with_active_temperature_material(static_model, temp_load_id_static, run_static) :
                     run_static()
 
             # JFEM_SOL105_STATIC_U_PCH_OVERRIDE (research probe): replace the
@@ -3210,22 +3283,22 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
             # actually lands). Gated by JFEM_SOL105_LOAD_AWARE_KERNEL (off by
             # default; reverts to the exact prior behavior when off).
             if Solver.sol105_load_aware_kernel_enabled()
-                _with_active_temperature_material(model, temp_load_id_static) do
+                _with_active_temperature_material(static_model, temp_load_id_static) do
                     shear_map = Solver.classify_shear_dominant_elements(
-                        model, id_map_static, X_static, node_R_static,
+                        static_model, id_map_static, X_static, node_R_static,
                         u_static_analysis, snorm_normals_static)
                     n_shear = count(values(shear_map))
                     if n_shear > 0
                         energy_shear_maps[stat_sid] = shear_map
                         println(">>> Load-aware static: $n_shear shear-dominated non-flat element(s) → MacNeal kernel; re-solving static")
                         K_la, id_map_la, X_la, ndof_la, node_R_la, max_elem_stiff_la, rbe3_map_la, snorm_normals_la, orig_diag_la =
-                            Solver.assemble_stiffness(model;
+                            Solver.assemble_stiffness(static_model;
                                 snorm_angle_override=sol105_snorm_angle,
                                 membrane_incomp=static_membrane_incomp_for_load,
                                 sol105_context=true,
                                 elem_shear_dominant=shear_map)
                         _, _, _, u_la, fixed_la = Solver.solve_case(
-                            K_la, ndof_la, model, id_map_la, X_la, load_id, spc_id_static, node_R_la;
+                            K_la, ndof_la, static_model, id_map_la, X_la, load_id, spc_id_static, node_R_la;
                             max_elem_stiff=max_elem_stiff_la, rbe3_map=rbe3_map_la,
                             snorm_normals=snorm_normals_la, orig_diag=orig_diag_la,
                             temp_load_id=temp_load_id_static, linear_cache=nothing,
@@ -3264,7 +3337,7 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
         last_K = K_static
         last_K_eig = K_eig_static
         get!(static_states, stat_sid) do
-            (id_map=id_map_static, X=X_static, node_R=node_R_static,
+            (model=static_model, id_map=id_map_static, X=X_static, node_R=node_R_static,
              snorm_normals=snorm_normals_static, u_static=u_static,
              K=K_static, K_eig=K_eig_static, fixed_dofs=fixed_dofs_static,
              temp_load_id=temp_load_id_static, recovery=static_recovery_states[stat_sid],
@@ -3273,28 +3346,56 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
                 elem_shear_dominant=get(energy_shear_maps,stat_sid,nothing)) : nothing)
         end
 
+        # The recovered preload remains in physical GRID/CD coordinates.
+        # Only the perturbation operator is pulled back through its selected
+        # MPC map. Applying that map to the static solve would constrain the
+        # prescribed preload and can also make its SPCD entries dependent.
+        K_eigen = K_eig_static
+        rbe3_map_eigen = rbe3_map_static
+        max_elem_stiff_eigen = max_elem_stiff_static
+        orig_diag_eigen = orig_diag_static
+        kg_key = (stat_sid, buckling_mpc_id)
+        if buckling_mpc_id !== static_mpc_id
+            eigen_assembly = get!(eigen_assembly_cache, kg_key) do
+                _with_active_temperature_material(eigen_model, temp_load_id_static) do
+                    Solver.assemble_stiffness(eigen_model;
+                        snorm_angle_override=sol105_snorm_angle,
+                        membrane_incomp=static_membrane_incomp_for_load,
+                        sol105_context=true,
+                        elem_shear_dominant=get(energy_shear_maps,stat_sid,nothing))
+                end
+            end
+            K_eigen, id_map_eigen, X_eigen, ndof_eigen, node_R_eigen,
+            max_elem_stiff_eigen, rbe3_map_eigen, _, orig_diag_eigen = eigen_assembly
+            id_map_eigen == id_map_static && X_eigen == X_static &&
+                ndof_eigen == ndof_static && node_R_eigen == node_R_static ||
+                error("SOL105 MPC selections changed the physical GRID coordinate layout")
+        end
+        last_K_eig = K_eigen
+        last_rbe3_map = rbe3_map_eigen
+
         t_kg = time_ns()
         kg_phase_timings = Dict{String,Any}()
-        kg_cache_hit = reuse_kg && haskey(kg_cache, stat_sid)
+        kg_cache_hit = reuse_kg && haskey(kg_cache, kg_key)
         Kg =
             if kg_cache_hit
                 sol105_kg_cache_hits += 1
                 println(">>> Reusing Geometric Stiffness for buckling subcase $buck_sid (STATSUB=$stat_sid)")
-                kg_cache[stat_sid]
+                kg_cache[kg_key]
             elseif geometric_stiffness_builder !== nothing
-                _with_active_temperature_material(model, temp_load_id_static) do
+                _with_active_temperature_material(eigen_model, temp_load_id_static) do
                     geometric_stiffness_builder(
-                        model, id_map_static, X_static, node_R_static, ndof_static,
-                        u_static, snorm_normals_static, rbe3_map_static;
+                        eigen_model, id_map_static, X_static, node_R_static, ndof_static,
+                        u_static, snorm_normals_static, rbe3_map_eigen;
                         snorm_angle_override=sol105_snorm_angle,
                         buckling_subcase=buck_sid,
                         static_load_id=load_id,
                         timings=kg_phase_timings)
                 end
             elseif !isnothing(temp_load_id_static)
-                _with_active_temperature_material(model, temp_load_id_static) do
+                _with_active_temperature_material(eigen_model, temp_load_id_static) do
                     Solver.assemble_geometric_stiffness(
-                        model, id_map_static, X_static, node_R_static, ndof_static, u_static, snorm_normals_static, rbe3_map_static;
+                        eigen_model, id_map_static, X_static, node_R_static, ndof_static, u_static, snorm_normals_static, rbe3_map_eigen;
                         snorm_angle_override=sol105_snorm_angle,
                         buckling_subcase=buck_sid,
                         static_load_id=load_id,
@@ -3303,7 +3404,7 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
                 end
             else
                 Solver.assemble_geometric_stiffness(
-                    model, id_map_static, X_static, node_R_static, ndof_static, u_static, snorm_normals_static, rbe3_map_static;
+                    eigen_model, id_map_static, X_static, node_R_static, ndof_static, u_static, snorm_normals_static, rbe3_map_eigen;
                     snorm_angle_override=sol105_snorm_angle,
                     buckling_subcase=buck_sid,
                     static_load_id=load_id,
@@ -3312,7 +3413,7 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
             end
         if !kg_cache_hit
             sol105_kg_cache_misses += 1
-            reuse_kg && (kg_cache[stat_sid] = Kg)
+            reuse_kg && (kg_cache[kg_key] = Kg)
         end
         kg_phase_timings["preload_cache_hit"] = kg_cache_hit
         kg_wall_seconds = (time_ns() - t_kg) * 1e-9
@@ -3335,7 +3436,7 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
         eigrl_has_range = eigrl_v1_specified || eigrl_v2_specified
         if Solver.seed_eigen_solve_cache_from_linear!(
             eigen_solve_cache, static_linear_solve_cache,
-            K_eig_static, ndof_static, model, spc_id_buck, rbe3_map_static)
+            K_eigen, ndof_static, eigen_model, spc_id_buck, rbe3_map_eigen)
             sol105_eigen_seeded_from_static += 1
             println(">>> Reusing static K factorization for buckling eigen solve")
         end
@@ -3346,8 +3447,8 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
             "$num_modes mode$(num_modes == 1 ? "" : "s")"
         println(">>> Solving Buckling Subcase $buck_sid ($request_label)")
         t_buck = time_ns()
-        eigenvalues, mode_shapes, buckling_diag = Solver.solve_buckling(K_eig_static, Kg, ndof_static, model, id_map_static, X_static, spc_id_buck, node_R_static, num_modes;
-            rbe3_map=rbe3_map_static, max_elem_stiff=max_elem_stiff_static, orig_diag=orig_diag_static,
+        eigenvalues, mode_shapes, buckling_diag = Solver.solve_buckling(K_eigen, Kg, ndof_static, eigen_model, id_map_static, X_static, spc_id_buck, node_R_static, num_modes;
+            rbe3_map=rbe3_map_eigen, max_elem_stiff=max_elem_stiff_eigen, orig_diag=orig_diag_eigen,
             eigrl_v1=eigrl_v1, eigrl_v2=eigrl_v2,
             eigrl_v1_specified=eigrl_v1_specified,
             eigrl_v2_specified=eigrl_v2_specified,
@@ -3365,6 +3466,8 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
             "static_subcase" => stat_sid,
             "static_spc_id" => spc_id_static,
             "buckling_spc_id" => spc_id_buck,
+            "static_mpc_id" => static_mpc_id,
+            "buckling_mpc_id" => buckling_mpc_id,
             "num_modes_requested" => num_modes,
             "eigenvalue_extraction_type" => eigen_request.source,
             "eigenvalue_extraction_method" => eigen_request.algorithm,
@@ -3413,7 +3516,7 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
             reported_eigs,
             mode_shapes,                       # reported mirror; share storage until true raw expansion exists
             fill(:kept, n_reported),
-            K_eig_static,
+            K_eigen,
             Kg,
             Vector{Float64}(u_static),
             Set{Int}(fixed_dofs_static),
@@ -3443,7 +3546,9 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
                 d = buckling_diag isa Dict{String,Any} ? buckling_diag :
                     Dict{String,Any}(string(k)=>v for (k,v) in buckling_diag)
                 d["sol105_options"] = Solver.sol105_options_metadata(opts,model;
-                    shared_stiffness=(K_eig_static === K_static))
+                    shared_stiffness=(K_eigen === K_static))
+                d["static_mpc_id"] = static_mpc_id
+                d["buckling_mpc_id"] = buckling_mpc_id
                 d["eigenvalue_extraction"] = Dict{String,Any}(
                     "type" => eigen_request.source,
                     "algorithm" => eigen_request.algorithm,
@@ -3541,7 +3646,7 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
         "Kg" => last_Kg,
         "ndof" => ndof,
         "node_R" => node_R,
-        "rbe3_map" => rbe3_map,
+        "rbe3_map" => last_rbe3_map,
         "u_static" => last_u_static,
         # Static preload element fields for the v5 .jfem STATIC block:
         # eid => (von_mises, equiv_strain, strain_energy_density).

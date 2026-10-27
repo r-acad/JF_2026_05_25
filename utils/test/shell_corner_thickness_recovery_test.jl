@@ -116,9 +116,36 @@ function checks()
             @test_throws ArgumentError recover(bad,ids,X,R,u)
         end
         badX=copy(X);badX[3,1]+=.1
+        distorted,distorted_fields=recover(m,ids,badX,R,u)
+        @test length(distorted["forces"]["quad4"])==1
+        @test length(distorted["stresses"]["quad4"])==1
+        @test length(distorted["strains"]["quad4"])==1
+        @test all(isfinite,values3(only(distorted["stresses"]["quad4"])["z1"]))
+        @test all(isfinite,values3(only(distorted["stresses"]["quad4"])["z2"]))
+        @test haskey(distorted_fields,1)
+        badX=X[[1,3,2,4],:]
         @test_throws ArgumentError recover(m,ids,badX,R,u)
-        badX=copy(X);badX[3,3]+=.1
-        @test_throws ArgumentError recover(m,ids,badX,R,u)
+        # A saddle warp uses the same projected strain field when nodal motion
+        # is pulled back through the finite-warp map. Verify the physical
+        # membrane, moment and fiber outputs, including basic-frame rotation.
+        for orthotropic in (false,true),height in (-.03,.03),rotation in (Matrix{Float64}(I,3,3),Q)
+            warped_model,_,_,_,warped_u,warped_C=make_model(dir,orthotropic)
+            warped_model["CSHELLs"]["1"]["CORNER_THICKNESSES"]=copy(ti)
+            warpedX=hcat(XY,height*[1.,-1.,1.,-1.])
+            W=OpenJFEM.FEM.quad4_finite_warp_displacement_map(XY,warpedX)
+            projected_u=W\warped_u
+            T=kron(Matrix{Float64}(I,8,8),rotation)
+            warped,warped_fields=recover(warped_model,ids,warpedX*rotation',R,T*projected_u)
+            _,warped_compact=recover(warped_model,ids,warpedX*rotation',R,T*projected_u;compact=true)
+            @test warped_fields==warped_compact
+            force=only(warped["forces"]["quad4"])
+            @test isapprox([force[k] for k in ("fx","fy","fxy")],h*warped_C*ep;rtol=5e-12)
+            @test isapprox([force[k] for k in ("mx","my","mxy")],-cube/12*warped_C*kap;rtol=5e-12)
+            stress=only(warped["stresses"]["quad4"])
+            for (name,z) in (("z1",-h/2),("z2",h/2))
+                @test isapprox(values3(stress[name]),warped_C*(ep+z*kap);rtol=5e-12)
+            end
+        end
         badnorm=copy(snorm);badnorm[2]=normalize(SVector(.1,0.,1.))
         @test_throws ArgumentError recover(m,ids,X,R,u;snorm=badnorm)
     end

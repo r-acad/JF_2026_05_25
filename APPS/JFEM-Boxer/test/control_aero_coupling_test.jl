@@ -123,7 +123,7 @@ tests=@testset "Independent movable aerodynamic load paths" begin
         definition["hinge_start"]=definition["hinge_end"]=.7
     end
     for (i,attachment) in enumerate(physical_parameters["movable_structure.attachments"])
-        attachment["fitting"]="shell_lugs";attachment["lateral_stay"]=true;attachment["actuator"]=i==1
+        attachment["fitting"]="shell_lugs";attachment["actuator"]=i==1
     end
     physical_model=build(physical_parameters)
     physical_deck=joinpath(OUT,"physical_hinge_vlm_static.bdf");W.write_reference(physical_model,physical_deck;large_field=true)

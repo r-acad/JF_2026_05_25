@@ -113,7 +113,8 @@ function analytic_shell_constitutive(model,pid,direction=NamedTuple(),x=0.0)
         maximum(abs,first.(ForwardDiff.partials.(B))) <= 1e-9*max(maximum(abs,first.(ForwardDiff.partials.(A))),1.0) ||
             throw(ArgumentError("This ply direction breaks sandwich symmetry; no silent coupling approximation is permitted"))
     end
-    Cs=Bool(get(prop,"PCOMP_WHITNEY_SHEAR",false)) ? getfield(native,:pcomp_energy_shear)(plies,h) : (5/6)*Ash
+    Cs=Bool(get(prop,"PCOMP_WHITNEY_SHEAR",false)) ?
+        getfield(native,:pcomp_shear_for_convention)(plies,h,get(prop,"PCOMP_SHEAR_CONVENTION","material_frame")) : (5/6)*Ash
     nu=clamp(A[1,2]/A[1,1],0.0,0.49);E=A[1,1]*(1-nu^2)/h
     (Cm=A,Cb=D,Cs=Cs,Cs_raw=Ash,Bmb=B,h=h,Eref=maximum(Es),Gref=(Ash[1,1]+Ash[2,2])/(2h),
         E=E,nu=nu,plies=plies,mass_moments=(m0,m1,m2))

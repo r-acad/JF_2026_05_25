@@ -56,13 +56,11 @@ function work_checks(c;normals=true)
     @test c[:curvature_membrane]===nothing && c[:slope_membrane_kg]===nothing
     xy=c[:lc_buf4];stress=c[:sigma_mem_input];h=c[:h]
     stress=stress isa AbstractVector ? repeat(stress',4,1) : stress
-    W=F.quad4_finite_warp_displacement_map(xy,c[:coords3d_local_buf4])
-    W=W===nothing ? Matrix{Float64}(I,24,24) : W
-    P=W*c[:T_buf]
-    if c[:snorm_pq_kg]!==nothing
-        pq=F.quad4_snorm_relative_to_finite_warp_pq(c[:snorm_pq_kg],c[:warp_map_for_snorm_kg])
-        P=F.quad4_snorm_normal_moment_displacement_map(xy,pq)*P
-    end
+    # Match the physical-to-projected coordinates used by stiffness, section
+    # recovery and prestress. The independent scalar-map oracle lives in the
+    # corner-normal geometry test; this fixture checks the physical Kg work
+    # against an independently differentiated transverse-stress potential.
+    P=F.quad4_physical_displacement_map(xy,c[:coords3d_local_buf4],c[:snorm_pq_kg])*c[:T_buf]
     V=Matrix{Float64}(I,24,24)[:,WD];physical=P\V
     actual=physical'*c[:Kg_global]*physical
     expected=AD.hessian(w->energy(w,xy,stress,h),zeros(4))

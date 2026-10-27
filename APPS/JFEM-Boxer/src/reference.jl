@@ -244,6 +244,7 @@ function write_reference(m::Model, path::AbstractString; frozen_load_cases=nothi
         "path" => abspath(path),
         "bytes" => filesize(path),
         "lines" => countlines(path),
+        "mesh_quality" => deepcopy(m.mesh_quality),
     )
 end
 

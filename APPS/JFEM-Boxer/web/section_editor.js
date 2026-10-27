@@ -7,8 +7,8 @@
   const NAMES={b:"flange width",h:"overall height",tf:"flange thickness",tw:"web thickness",s:"square side"};
   function section(kind,values,options={}){
     const names=kind==="T"?["b","h","tf","tw"]:["s"], errors=[],invalid=[];
-    const blade=kind==="T"&&options.shell&&values[0]===0;
-    names.forEach((name,i)=>{const allowZero=options.shell&&kind==="T"&&(i===0||blade&&i===2);if(!Number.isFinite(values[i])||(allowZero?values[i]<0:values[i]<=0)){errors.push("Enter a "+(allowZero?"non-negative ":"positive ")+NAMES[name]+".");invalid.push(i);}});
+    const allowBlade=options.shell||options.blade,blade=kind==="T"&&allowBlade&&values[0]===0;
+    names.forEach((name,i)=>{const allowZero=allowBlade&&kind==="T"&&(i===0||blade&&i===2);if(!Number.isFinite(values[i])||(allowZero?values[i]<0:values[i]<=0)){errors.push("Enter a "+(allowZero?"non-negative ":"positive ")+NAMES[name]+".");invalid.push(i);}});
     if(!errors.length&&blade){const h=values[1],tw=values[3],area=h*tw;if(!Number.isFinite(area)||area<=0)return{valid:false,error:"Dimensions are too large or too small to calculate a finite blade area.",invalid:[1,3]};return{valid:true,kind:"BLADE",b:tw,h,tw,area,centroidDepth:h/2,polygon:[[-tw/2,0],[tw/2,0],[tw/2,h],[-tw/2,h]]};}
     if(!errors.length&&kind==="T"){
       if(values[2]>=values[1]){errors.push("Flange thickness must be smaller than overall height.");invalid.push(1,2);}
@@ -73,9 +73,10 @@
       if(rib)note.textContent="Default vertical rib stiffener. The flange lies in the rib plane; the web projects outboard, or inboard at the final rib. Local +x follows the bar from lower to upper skin. Dimensions are in metres; individual rib overrides below use mm.";
       host.append(card);
       const update=()=>{
-        const shell=kind==="T"&&!rib&&doc.getElementById("p-stringers.model")?.value==="shell",values=inputs.map(input=>input.value.trim()===""?NaN:Number(input.value)),value=section(kind,values,{shell});
-        type.textContent=shell?(value.kind==="BLADE"?"PSHELL / blade":"Shell web + bonded flange"):"PBARL / "+kind;
+        const shell=kind==="T"&&!rib&&doc.getElementById("p-stringers.model")?.value==="shell",values=inputs.map(input=>input.value.trim()===""?NaN:Number(input.value)),value=section(kind,values,{shell,blade:kind==="T"&&!rib});
+        type.textContent=shell?(value.kind==="BLADE"?"PSHELL / blade":"Shell web + bonded flange"):"PBARL / "+(value.kind==="BLADE"?"BAR · blade":kind);
         if(kind==="T"&&!rib){heading.firstChild.textContent=shell?(value.kind==="BLADE"?"Shell blade ":"Shell stringer "):"T stringer ";note.textContent=shell?"Added stringer dimensions shown to scale. Blade depth is h − tf, or h for a zero-width flange. The flange property adds tf to the thinnest skin touching either side; skin footprint elements are replaced. Different materials or sandwich construction use a combined PCOMP. Choose flange materials below, and blade direction or inward offsets in Structure → Stringers. The preview excludes the underlying skin and shows the added stringer's section centroid; the solver uses the combined shell section and its selected reference plane.":"Flange outer face at the skin; web inward. Local +y points outward on either skin. +x follows the bar. Preview is proportional; input dimensions are in metres.";}
+        if(kind==="T"&&!rib&&!shell&&value.kind==="BLADE"){heading.firstChild.textContent="Blade stringer ";note.textContent="Zero flange width defines a rectangular blade. PBARL BAR uses web thickness × full height, with its centroid half the height inward from the skin. No flange or additional material is created; the inactive flange thickness is retained for switching back. Beam direction follows the normal or selected coordinate axis in Structure → Stringers. Rectangular blades support axial stress and Euler/free-web checks; the current BAR von-Mises stress envelope is unavailable.";}
         card.classList.toggle("section-editor-invalid",!value.valid);
         inputs.forEach((input,i)=>{const invalid=!value.valid&&value.invalid.includes(i);input.setAttribute("aria-invalid",String(invalid));rows[i].classList.toggle("section-dimension-invalid",invalid);});
         status.textContent=value.valid?"":value.error;status.hidden=value.valid;

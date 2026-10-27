@@ -16,7 +16,7 @@ surface(;kw...)=merge(Dict{String,Any}("name"=>"Flap","kind"=>"flap","edge"=>"tr
     drawings=W.normalize_drawings(W.JSON.json(Dict("movable-surfaces-plan"=>Dict())))
     @test haskey(W.JSON.parse(drawings),"movable-surfaces-plan")
     for change in [Dict("eta_start"=>-.1),Dict("eta_end"=>1.01),Dict("eta_start"=>.7),Dict("hinge_start"=>0),
-        Dict("hinge_end"=>1),Dict("deflection"=>91),Dict("deflection"=>NaN),Dict("name"=>""),Dict("extra"=>1),
+        Dict("hinge_end"=>1),Dict("deflection"=>NaN),Dict("name"=>""),Dict("extra"=>1),
         Dict("color"=>"red"),Dict("kind"=>"spoiler"),Dict("eta_start"=>true)]
         @test_throws ArgumentError W.normalize_movable_surfaces([merge(surface(),change)])
     end
@@ -47,6 +47,15 @@ end
     for i in 1:3:length(s["xyz"])
         a=s["xyz"][i:i+2].-s["hinge"][1];b=rotated["xyz"][i:i+2].-s["hinge"][1]
         @test sum(abs2,a)≈sum(abs2,b) rtol=3e-12 atol=1e-12
+    end
+    for angle in (-360., -180., 180., 360.)
+        p["movable_surfaces.items"][1]["deflection"]=angle
+        turned=only(W.movable_surfaces_preview(p)["surfaces"])
+        @test all(isfinite,turned["xyz"])
+        @test turned["hinge"]==s["hinge"]
+        if abs(angle)==360.
+            @test turned["xyz"]≈s["xyz"] rtol=3e-12 atol=1e-12
+        end
     end
     # The preview follows refined edges, airfoil blending and twist schedules.
     p["loft.twist_stations"]=[Dict("eta"=>0.,"twist"=>3.),Dict("eta"=>1.,"twist"=>-9.)]

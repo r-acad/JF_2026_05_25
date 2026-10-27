@@ -164,7 +164,7 @@ end
 
 """Uniform usable-volume allowance; geometry and partial-fill levels stay geometric."""
 function fuel_fill_efficiency(p)
-    value=get(p,"fuel.fill_efficiency",1.0)
+    value=get(p,"fuel.fill_efficiency",0.9)
     value isa Real && !(value isa Bool) && isfinite(value) && 0<=value<=1 ||
         throw(ArgumentError("fuel.fill_efficiency must be a finite number between 0 and 1"))
     return Float64(value)

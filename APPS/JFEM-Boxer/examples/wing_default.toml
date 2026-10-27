@@ -58,7 +58,7 @@ t_rib                 = 0.0015                  # m, Monolithic thickness of lea
 
 [fuel]
 enabled               = false                   # Enclosed tank between selected ribs, skins and spars. Cases defines fuel fill and acceleration; fill_efficiency reduces usable volume uniformly
-fill_efficiency       = 1.0                     # 0 to 1: usable capacity / gross envelope volume. Scales fuel mass, inertia and loads; case Fuel status remains a separate percentage
+fill_efficiency       = 0.9                     # 0 to 1: usable capacity / gross envelope volume. Scales fuel mass, inertia and loads; case Fuel status remains a separate percentage
 start_rib             = 1                       # Physical rib number, starting with rib 1 at the root; unaffected by shell mesh subdivisions
 end_rib               = 0                       # Physical rib number; 0 automatically selects the final closed rib at End ETA. Must be beyond the first tank rib
 disabled_bays         = ""                      # Bays excluded from fuel capacity, mass, inertia and loads. Bay b is between physical ribs b and b+1. Use numbers or ranges, for example 2,4-6; blank keeps all selected bays. Exclusions outside the selected tank range are retained and ignored. All selected bays may be dry

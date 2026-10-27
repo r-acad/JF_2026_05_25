@@ -267,6 +267,14 @@ function shell_stringer_unexpected_free_edges(m,edges)
             edge=minmax(a,b);get(edges,edge,0)==1||continue
             ja,jb=m.node_keys[a][2],m.node_keys[b][2]
             at_end=ja==jb&&ja in (panel.start_row,panel.end_row)
+            if at_end
+                plane=main_rib_plane(m.grid,m.params,ja)
+                # Local-kink nodes retain the inboard row index. Test their
+                # actual skin footpoints so an exposed longitudinal crack
+                # cannot masquerade as a permitted physical blade end.
+                at_end=all(abs(sum(plane.normal.*(get(m.grid.shell_columns.blade_bases,node,
+                    Tuple(m.xyz[3node-2:3node])).-plane.origin)))<=2e-11plane.scale for node in (a,b))
+            end
             at_tip=all(isapprox(norm3(Tuple(m.xyz[3node-2:3node]).-get(m.grid.shell_columns.blade_bases,node,grid_point(m.grid,panel.column,j,k))),height;atol=1e-9,rtol=1e-8)
                 for (node,j) in ((a,ja),(b,jb)))
             (at_end||at_tip)&&push!(expected,edge)

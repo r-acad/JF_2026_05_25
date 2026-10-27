@@ -12,7 +12,7 @@ function axial_mesh_parameters(;kind="aileron",underside=false,deflected=false)
         "hinge_z_start"=>underside ? -1. : -.3,"hinge_z_end"=>underside ? -.8 : .15,"deflection"=>15.,"color"=>"#29b6d1")]
     p["movable_structure.surfaces"]=[merge(W.MOVABLE_STRUCTURE_DEFAULTS,Dict("surface"=>"Control","span_bays"=>4,"span_elements"=>2,"chord_elements"=>4,"height_elements"=>2,"mesh_deflected"=>deflected))]
     p["movable_structure.attachments"]=[merge(W.MOVABLE_ATTACHMENT_DEFAULTS,Dict("surface"=>"Control","eta"=>eta,"rib"=>99,
-        "fitting"=>"shell_lugs","lateral_stay"=>true,"actuator"=>true,"actuator_stiffness"=>1e7,"hinge_stiffness"=>123.)) for eta in (.26,.74)]
+        "fitting"=>"shell_lugs","actuator"=>true,"actuator_stiffness"=>1e7,"hinge_stiffness"=>123.)) for eta in (.26,.74)]
     first(W.normalize_params(p))
 end
 function axial_torque_check(m,name)
@@ -21,7 +21,27 @@ function axial_torque_check(m,name)
     text=read(path,String)
     text=replace(text,r"(?m)^FORCE\*[^\r\n]*\r?\n\*[^\r\n]*\r?\n"=>"")
     text=replace(text,"BEGIN BULK"=>"BEGIN BULK\nPARAM,K6ROT,0.")
-    text=replace(text,"ENDDATA"=>"MOMENT,1,$(m.node_ids[first_hinge["surface_ref"]]),$(first_hinge["cid"]),$torque,1.,0.,0.\nENDDATA")
+    # Load the actual rib with a balanced physical force couple. A point moment
+    # at a shell-fitting tip can excite its unsupported drilling rotation;
+    # artificial lateral stays must not be needed to make that load meaningful.
+    surface=only(m.movable_structure["surfaces"])
+    rib=surface["rib_sections"][first_hinge["master_rib_index"]]
+    load_nodes=[rib["front_upper"],rib["front_lower"],last(rib["lower_nodes"])]
+    balance=zeros(6,9)
+    for (j,node) in enumerate(load_nodes)
+        r=m.xyz[3node-2:3node].-first_hinge["origin"]
+        balance[1:3,3j-2:3j].=Matrix{Float64}(I,3,3)
+        balance[4:6,3j-2:3j].=[0. -r[3] r[2];r[3] 0. -r[1];-r[2] r[1] 0.]
+    end
+    target=vcat(zeros(3),torque.*first_hinge["axis"])
+    forces=balance'*(balance*balance'\target)
+    @test balance*forces ≈ target atol=1e-12
+    force_cards=String[]
+    for (j,node) in enumerate(load_nodes)
+        f=forces[3j-2:3j];magnitude=norm(f)
+        push!(force_cards,join(("FORCE",1,m.node_ids[node],0,magnitude,(f./magnitude)...),","))
+    end
+    text=replace(text,"ENDDATA"=>join(force_cards,"\n")*"\nENDDATA")
     write(path,text);parsed=OpenJFEM.bdf_to_model(path)
     @test parsed["PARAM_AUTOSPC"]=="YES"
     @test length(parsed["CBUSHs"])==2
@@ -57,7 +77,7 @@ function axial_torque_check(m,name)
     rf,rm=W.load_resultant(reactions)
     @test norm(collect(rf))<1e-6
     @test norm(collect(rm).+torque.*first_hinge["axis"])<1e-6
-    Dict("name"=>name,"springs"=>springs,"applied_torque_Nm"=>torque,"spring_moment_Nm"=>spring_moment,"solver_diagnostics"=>diagnostics)
+    Dict("name"=>name,"springs"=>springs,"applied_torque_Nm"=>torque,"spring_moment_Nm"=>spring_moment,"load_method"=>"Balanced physical force couple on movable rib nodes","load_grids"=>m.node_ids[load_nodes],"solver_diagnostics"=>diagnostics)
 end
 reports=Any[]
 tests=@testset "Axial actuators, relocated conforming ribs and underside lugs" begin

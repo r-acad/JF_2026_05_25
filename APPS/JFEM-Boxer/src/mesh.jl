@@ -277,8 +277,12 @@ struct Model
     fuel_rbe3::Vector{FuelBaySpider}
     movable_structure::Dict{String,Any}
     engine_structure::Dict{String,Any}
+    mesh_quality::Dict{String,Any}
 end
 
+Model(args::Vararg{Any,21})=Model(args...,Dict{String,Any}("status"=>"not_assessed","severity"=>"none",
+    "issues"=>Any[],"actions"=>Any[],"warning_element_count"=>0,"warning_region_count"=>0,
+    "error_element_count"=>0,"analysis_allowed"=>true,"message"=>"Generated wing mesh quality checks do not apply to this model."))
 Model(args::Vararg{Any,20})=Model(args...,Dict{String,Any}("engines"=>Any[],"note"=>ENGINE_MODEL_NOTE))
 Model(args::Vararg{Any,19})=Model(args...,Dict{String,Any}("surfaces"=>Any[],"attachments"=>Any[],"node_etas"=>Dict{Int,Float64}()))
 
@@ -419,7 +423,8 @@ function stringer_grid(w, p, xcs, base_etas, base_ribs, nh)
         end
     end
     grid=BoxGrid(w,xcs,etas,nh,ribs,lower,upper,collapsed,collect(1:count-2))
-    return layout.legacy ? grid : BoxGrid(w,xcs,etas,nh,ribs,lower,upper,collapsed,grid.stringer_indices,grid.lower_etas,grid.upper_etas,layout)
+    context=merge(layout,(params=p,path=path,roots=roots,fuel_cache=Dict{Tuple{Int,Int},Float64}()))
+    return BoxGrid(w,xcs,etas,nh,ribs,lower,upper,collapsed,grid.stringer_indices,grid.lower_etas,grid.upper_etas,context)
 end
 
 """
@@ -491,31 +496,47 @@ the root and on the final box rib at `box.end_eta`. Each bay is then subdivided 
 function span_stations(w::Wing, p::AbstractDict)
     m = p["mesh.elements_between_ribs"]
     end_eta = Float64(p["box.end_eta"])
-    if !isempty(get(p,"ribs.masters",Any[]))
-        layout=physical_rib_layout(w,p);rib_etas=[row.eta for row in layout.physical]
-        etas=Float64[]
-        for bay in 1:length(rib_etas)-1
-            a,b=layout.physical[bay].arc,layout.physical[bay+1].arc
-            for k in 0:m-1
-                push!(etas,k==0 ? rib_etas[bay] : rear_arc_eta(layout.arc,a+(b-a)*k/m))
-            end
+    layout=physical_rib_layout(w,p);rib_etas=[row.eta for row in layout.physical]
+    scalar_anchors(es,vs,method)=method===:linear ? first(physical_polyline(es,vs)) : es
+    anchors=vcat(planform_breakpoints(w),w.airfoil_etas,
+        scalar_anchors(w.thickness_etas,w.thickness_values,w.thickness_interpolation),
+        scalar_anchors(w.twist_etas,w.twist_values,w.twist_interpolation),
+        scalar_anchors(w.vertical_shift_etas,w.vertical_shift_values,w.vertical_shift_interpolation))
+    local_knots=sort!(unique(vcat(spar_breakpoints(p),stringer_path(w,p).kink_etas)))
+    # A real spar/stringer kink belongs to its affected longitudinal edges,
+    # not to every skin and leading-edge column across the wing. Resolve those
+    # knots conformingly after construction. Only changes of the whole loft
+    # and the actual physical ribs prescribe complete span rows.
+    metric(eta)=layout.legacy ? eta : rear_arc_length(layout.arc,eta)
+    inverse(s)=layout.legacy ? s : rear_arc_eta(layout.arc,s)
+    etas=Float64[]
+    for bay in 1:length(rib_etas)-1
+        a,b=rib_etas[bay:bay+1]
+        cuts=with_stations([a,b],anchors)
+        lengths=diff(metric.(cuts))
+        # Closely spaced physical anchors are retained exactly. Their actual
+        # faces are assessed below: poor aspect/angles warn, invalid faces stop.
+        counts=ones(Int,length(lengths));total=max(m,length(counts))
+        # Reallocate the available cells around exact anchors; never union
+        # a mandatory row with a nearly coincident optional subdivision.
+        for _ in length(counts)+1:total
+            counts[argmax(lengths./counts)]+=1
         end
-        push!(etas,end_eta)
-        # An angled grid resolves spar/stringer kinks on the affected element
-        # edges. Adding the rear-ETA breakpoint as another complete row would
-        # still leave a narrow strip beside a nearly coincident regular row.
-        all(iszero,layout.deltas)&&(etas=with_stations(etas,vcat(spar_breakpoints(p),stringer_path(w,p).kink_etas)))
-        etas=with_planform_stations(w,etas)
-        return etas,[searchsortedfirst(etas,eta)-1 for eta in rib_etas],length(rib_etas)-1
+        for q in eachindex(lengths),k in 0:counts[q]-1
+            eta=k==0 ? cuts[q] : inverse(metric(cuts[q])+lengths[q]*k/counts[q])
+            if k>0
+                # A nearby kink can use an existing optional row without
+                # creating another full strip. Physical ribs/loft anchors
+                # are never snapped, and this cannot cross either endpoint.
+                distance=abs.(metric.(local_knots).-metric(eta));nearest=argmin(distance)
+                distance[nearest]<.1lengths[q]/counts[q]&&(eta=local_knots[nearest])
+            end
+            push!(etas,eta)
+        end
     end
-    nb = max(1, round(Int, end_eta * reference_length(w) / p["box.rib_pitch"]))
-    njj = nb * m
-    etas = [end_eta * (j / njj) for j in 0:njj]
-    rib_etas = etas[1:m:end]
-    etas = with_stations(etas, vcat(spar_breakpoints(p),stringer_path(w,p).kink_etas))
-    etas = with_planform_stations(w, etas)
+    push!(etas,end_eta)
     ribs = [searchsortedfirst(etas, eta) - 1 for eta in rib_etas]
-    return etas, ribs, nb
+    return etas, ribs, length(rib_etas)-1
 end
 
 """Retain edge kinks and scalar loft anchors as rows without creating physical ribs.
@@ -811,13 +832,31 @@ function build_model(p::AbstractDict; progress = stage -> nothing)
     if get(p,"stringers.model","beam")=="shell"
         eid=add_shell_stringers!(reg,g,p,groups,panel_layout,eid)
     end
-    oriented_ribs(g) && (eid=split_oriented_kink_edges!(reg,g,groups,eid;p))
+    eid=split_oriented_kink_edges!(reg,g,groups,eid;p)
+    if get(p,"stringers.model","beam")=="beam"
+        # Resolve the selected frame against the final split shell faces, then
+        # use the same inward loft-normal/axis convention as shell stringers.
+        axis=stringer_axis_direction(p,g,reg,groups)
+        upper_by_pid=Dict(panel_stringer_pid(panel.id)=>panel.upper for panel in panel_layout.panels)
+        for group in groups
+            group.kind===:bar&&component_base_pid(group.pid)==PID_STRINGER||continue
+            upper=upper_by_pid[group.pid]
+            for e in eachindex(group.eids)
+                a,b=group.conn[2*e-1:2*e]
+                eta=((reg.xyz[3a-1]+reg.xyz[3b-1])/2-w.root_ref_y)/w.semispan
+                xc=rib_skin_xc(w,eta,(reg.xyz[3a-2]+reg.xyz[3b-2])/2,upper)
+                v=.-shell_stringer_direction(shell_stringer_inward(w,eta,xc,upper),axis)
+                group.orient[3*e-2:3*e].=v
+            end
+        end
+    end
     get(p,"stringers.model","beam")=="shell" && register_shell_stringer_mass_geometry!(p,groups,reg.xyz,g)
     n_struct = length(reg.keys)
 
     eid,movable_structure=add_movable_structure!(reg,g,p,groups,eid)
     eid=add_unboxed_control_references!(reg,g,p,movable_structure,eid)
     eid,engine_structure=add_engine_structure!(reg,g,p,eid)
+    mesh_quality=validate_main_mesh_quality(reg,g,p,groups;movable_structure)
     n_struct=length(reg.keys)
 
     # --- RBE3 spiders ------------------------------------------------------
@@ -881,7 +920,7 @@ function build_model(p::AbstractDict; progress = stage -> nothing)
     model = Model(Dict{String,Any}(p), w, g, node_ids, reg.xyz, reg.keys,
                   n_struct, groups, rbe3, spc, aero_xyz, aero_quads, aero_nloop,
                   aero_map, aero_w,
-                  Tuple{String,String}[], Tuple{String,String,Bool}[],le_metadata,FuelBaySpider[],movable_structure,engine_structure)
+                  Tuple{String,String}[], Tuple{String,String,Bool}[],le_metadata,FuelBaySpider[],movable_structure,engine_structure,mesh_quality)
     migration=panel_override_migration(p)
     migration===nothing||record_panel_override_migration!(model.params,migration)
 
@@ -1156,6 +1195,12 @@ function model_info(m::Model, n_str_bays::Int, n_rib_bays::Int)
     ]
     for warning in planform_endpoint_warnings(p,w)
         push!(info,("Geometry warning",warning["message"]))
+    end
+    if m.mesh_quality["status"]=="warning"
+        push!(info,("Mesh quality warnings","$(m.mesh_quality["warning_element_count"]) elements in $(m.mesh_quality["warning_region_count"]) regions; inspection and analysis remain available."))
+        for action in m.mesh_quality["actions"]
+            push!(info,("Mesh quality guidance",action["message"]))
+        end
     end
     component_counts=Dict{Tuple{String,Symbol},Int}()
     for gr in m.groups

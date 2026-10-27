@@ -98,19 +98,25 @@
   await markers("RBE3_NODES",data.rbe3?.refs?i32(data.rbe3.refs):[],markerR);
   await markers("FUEL_RBE3_NODES",data.fuel_rbe3?.refs?i32(data.fuel_rbe3.refs):[],markerR);
   if(shown("SPC")&&data.spc?.count){
-   const glyphs=SupportGlyphs.layout(data,markerR);
+   const constraintR=Math.max(snapshot.constraintMarkerRadius??markerR,2*r),glyphs=SupportGlyphs.layout(data,constraintR);
    for(let dof=1;dof<=6;dof++){
     const records=glyphs.records.filter(record=>record.dof===dof);if(!records.length)continue;
     const build=builder(parts,"SPC DOF "+dof,records[0].color,{entity_type:"SPC",components:String(dof),shape:records[0].shape,axis:records[0].axis});
-    for(const record of records){const origin=point(xyz,record.node);build.entity(ids[record.node],SupportGlyphs.triangles(record,origin,markerR),{grid_id:ids[record.node],dof,center_offset_m:record.centerOffset,...(dof<=3?{apex_m:origin,points_along:"+"+record.axis}:{})});await tick();}build.finish();
+    for(const record of records){const origin=point(xyz,record.node);build.entity(ids[record.node],SupportGlyphs.triangles(record,origin,constraintR),{grid_id:ids[record.node],dof,center_offset_m:record.centerOffset,...(dof<=3?{apex_m:origin,points_along:"+"+record.axis}:{})});await tick();}build.finish();
    }
   }
-  if(snapshot.reactions&&shown("SUPPORT_FORCES")){
-   const reactions=snapshot.reactions,supports=new Set(data.spc?.nodes?i32(data.spc.nodes):[]),records=[];let peak=0,momentPeak=0;
-   for(let i=0;i<reactions.nodes.length;i++){const node=reactions.nodes[i];if(!supports.has(node))continue;const force=Array.from(reactions.forces.subarray(3*i,3*i+3)),moment=reactions.moments?Array.from(reactions.moments.subarray(3*i,3*i+3)):[0,0,0];records.push({node,force,moment});peak=Math.max(peak,Math.hypot(...force));momentPeak=Math.max(momentPeak,...moment.map(Math.abs));}
+  if(snapshot.reactions&&(shown("SUPPORT_FORCES")||shown("SUPPORT_MOMENTS"))){
+   const reactions=snapshot.reactions,records=[];let peak=0,momentPeak=0;
+   for(let i=0;i<reactions.nodes.length;i++){const node=reactions.nodes[i];if(!Number.isInteger(node)||node<0||3*node+2>=xyz.length)continue;const force=Array.from(reactions.forces.subarray(3*i,3*i+3)),moment=reactions.moments?Array.from(reactions.moments.subarray(3*i,3*i+3)):[0,0,0];records.push({node,force,moment});peak=Math.max(peak,Math.hypot(...force));momentPeak=Math.max(momentPeak,...moment.map(Math.abs));}
    for(const kind of ["force","moment"]){
+    if(!shown(kind==="force"?"SUPPORT_FORCES":"SUPPORT_MOMENTS"))continue;
     const builds=LoadGlyphs.AXES.map((axis,k)=>builder(parts,"SUPPORT_"+(kind==="force"?"FORCES_":"MOMENTS_")+axis,LoadGlyphs.COLORS[k],{entity_type:"support_reaction",kind,axis,case_id:snapshot.activeCase,analysis:snapshot.analysis}));
-    for(const record of records){for(const glyph of LoadGlyphs.components(record[kind],{kind,diag,scale:peak>0?.09*diag*(snapshot.supportForceMultiplier||1)/peak:0,peak:momentPeak,multiplier:snapshot.supportForceMultiplier||1}))builds[glyph.component].entity(ids[record.node],loadGlyphTriangles(point(xyz,record.node),glyph,r),{force_N:record.force,moment_Nm:record.moment,...loadGlyphMetadata(glyph)});await tick();}builds.forEach(build=>build.finish());
+    for(const record of records){for(const glyph of LoadGlyphs.components(record[kind],{kind,diag,scale:peak>0?.09*diag*(snapshot.supportForceMultiplier||1)/peak:0,peak:momentPeak,multiplier:snapshot.supportForceMultiplier||1})){
+     if(visible&&snapshot.supportComponents?.[kind]?.[glyph.component]===false)continue;
+     const origin=point(xyz,record.node),solid=kind==="force"?SupportGlyphs.forceArrow(glyph,{diameter:snapshot.supportForceDiameter??0,diag}):null;
+     const triangles=solid?Float32Array.from(solid.positions,(value,i)=>value+origin[i%3]):loadGlyphTriangles(origin,glyph,r);
+     builds[glyph.component].entity(ids[record.node],triangles,{force_N:record.force,moment_Nm:record.moment,...loadGlyphMetadata(glyph),...(solid?{solid_arrow:true,stem_diameter:solid.stemDiameter}:{})});
+    }await tick();}builds.forEach(build=>build.finish());
    }
   }
   for(const [name,attachments]of[["RBE3",data.rbe3],["FUEL_RBE3",data.fuel_rbe3]])if(shown(name)&&attachments?.elements){

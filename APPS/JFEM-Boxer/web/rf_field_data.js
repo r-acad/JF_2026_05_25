@@ -1,6 +1,6 @@
 /* Project assessed reserve factors onto actual FE element IDs. Property checks
  * retain their whole-property scope; physical checks retain their exact members. */
-(function(root,factory){const api=factory(typeof module==='object'&&module.exports?require('./stress_report_data.js'):root.WingStressReportData,typeof module==='object'&&module.exports?require('./minimum_rf_data.js'):root.WingMinimumRFData,typeof module==='object'&&module.exports?require('./reserve_factor_table_data.js'):root.WingReserveFactorTableData,typeof module==='object'&&module.exports?require('./component_buckling_data.js'):root.WingComponentBucklingData,typeof module==='object'&&module.exports?require('./rf_sizing_estimate.js'):root.WingRFSizingEstimate);if(typeof module==='object'&&module.exports)module.exports=api;else root.WingRFFieldData=api;})(globalThis,function(stress,minimum,tables,component,sizing){
+(function(root,factory){const api=factory(typeof module==='object'&&module.exports?require('./stress_report_data.js'):root.WingStressReportData,typeof module==='object'&&module.exports?require('./minimum_rf_data.js'):root.WingMinimumRFData,typeof module==='object'&&module.exports?require('./reserve_factor_table_data.js'):root.WingReserveFactorTableData,typeof module==='object'&&module.exports?require('./component_buckling_data.js'):root.WingComponentBucklingData,typeof module==='object'&&module.exports?require('./rf_sizing_estimate.js'):root.WingRFSizingEstimate,typeof module==='object'&&module.exports?require('./color_scales.js'):root.WingColorScales);if(typeof module==='object'&&module.exports)module.exports=api;else root.WingRFFieldData=api;})(globalThis,function(stress,minimum,tables,component,sizing,colors){
  'use strict';
  const finite=n=>typeof n==='number'&&Number.isFinite(n);
  const FAILURE_MODES=Object.freeze({...minimum.MODES});
@@ -8,7 +8,7 @@
  const NO_DEMAND_KEY='no_demand',NO_DEMAND_COLOR=[.53,.67,.65];
  const propertyModes=new Set(['minimum_rf','von_mises','principal_strain']);
  const modes=Object.keys(FAILURE_MODES);
- const modeColors=['#0277bd','#ad1457','#00897b','#ef6c00','#6a1b9a','#3949ab','#8d6e00','#00838f','#c62828','#5d4037'];
+
  const NOTE='Colors apply to actual element membership. A property-wide stress or combined RF colors its whole property region; a physical plate, blade or column RF colors its recorded members, including shared constituents. Overlapping applicable checks use their lowest computed RF, and any incomplete overlapping check leaves those elements unassessed. RF 99 is a no-demand sentinel only when explicitly identified; it never outranks a calculated RF greater than 99. Critical-case and failure-mode categories require a complete minimum-RF assessment. Gray means unassessed or inapplicable, not zero. SOL106 RFs are demand ratios, not predicted failure-load multipliers.';
  const ESTIMATE_NOTE='Estimated reserve factors use the edited local properties with the previous analysis force resultants held fixed. Loads, load redistribution and equilibrium have not been recalculated. Rerun the FE analysis before accepting the design.';
  function options(input={},request={}){
@@ -28,12 +28,14 @@
   if(/^#[0-9a-f]{6}$/i.test(css))return[1,3,5].map(i=>parseInt(css.slice(i,i+2),16)/255);
   const m=/^rgba?\(\s*([\d.]+)[, ]+\s*([\d.]+)[, ]+\s*([\d.]+)/.exec(css||'');return m?m.slice(1).map(v=>Number(v)/255):null;
  }
- function hsl(h,s,l){const a=s*Math.min(l,1-l),f=n=>{const k=(n+h/30)%12;return l-a*Math.max(-1,Math.min(k-3,9-k,1));};return[f(0),f(8),f(4)];}
  function categoryColor(key){
   if(key===NO_DEMAND_KEY)return NO_DEMAND_COLOR.slice();
-  if(key.startsWith('mode:'))return rgb(modeColors[Math.max(0,modes.indexOf(key.slice(5)))%modeColors.length]);
+  if(key.startsWith('mode:'))return colors.categoryColor(Math.max(0,modes.indexOf(key.slice(5))));
+  const match=/^case:(101|106):(\d+)(?::(.*))?$/.exec(key);
+  if(match){const id=Math.max(1,Number(match[2])),variant=match[3]||'default';
+   if(['default','sol101','sol106'].includes(variant)){const nonlinear=match[1]==='106';return colors.categoryColor(id<=12?id-1+(nonlinear?12:0):24+2*(id-13)+(nonlinear?1:0));}}
   let hash=2166136261;for(let i=0;i<key.length;i++){hash^=key.charCodeAt(i);hash=Math.imul(hash,16777619);}
-  return hsl((hash>>>0)%36000/100,.67,.43+((hash>>>16)%3)*.055);
+  return colors.categoryColor(24+(hash>>>0));
  }
  function caseSignature(cases){return(cases||[]).map(c=>String(c.caseKey)+'|'+String(c.solution)).sort().join('\n');}
  function freshness(input,report){
@@ -77,7 +79,7 @@
   const gauge=members.complete?minimum.gaugeFor(members.propertyIds,index):{known:false,atMinimum:false,reason:members.reason};
   return{available:valid,reason:!members.complete?members.reason:checked.reason||'',reserveFactor:valid?checked.value:null,rowKey:row.rowKey||mode+':P'+row.pid,propertyIds:members.propertyIds,memberElementIds:members.elementIds,
    modeKey,modeLabel:mode==='minimum_rf'?row.combined?.governingModeLabel||'':FAILURE_MODES[mode],caseKey:row.envelopeCaseKey||'',caseLabel:row.envelopeCaseLabel||'',scope:mode==='minimum_rf'?row.combined?.governingScope||source.scope:source.scope,
-   propertyScope:propertyModes.has(mode)?'Full property P'+row.pid:'',noDemand:valid&&noDemand(row,mode),minimumGauge:gauge,coverage:row.coverage,status:valid?'complete':row.status||'unavailable',
+   approximation:!!row.approximation,governingApproximation:!!row.governingApproximation,propertyScope:propertyModes.has(mode)?'Full property P'+row.pid:'',noDemand:valid&&noDemand(row,mode),minimumGauge:gauge,coverage:row.coverage,status:valid?'complete':row.status||'unavailable',
    notes:[...(tables.caseCertificateNotes?.(row)||[]),...(tables.plateDiagnosticNotes?.(row)||[]),...(row.caseResults||[]).flatMap(c=>(c.recoveryMethods||[]).map(m=>c.label+': '+(m.description||m.method))),...(row.combined?.assessments||[]).flatMap(a=>(a.recoveryMethods||[]).map(m=>m.description||m.method))],
    colorRecord:{complete:valid,coverage:row.coverage,reserveFactorReason:valid?'':members.reason||checked.reason,minimumGauge:gauge}};
  }

@@ -814,6 +814,23 @@ end
     return 0.25 * (norm(p2 - p1) + norm(p3 - p2) + norm(p4 - p3) + norm(p1 - p4))
 end
 
+
+"""Numerical rank-one reference curvature, independent of the length unit.
+
+The dimensionless tensor uses the mean projected edge length. The fixed
+machine-roundoff criterion identifies a resolved nonzero principal curvature
+with an unresolved second principal curvature; it is not a geometric fit.
+"""
+@inline function q4_curvature_is_numerically_cylindrical(curvature::SVector{3,Float64}, lc::AbstractMatrix)
+    ell = q4_curvature_characteristic_length(lc)
+    isfinite(ell) && ell > 0.0 || return false
+    dimensionless = ell * curvature
+    all(isfinite, dimensionless) || return false
+    k1, k2 = q4_curvature_principal_abs(dimensionless)
+    roundoff = 64.0 * eps(Float64)
+    return isfinite(k1) && k1 > roundoff && k2 / k1 <= roundoff
+end
+
 @inline function q4_local_edge_aspect_ratio(lc::AbstractMatrix)
     p1 = @SVector [lc[1,1], lc[1,2]]
     p2 = @SVector [lc[2,1], lc[2,2]]
@@ -1837,4 +1854,56 @@ function assert_no_corner_thickness_analytic(model)
         throw(ArgumentError("Analytic sensitivities for shell $(get(el,"ID","?")) with explicit corner thickness Ti are not implemented. Absolute and fractional Ti require element-specific stiffness, mass, prestress and load chain rules, including uniform Ti."))
     end
     return nothing
+end
+
+# Reference-plane offsets for the ordinary projected MacNeal operator.
+function shell_projected_reference_offset_enabled(model)
+    get(model,"SOL",101) in (101,103,105) || return false
+    for key in ("JFEM_Q4_KERNEL_STATIC","JFEM_Q4_KERNEL_EIG","JFEM_Q4_KERNEL_KG")
+        lowercase(strip(FEM.fem_env_str(key,FEM.fem_env_str("JFEM_Q4_KERNEL","macneal")))) == "macneal" || return false
+    end
+    snorm_director_enabled() && return false
+    solver_env_float("JFEM_SOL101_LINE_NODE_DRILL_SCALE",1.0) == 1.0 || return false
+    (q4_eig_curved_jacobian_enabled() ||
+     q4_curved_iso_geomnormal_frame_enabled() || q4_flat_curved_iso_geomnormal_frame_enabled() ||
+     q4_flat_curved_iso_nodal_geomnormal_transform_enabled() ||
+     kg_shell_surface_operator_mode() === :covariant) && return false
+    # All three consumers share this scope, including recovery, which does
+    # not execute the assembly branch selector. Explicit alternate plate,
+    # director, intrinsic-curvature and nodal-normal experiments retain their
+    # existing reference-surface contract as a complete group.
+    for key in ("JFEM_Q4_SNORM_TRANSFORM_ONLY","JFEM_Q4_MARGUERRE_COUPLING",
+        "JFEM_Q4_STATIC_PCOMP_NODAL_GEOMNORMAL_TRANSFORM",
+        "JFEM_Q4_CURVATURE_MEMBRANE_STATIC_GEOM_NORMALS",
+        "JFEM_SOL105_EIG_FLAT_CURVED_ISO_NODAL_GEOMNORMAL_TRANSFORM",
+        "JFEM_SOL105_CURVED_ISO_GEOMNORMAL_FRAME",
+        "JFEM_SOL105_EIG_FLAT_CURVED_PCOMP_GEOMNORMAL_FRAME",
+        "JFEM_SOL105_EIG_FLAT_CURVED_ISO_GEOMNORMAL_FRAME",
+        "JFEM_SOL105_EIG_FLAT_PCOMP_PLATE_BRANCH","JFEM_SOL105_EIG_FLAT_PCOMP_PLATE_AUTO",
+        "JFEM_SOL105_EIG_FLAT_PCOMP_RECT_ADINI","JFEM_SOL105_EIG_FLAT_PCOMP_DKMQ",
+        "JFEM_SOL105_STATIC_FLAT_PCOMP_DKMQ","JFEM_SOL105_EIG_FLAT_CURVED_PCOMP_FULLSHEAR",
+        "JFEM_SOL101_Q4_PCOMP_EXACT_MEMBRANE","JFEM_SOL105_STATIC_PCOMP_EXACT_MEMBRANE")
+        solver_env_bool(key,false) && return false
+    end
+    return true
+end
+
+"""
+    shell_projected_reference_offset_map(coords, coords_3d, zoffs; snorm_pq=nothing)
+
+Pull a reference-plane shift back through the projected Q4 displacement map.
+If the existing kernel consumes `P*u`, the shifted material plane consumes
+`Z*P*u`. Thus `P*C = Z*P` defines the input map for that unchanged kernel.
+The caller must select the projected MacNeal branch and suppress its outer Z.
+"""
+function shell_projected_reference_offset_map(coords,coords_3d,zoffs;snorm_pq=nothing)
+    iszero(zoffs) && return nothing
+    if snorm_pq!==nothing && FEM.quad4_snorm_pq_has_active_rows(snorm_pq)
+        FEM.quad4_snorm_normal_moment_mode() || throw(ArgumentError(
+            "Projected reference-plane offsets require normal-moment SNORM"))
+    end
+    P=FEM.quad4_physical_displacement_map(coords,coords_3d,snorm_pq)
+    Z=Matrix{Float64}(I,24,24)
+    shell_reference_offset_transform!(Z,Float64(zoffs))
+    return P\(Z*P)
 end

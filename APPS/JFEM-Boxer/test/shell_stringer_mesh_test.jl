@@ -63,10 +63,13 @@ suite=@testset "Conforming shell stringer mesh" begin
         end
     end
     @test_throws ArgumentError W.build_model(merge(p,Dict("stringers.orientation"=>"coordinate_axis","stringers.axis"=>"y","stringers.axis_cid"=>0)))
-    # Swept taper retires physical lines; flange columns merge with the same
-    # cap node and the legacy connector still has a congruent skin edge.
-    tapered=W.build_model(merge(p,Dict("planform.area"=>8.,"planform.aspect_ratio"=>4.,
-        "planform.taper_ratio"=>.4,"planform.sweep"=>12.,"planform.twist_tip"=>-2.,"box.rib_pitch"=>.6)))
+    # This flanged runout leaves valid 2.9-degree skin wedges and must warn.
+    # Retain valid retiring-line/connector coverage with the explicitly
+    # blade-only variant, which does not introduce those narrow flange strips.
+    taper_params=merge(p,Dict("planform.area"=>8.,"planform.aspect_ratio"=>4.,
+        "planform.taper_ratio"=>.4,"planform.sweep"=>12.,"planform.twist_tip"=>-2.,"box.rib_pitch"=>.6))
+    @test W.build_model(taper_params).mesh_quality["status"]=="warning"
+    tapered=W.build_model(merge(taper_params,Dict("properties.stringer_flange_width"=>0.)))
     @test W.all_checks_pass(tapered)
     @test any(!isempty(g.eids)&&g.pid==W.PID_STRINGER_RUNOUT for g in tapered.groups)
     footprint_check(tapered)
@@ -103,7 +106,9 @@ suite=@testset "Conforming shell stringer mesh" begin
     panels=W.stiffened_panels_payload(m);row=first(panels["panels"])
     override=Dict("key"=>row["key"],"layout_token"=>panels["layout_token"],
         "stringer"=>Dict("flange_width"=>.045,"height"=>.045))
-    stepped=W.build_model(merge(p,Dict("properties.panels"=>[override])))
+    stepped_params=merge(p,Dict("properties.panels"=>[override]))
+    @test W.build_model(stepped_params).mesh_quality["status"]=="warning" # 33:1 strips at the width transition
+    stepped=W.build_model(merge(stepped_params,Dict("mesh.elements_between_ribs"=>6)))
     @test W.all_checks_pass(stepped)
     footprint_check(stepped)
     @test W.stiffened_panels_payload(stepped)["layout_token"]==panels["layout_token"]
