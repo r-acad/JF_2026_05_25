@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
-set -u
+set -eu
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
-exec bash "$root/PANDEATOR.sh" "$@"
+exec bash "$root/APPS/PANDEATOR_APP/Mac/PANDEATOR.command" "$@"

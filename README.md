@@ -19,7 +19,8 @@ Each folder has one setup launcher and the application launchers. Setup installs
 the packages and automatically builds one shared Julia image for the solver,
 apps and workers. The first build can take an hour or longer. Keep its console
 open until it finishes; native code generation can have long quiet periods.
-The existing root launchers remain available.
+Each app also has its own `Windows/`, `Linux/` and `Mac/` launcher folders
+under [`APPS/`](APPS/README.md). The repository root contains no launchers.
 
 | Application | Purpose |
 | --- | --- |

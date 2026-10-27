@@ -15,7 +15,8 @@
 *.cmd text eol=crlf
 *.sh text eol=lf
 *.command text eol=lf
-/jfem text eol=lf
+APPS/JFEM-solver/Linux/jfem text eol=lf
+APPS/JFEM-solver/Mac/jfem text eol=lf
 
 # Portable app scripts use LF; vendor archives keep exact verified upstream bytes.
 WingFEGen/** text eol=lf

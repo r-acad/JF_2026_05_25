@@ -108,7 +108,7 @@ function restart_if_needed(root,entry,args=ARGS;use_image=true)
         command=Cmd(vcat([found.executable,"--startup-file=no","--threads=auto","--project="*abspath(something(locate_solver(root),root)),abspath(entry)],String.(args)))
         exit(run(ignorestatus(command)).exitcode)
     end
-    error("JFEM-Boxer needs Julia $major.$minor.x for this checkout. Run `juliaup add $major.$minor` to install the latest matching patch, or set WINGFEGEN_JULIA to its executable. Then run setup.cmd (Windows) or bash setup.sh (macOS/Linux). No input files were changed.")
+    error("JFEM-Boxer needs Julia $major.$minor.x for this checkout. Run `juliaup add $major.$minor` to install the latest matching patch, or set WINGFEGEN_JULIA to its executable. Then run the setup launcher for your OS in __Start here!__. No input files were changed.")
 end
 
 # Include before runtime functions are called, so Julia's binding world age is

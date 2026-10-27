@@ -282,7 +282,7 @@ source* toggle offers two paths:
 The solver runs in-process (loaded once), the browser communicates over
 msgpack-over-HTTP, and results are rendered in the same 3D viewer with
 SOL-aware labels plus the solver's markdown report. On Windows,
-`APPS/PANDEATOR_APP/RUN_PANDEATOR_WINDOWS.cmd` launches the server (and, if a
+`APPS/PANDEATOR_APP/Windows/PANDEATOR.cmd` launches the server (and, if a
 prebuilt sysimage is present, loads it for near-instant startup). See
 `APPS/PANDEATOR_APP/PANEL_APP_README.md` for the runbook.
 
@@ -290,7 +290,7 @@ prebuilt sysimage is present, loads it for near-instant startup). See
 
 The public command-line runner scripts are:
 
-- `jfem` / `jfem.cmd`: one-line wrappers (Linux/macOS and Windows) to analyze a
+- `APPS/JFEM-solver/{Linux,Mac}/jfem` and `APPS/JFEM-solver/Windows/jfem.cmd`: wrappers to analyze a
   single deck with good defaults and an optional `-letters` output-format
   string; they call `utils/julia_tools/jfem.jl`. This is the simplest entry point.
 - `utils/julia_tools/deploy_fast.jl`: preferred fast deployment and broad precompile workflow.

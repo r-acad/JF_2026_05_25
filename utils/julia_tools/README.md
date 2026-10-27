@@ -77,11 +77,12 @@ To add your own representative cases,
 run one of these from the repository root:
 
 ```powershell
-.\setup.cmd --deck 'C:\models\representative.bdf'
-.\setup.cmd --manifest 'C:\models\cases.json'
+& ".\__Start here!__\Windows\setup.cmd" --deck 'C:\models\representative.bdf'
+& ".\__Start here!__\Windows\setup.cmd" --manifest 'C:\models\cases.json'
 ```
 
-On Linux/macOS, use `bash setup.sh` with the same options. `--deck` is repeatable;
+On Linux/macOS, use `bash "__Start here!__/Linux/setup.sh"` or
+`bash "__Start here!__/Mac/setup.command"` with the same options. `--deck` is repeatable;
 `--flags` accepts workload `NAME=value` options. Setup verifies the resulting
 shared image before launchers use it. Workloads prepare compilation; they are
 separate from your analysis runs. New specializations may still compile.
@@ -265,122 +266,65 @@ The earlier assembly improvements remain active:
 
 ## Quickest Way To Run A Deck
 
-For everyday use there is a one-line wrapper that fills in Julia, the project,
-threads, and good default options for you. The solution sequence
-(SOL 101 / 103 / 105 / 106) is auto-detected from the deck.
+The command-line launchers live under `APPS/JFEM-solver/`, grouped by operating
+system. They select Julia, the shared project and the verified local image.
+The solution sequence is detected from the input deck.
 
-Windows:
+Examples from the repository root:
 
-```bat
-jfem  C:\models\my_model.bdf
+```powershell
+.\APPS\JFEM-solver\Windows\jfem.cmd C:\models\my_model.bdf
+.\APPS\JFEM-solver\Windows\jfem.cmd C:\models\supported_modes.inp.gz C:\results\modes
 ```
-
-Linux/macOS (make it executable once with `chmod +x jfem`):
 
 ```bash
-./jfem  ~/models/my_model.bdf
+bash APPS/JFEM-solver/Linux/jfem ~/models/my_model.bdf
+bash APPS/JFEM-solver/Mac/jfem ~/models/my_model.bdf
 ```
 
-That writes the **viewer-ready set** -- the `.jfem` binary (opens in the POST 3D
-viewer), `REPORT.md`, and the results JSON -- into `<deck_dir>/<deckname>_out/`,
-right next to the input deck.
+An optional second argument selects the output folder. The default writes the
+viewer-ready `.jfem`, `REPORT.md` and results JSON beside the input in
+`<deckname>_out/`. Use the app's `JFEM-solver.cmd`, `.sh` or `.command` launcher
+for a file chooser instead; the shortcuts under `__Start here!__` point there.
 
 ### Run an Abaqus input
 
-The same wrapper detects supported `.inp` and gzip-compressed `.inp.gz` inputs:
-
-```powershell
-.\jfem.cmd C:\models\supported_static.inp
-.\jfem.cmd C:\models\supported_modes.inp.gz C:\results\modes
-```
-
-On Linux/macOS, use `./jfem` with the corresponding paths. A complete supported
+The same CLI detects supported `.inp` and `.inp.gz` files. A complete supported
 `*STATIC` step selects SOL101; an unprestressed `*FREQUENCY` step selects SOL103.
-The current reader accepts flat meshes, isotropic materials and the documented
-solid/shell subset. Unsupported mechanics or missing material, sections or
-analysis steps produce an explicit error; the CLI does not choose substitute
-physics. For a mesh-only solid input, use Boxer's explicit setup or author the
-required source definitions first. See the
-[Boxer Abaqus workflow and limitations](../../APPS/JFEM-Boxer/README.md#read-an-abaqus-input).
-Input values keep their source unit system; no conversion is applied.
+Unsupported mechanics or missing model definitions produce an explicit error.
+For a mesh-only solid input, use Boxer's explicit setup or provide the required
+materials, sections and analysis data first. See the
+[Boxer Abaqus workflow](../../APPS/JFEM-Boxer/README.md#read-an-abaqus-input).
+Input values retain their original units.
 
-For programmatic mesh inspection, the same shared package exposes:
+For programmatic inspection:
 
 ```julia
 using OpenJFEM
 source = OpenJFEM.abaqus_read_input("mesh.inp.gz"; strict=false)
-source["inventory"]                         # nodes, element types, sets, unused nodes
+source["inventory"]
 model = OpenJFEM.abaqus_to_model(source; require_analysis=false)
-model["abaqus_import"]["analysis_ready"]      # false for an incomplete/unsupported analysis
+model["abaqus_import"]["analysis_ready"]
 ```
 
-`strict=false` retains recognized unsupported features as diagnostics; malformed
-coordinates/connectivity still fail. `require_analysis=false` enables inspection
-of an incomplete model, whose readiness flag continues to block solving. It
-retains unassigned property IDs and diagnostics without creating materials. Normal conversion/execution requires a supported analysis.
-The APIs read [Abaqus input syntax](https://docs.software.vt.edu/abaqusv2025/English/SIMACAEMODRefMap/simamod-c-node.htm);
-meshes such as [JuliaFEM/FEModels](https://github.com/JuliaFEM/FEModels) may need
-explicit materials and boundary conditions before they are runnable.
+`strict=false` retains recognized unsupported features as diagnostics;
+malformed geometry still fails. `require_analysis=false` permits inspection
+but does not make an incomplete model runnable.
 
-### How to invoke it (important): `jfem` vs `.\jfem` / `./jfem`
+### Invoke the CLI from another directory
 
-By design, **shells do not run a program from the current directory by typing
-its bare name** -- the directory must be on your `PATH` first. This is true on
-Windows PowerShell, Linux, and macOS alike. So if you `cd` into the repo and
-type `jfem ...`, you will get *"jfem is not recognized"* (Windows) or
-*"command not found"* (Linux/macOS) until you do one of the following.
-
-**Option A -- run it from the repo folder with a path prefix (no setup):**
-
-```powershell
-# Windows PowerShell (runs jfem.cmd):
-.\jfem  .\my_model.bdf
-```
+Use the full launcher path, add `APPS/JFEM-solver/Windows` (Windows) or
+`APPS/JFEM-solver/Linux` / `Mac` to PATH, or symlink the Unix launcher:
 
 ```bash
-# Linux/macOS (runs the jfem bash script):
-./jfem  ./my_model.bdf
+ln -s "/path/to/JFEM/APPS/JFEM-solver/Linux/jfem" ~/.local/bin/jfem
 ```
 
-**Option B -- call `jfem` from anywhere (one-time setup):** add the repository
-root to your `PATH`.
-
-```powershell
-# Windows PowerShell - add to your USER PATH (persists; reopen the terminal):
-[Environment]::SetEnvironmentVariable(
-  "Path",
-  [Environment]::GetEnvironmentVariable("Path","User") + ";C:\path\to\JFEM",
-  "User")
-```
-
-```bash
-# Linux/macOS - add to PATH in ~/.bashrc or ~/.zshrc:
-echo 'export PATH="$PATH:/path/to/JFEM"' >> ~/.bashrc
-# ...or symlink the script into a directory already on PATH (common idiom):
-ln -s "/path/to/JFEM/jfem" ~/.local/bin/jfem
-```
-
-After Option B, plain `jfem my_model.bdf` works from any directory.
-
-**Linux/macOS only -- the execute bit.** The `jfem` script must be executable.
-A fresh `git clone` preserves this, but if it was lost run once:
-
-```bash
-chmod +x jfem
-```
-
-> The repo ships two launcher files: `jfem.cmd` (Windows) and `jfem` (the bash
-> script for Linux/macOS). On Windows, `.\jfem` resolves to `jfem.cmd`
-> automatically. The sysimage is platform-specific -- `jfem.cmd` looks for
-> `sysimage\OpenJFEM_sysimage.dll`, while `jfem` looks for
-> `sysimage/OpenJFEM_sysimage.so` (Linux) or `.dylib` (macOS); build it on each
-> machine with the sysimage helper.
-
-Give a second argument to choose the output folder:
-
-```bat
-jfem  C:\models\my_model.bdf  D:\jfem_runs\run1
-```
+Use `Mac` instead of `Linux` for a macOS checkout. Unix launchers follow
+symlinks to find the shared repository. A Git clone preserves executable bits;
+a ZIP extraction may require `chmod +x` on the selected launcher. After adding
+the OS folder to PATH, `jfem model.bdf` works from any current directory.
+Images remain platform-specific and must be built on the destination machine.
 
 ### Choosing which output files to write
 
@@ -501,8 +445,8 @@ jfem  -jrsvh    model.bdf  out       :: viewer + report + JSON + VTK + HDF5
 ```
 
 ```bash
-./jfem  -rs     model.bdf            # only the report and results JSON
-./jfem  -jrsvh  model.bdf  out       # viewer + report + JSON + VTK + HDF5
+bash APPS/JFEM-solver/Linux/jfem  -rs     model.bdf            # only the report and results JSON
+bash APPS/JFEM-solver/Linux/jfem  -jrsvh  model.bdf  out       # viewer + report + JSON + VTK + HDF5
 ```
 
 A `run_manifest.json` recording the exact inputs and flags is always written.
@@ -514,8 +458,8 @@ directory.)
 ### Rebuild The Local Sysimage
 
 Normal setup builds the shared image automatically. After changing Julia, source,
-dependencies or recorded workloads, rerun `setup.cmd` on Windows or
-`bash setup.sh` on Linux/macOS. Standard launchers validate the receipt and
+dependencies or recorded workloads, rerun the setup launcher in your
+`__Start here!__` operating-system folder. Standard launchers validate the receipt and
 fall back to source loading when it is absent or stale. See the
 [installation guides](../README.md) for repair and offline preparation.
 
@@ -945,8 +889,7 @@ python '.\utils\python_client\jfem_manifest_cli.py' make --input-dir C:\models -
 
 The fastest commands above skip `.jfem` export. When you need interactive
 visual inspection, enable binary export for that run and launch
-`Results-viewer.cmd` on Windows or `bash Results-viewer.sh` on Linux/macOS from
-the repository root. The launcher starts a small local browser-asset server so
+the Results-viewer entry in `APPS/JFEM_results_viewer/Windows`, `Linux` or `Mac`. The launcher starts a small local browser-asset server so
 the viewer can use WebGPU; it does not load or run the FE solver. Keep its
 console open while using the viewer, then press Ctrl+C to stop it.
 

@@ -2,7 +2,9 @@ using Test,JSON
 using WingFEGen;const W=WingFEGen
 function fake_repo(path)
     mkpath(joinpath(path,"src"));write(joinpath(path,"src","OpenJFEM.jl"),"# discovery fixture\n")
-    write(joinpath(path,Sys.iswindows() ? "jfem.cmd" : "jfem"),"# discovery fixture\n")
+    platform=Sys.iswindows() ? "Windows" : Sys.isapple() ? "Mac" : "Linux"
+    launchers=joinpath(path,"APPS","JFEM-solver",platform);mkpath(launchers)
+    write(joinpath(launchers,Sys.iswindows() ? "jfem.cmd" : "jfem"),"# discovery fixture\n")
     path
 end
 tests=@testset "Portable checkout discovery and defaults" begin
@@ -12,7 +14,11 @@ tests=@testset "Portable checkout discovery and defaults" begin
         @test W.WingFEGenBootstrap.locate_solver(app;hint="")==repo
         @test samefile(first(W.find_jfem(app;hint="../..",environment=Dict())),repo)
         launcher=last(W.find_jfem(app;environment=Dict()))
+        @test occursin(joinpath("APPS","JFEM-solver"),launcher)
         @test first(W.find_jfem(app;hint=launcher,environment=Dict()))==repo
+        retired=joinpath(repo,Sys.iswindows() ? "jfem.cmd" : "jfem")
+        @test !isfile(retired)
+        @test W.find_jfem(app;hint=retired,environment=Dict())==(repo,launcher)
         other=fake_repo(joinpath(root,"External solver"))
         @test first(W.find_jfem(app;environment=Dict("WINGFEGEN_JFEM"=>other)))==repo
         @test W.WingFEGenBootstrap.locate_solver(app;hint=other)==repo

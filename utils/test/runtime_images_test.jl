@@ -80,26 +80,28 @@ end
             for file in ("runtime_images.jl","sysimage_provenance.jl","launch.jl")
                 cp(joinpath(repo,"utils","julia_tools",file),joinpath(target,file))
             end
-            cp(joinpath(repo,"jfem.cmd"),joinpath(root,"jfem.cmd"))
+            solver=joinpath(root,"APPS","JFEM-solver","Windows");mkpath(solver)
+            cp(joinpath(repo,"APPS","JFEM-solver","Windows","jfem.cmd"),joinpath(solver,"jfem.cmd"))
             write(joinpath(target,"jfem.jl"),"println(\"CAPTURE:\",join(ARGS,\"|\"));exit(7)\n")
             deck=joinpath(root,"model ! with spaces.bdf")
-            script=joinpath(root,"jfem.cmd")
+            script=joinpath(solver,"jfem.cmd")
             body="\"\""*script*"\" \""*deck*"\"\""
             command=Cmd(Cmd(["cmd.exe","/d","/v:off","/s","/c",body]);windows_verbatim=true)
             io=IOBuffer()
             result=run(pipeline(ignorestatus(addenv(command,"JFEM_JULIA"=>RuntimeImages.bare_julia(),"JFEM_NO_SYSIMAGE"=>"1"));stdout=io,stderr=io))
             @test result.exitcode==7
             @test occursin("CAPTURE:"*deck,String(take!(io)))
-            cp(joinpath(repo,"JFEM-solver.cmd"),joinpath(root,"JFEM-solver.cmd"))
+            cp(joinpath(repo,"APPS","JFEM-solver","Windows","JFEM-solver.cmd"),joinpath(solver,"JFEM-solver.cmd"))
             oneclick=replace(body,"jfem.cmd"=>"JFEM-solver.cmd")
             command=Cmd(Cmd(["cmd.exe","/d","/v:off","/s","/c",oneclick]);windows_verbatim=true)
             result=run(pipeline(ignorestatus(addenv(command,"JFEM_JULIA"=>RuntimeImages.bare_julia(),"JFEM_NO_SYSIMAGE"=>"1","OPENJFEM_NO_PAUSE"=>"1"));stdout=io,stderr=io))
             @test result.exitcode==7
             @test occursin("CAPTURE:"*deck,String(take!(io)))
             app=joinpath(root,"APPS","JFEM-Boxer");mkpath(app)
-            cp(joinpath(repo,"JFEM-Boxer.cmd"),joinpath(root,"JFEM-Boxer.cmd"))
+            mkpath(joinpath(app,"Windows"))
+            cp(joinpath(repo,"APPS","JFEM-Boxer","Windows","JFEM-Boxer.cmd"),joinpath(app,"Windows","JFEM-Boxer.cmd"))
             write(joinpath(app,"JFEM-Boxer.jl"),"println(\"BOXER:\",join(ARGS,\"|\"));exit(7)\n")
-            boxer=replace(body,"jfem.cmd"=>"JFEM-Boxer.cmd")
+            boxer=replace(body,script=>joinpath(app,"Windows","JFEM-Boxer.cmd"))
             command=Cmd(Cmd(["cmd.exe","/d","/v:off","/s","/c",boxer]);windows_verbatim=true)
             result=run(pipeline(ignorestatus(addenv(command,"JFEM_JULIA"=>RuntimeImages.bare_julia(),"WINGFEGEN_JULIA"=>RuntimeImages.bare_julia(),"OPENJFEM_NO_PAUSE"=>"1"));stdout=io,stderr=io))
             @test result.exitcode==7

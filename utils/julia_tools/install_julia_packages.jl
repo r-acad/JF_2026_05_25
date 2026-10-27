@@ -275,7 +275,7 @@ function main(args=ARGS)
     if options[:verify] && options[:selection]!=:wingfegen
         println("[PANDEATOR] Verifying server and browser routes without a warm-up solve...");flush(stdout)
         run(verification_command("PANDEATOR",repo))
-        println("[Results viewer] Bundled browser assets verified; launch Results-viewer.cmd (Windows) or Results-viewer.sh (Linux/macOS).")
+        println("[Results viewer] Bundled browser assets verified; use APPS/JFEM_results_viewer/Windows, Linux or Mac.")
     end
     println("\nApplication dependency setup complete.")
     if options[:sysimage]!==nothing
@@ -288,9 +288,9 @@ function main(args=ARGS)
             return 2
         end
     end
-    println("Start JFEM-Boxer: JFEM-Boxer.cmd (Windows) or bash JFEM-Boxer.sh (macOS/Linux).")
-    println("Solve a deck: jfem.cmd model.bdf (Windows) or bash jfem model.bdf (macOS/Linux).")
-    println("Start PANDEATOR: APPS/PANDEATOR_APP/RUN_PANDEATOR_WINDOWS.cmd or bash APPS/PANDEATOR_APP/RUN_PANDEATOR_MAC_LINUX.sh.")
+    println("Start JFEM-Boxer: choose the launcher in APPS/JFEM-Boxer/Windows, Linux or Mac.")
+    println("Solve a deck: APPS/JFEM-solver/Windows/jfem.cmd model.bdf, or bash APPS/JFEM-solver/Linux/jfem model.bdf (Mac: use Mac/jfem).")
+    println("Start PANDEATOR: choose the launcher in APPS/PANDEATOR_APP/Windows, Linux or Mac.")
     return 0
 end
 end

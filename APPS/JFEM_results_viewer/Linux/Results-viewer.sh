@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 set -eu
-root=$(CDPATH= cd "$(dirname "$0")" && pwd)
+root=$(CDPATH= cd "$(dirname "$0")/../../.." && pwd)
 julia_bin=${JFEM_JULIA:-julia}
 if command -v "$julia_bin" >/dev/null 2>&1; then
     echo "Starting the results viewer. Keep this terminal open; Ctrl+C stops it."

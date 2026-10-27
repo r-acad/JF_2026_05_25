@@ -26,7 +26,7 @@ Double-click a launcher in this Windows folder:
 | **Results-viewer.cmd** | Existing `.jfem` results through a lightweight local server; WebGPU preferred. |
 | **JFEM-solver.cmd** | A deck chooser. Dropping a `.bdf`, `.dat` or `.nas` file also works. |
 
-The same filenames in the repository root remain valid shortcuts. Keep the
+The app-owned launchers are also available in `APPS/<app>/Windows/`. Keep the
 Boxer/PANDEATOR/results-viewer console open while using its browser page. Close the app or
 press **Ctrl+C** in that console when finished.
 

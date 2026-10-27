@@ -1,50 +1,81 @@
 using Test
 
-@testset "OS launcher forwarding preserves paths, arguments and exit status" begin
-    repo=normpath(joinpath(@__DIR__,"..", ".."))
-    names=("setup","JFEM-Boxer","PANDEATOR","Results-viewer","JFEM-solver")
+@testset "Application launchers preserve checkout paths, arguments and exits" begin
+    repo=normpath(joinpath(@__DIR__,"..",".."))
+    apps=Dict("JFEM-Boxer"=>"JFEM-Boxer","PANDEATOR"=>"PANDEATOR_APP",
+              "Results-viewer"=>"JFEM_results_viewer","JFEM-solver"=>"JFEM-solver")
     shell=get(ENV,"JFEM_TEST_BASH",Sys.iswindows() ? "" : something(Sys.which("bash"),""))
+    julia=joinpath(Sys.BINDIR,Sys.iswindows() ? "julia.exe" : "julia")
+    @test !any(name->any(ext->endswith(name,ext),(".cmd",".sh",".command")),readdir(repo))
+    @test !isfile(joinpath(repo,"jfem"))
     mktempdir() do temp
         root=joinpath(temp,"Checkout with spaces ! (fixture)");mkpath(root)
-        argument="model with spaces !.bdf"
-        for system in ("Windows","Linux","Mac")
-            suffix=system=="Windows" ? ".cmd" : system=="Mac" ? ".command" : ".sh"
-            folder=joinpath(root,"__Start here!__",system);mkpath(folder)
-            for name in names
-                source=joinpath(repo,"__Start here!__",system,name*suffix)
-                @test isfile(source)
-                script=joinpath(folder,name*suffix);cp(source,script)
-                if system=="Windows" && Sys.iswindows()
-                    # Parent/root target is a test double, so no installation/app runs.
-                    write(joinpath(root,name*".cmd"),"@echo off\nsetlocal DisableDelayedExpansion\necho TARGET:$name\necho ARG:%~1\nexit /b 7\n")
-                    body="\"\""*script*"\" \""*argument*"\"\""
-                    command=Cmd(Cmd(["cmd.exe","/d","/v:off","/s","/c",body]);windows_verbatim=true)
-                    io=IOBuffer()
-                    result=run(pipeline(ignorestatus(addenv(command,"OPENJFEM_NO_PAUSE"=>"1"));stdout=io,stderr=io))
-                    output=String(take!(io))
-                    @test result.exitcode==7
-                    @test occursin("TARGET:"*name,output)
-                    @test occursin("ARG:"*argument,output)
-                elseif system!="Windows" && !isempty(shell)
-                    write(joinpath(root,name*".sh"),"#!/usr/bin/env bash\nprintf '%s\\n' 'TARGET:$name' \"ARG:\$1\"\nexit 7\n")
-                    io=IOBuffer()
-                    command=Cmd([shell,replace(script,'\\'=>'/'),argument])
-                    result=run(pipeline(ignorestatus(addenv(command,"OPENJFEM_NO_PAUSE"=>"1"));stdout=io,stderr=io))
-                    output=String(take!(io))
-                    @test result.exitcode==7
-                    @test occursin("TARGET:"*name,output)
-                    @test occursin("ARG:"*argument,output)
-                end
+        away=joinpath(temp,"unrelated working directory");mkpath(away)
+        # Copy only entry scripts and the real image-aware launcher, never the
+        # applications. Tiny Julia targets stop before any installation or solve.
+        for app in values(apps), system in ("Windows","Linux","Mac")
+            source=joinpath(repo,"APPS",app,system)
+            @test isdir(source)
+            destination=joinpath(root,"APPS",app,system);mkpath(destination)
+            for name in readdir(source)
+                isfile(joinpath(source,name)) && cp(joinpath(source,name),joinpath(destination,name))
             end
         end
-        if !isempty(shell)
-            # The root Finder shortcut follows the same shared-root shell entry.
-            script=joinpath(root,"JFEM-Boxer.command")
-            cp(joinpath(repo,"JFEM-Boxer.command"),script)
+        for system in ("Windows","Linux","Mac")
+            destination=joinpath(root,"__Start here!__",system);mkpath(destination)
+            for name in readdir(joinpath(repo,"__Start here!__",system))
+                any(ext->endswith(name,ext),(".cmd",".sh",".command")) || continue
+                cp(joinpath(repo,"__Start here!__",system,name),joinpath(destination,name))
+            end
+        end
+        target=joinpath(root,"utils","julia_tools");mkpath(target)
+        for name in ("runtime_images.jl","sysimage_provenance.jl","launch.jl")
+            cp(joinpath(repo,"utils","julia_tools",name),joinpath(target,name))
+        end
+        write(joinpath(root,"Project.toml"),"[deps]\n")
+        function capture(path,name;check_project=true)
+            mkpath(dirname(path))
+            write(path,"println(\"TARGET:$name\"); println(\"ARGS:\",join(ARGS,\"|\")); "*
+                  (check_project ? "println(\"PROJECT:\",normpath(Base.active_project())); " : "")*"exit(7)\n")
+        end
+        capture(joinpath(target,"install_julia_packages.jl"),"setup")
+        capture(joinpath(target,"jfem.jl"),"JFEM-solver")
+        capture(joinpath(target,"serve_results_viewer.jl"),"Results-viewer")
+        capture(joinpath(root,"APPS","JFEM-Boxer","JFEM-Boxer.jl"),"JFEM-Boxer")
+        capture(joinpath(root,"APPS","JFEM-Boxer","setup.jl"),"boxer-setup";check_project=false)
+        capture(joinpath(root,"APPS","PANDEATOR_APP","panel_launch.jl"),"PANDEATOR")
+        arguments=["model with spaces !.bdf","output with spaces !","--fixture=value"]
+        function exercise(script,system,target;check_project=true)
+            if system=="Windows"
+                Sys.iswindows() || return
+                body="\"\""*script*"\" "*join(["\""*a*"\"" for a in arguments]," ")*"\""
+                command=Cmd(Cmd(["cmd.exe","/d","/v:off","/s","/c",body]);windows_verbatim=true,dir=away)
+            else
+                isempty(shell) && return
+                command=Cmd(Cmd([shell,replace(script,'\\'=>'/'),arguments...]);dir=away)
+            end
+            executable=system=="Windows" ? julia : replace(julia,'\\'=>'/')
             io=IOBuffer()
-            result=run(pipeline(ignorestatus(Cmd([shell,replace(script,'\\'=>'/'),argument]));stdout=io,stderr=io))
+            result=run(pipeline(ignorestatus(addenv(command,"JFEM_JULIA"=>executable,
+                "WINGFEGEN_JULIA"=>executable,"OPENJFEM_NO_PAUSE"=>"1","JFEM_NO_SYSIMAGE"=>"1"));stdout=io,stderr=io))
+            output=String(take!(io))
             @test result.exitcode==7
-            @test occursin("TARGET:JFEM-Boxer",String(take!(io)))
+            @test occursin("TARGET:"*target,output)
+            @test occursin("ARGS:"*join(arguments,"|"),output)
+            if check_project
+                @test occursin("PROJECT:"*normpath(joinpath(root,"Project.toml")),output)
+            end
+        end
+        for system in ("Windows","Linux","Mac")
+            suffix=system=="Windows" ? ".cmd" : system=="Mac" ? ".command" : ".sh"
+            for (name,app) in apps
+                exercise(joinpath(root,"APPS",app,system,name*suffix),system,name)
+                exercise(joinpath(root,"__Start here!__",system,name*suffix),system,name)
+            end
+            exercise(joinpath(root,"__Start here!__",system,"setup"*suffix),system,"setup")
+            exercise(joinpath(root,"APPS","JFEM-Boxer",system,"setup"*suffix),system,"boxer-setup";check_project=false)
+            cli=system=="Windows" ? "jfem.cmd" : "jfem"
+            exercise(joinpath(root,"APPS","JFEM-solver",system,cli),system,"JFEM-solver")
         end
     end
 end

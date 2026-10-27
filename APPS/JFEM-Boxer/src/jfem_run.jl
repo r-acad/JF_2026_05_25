@@ -26,6 +26,16 @@
 
 # --- locating the solver ---------------------------------------------------
 
+function jfem_launcher_paths(repo::AbstractString)
+    platform = Sys.iswindows() ? "Windows" : Sys.isapple() ? "Mac" : "Linux"
+    name = Sys.iswindows() ? "jfem.cmd" : "jfem"
+    # Accept old checkout layouts when reading saved settings, while preferring
+    # the application-owned launcher in current checkouts.
+    legacy = Sys.iswindows() ? ("jfem.cmd", "jfem.bat", "jfem") : ("jfem",)
+    return vcat([joinpath(repo, "APPS", "JFEM-solver", platform, name)],
+                [joinpath(repo, n) for n in legacy])
+end
+
 """
     jfem_launcher(repo) -> Union{String,Nothing}
 
@@ -35,9 +45,7 @@ does not look like one.
 function jfem_launcher(repo::AbstractString)
     isdir(repo) || return nothing
     isfile(joinpath(repo, "src", "OpenJFEM.jl")) || return nothing
-    names = Sys.iswindows() ? ("jfem.cmd", "jfem.bat", "jfem") : ("jfem",)
-    for n in names
-        p = joinpath(repo, n)
+    for p in jfem_launcher_paths(repo)
         isfile(p) && return p
     end
     return nothing
@@ -59,12 +67,14 @@ function find_jfem(root::AbstractString; hint::AbstractString = "",environment=E
         expanded=expanduser(strip(hint))
         h = abspath(isabspath(expanded) ? expanded : joinpath(root,expanded))
         if isfile(h)                       # pointed straight at the launcher
-            l=jfem_launcher(dirname(h))
-            if l!==nothing&&basename(h) in ("jfem","jfem.cmd","jfem.bat")
-                realpath(dirname(h))==realpath(canonical)||throw(ArgumentError("All applications use the enclosing JFEM repository: $canonical. Clear the foreign jfem.repo / jfem.path setting."))
+            if any(p -> isfile(p) && samefile(h,p), jfem_launcher_paths(canonical))
                 return (canonical,h)
             end
             throw(ArgumentError("jfem.repo / jfem.path must identify the JFEM repository or its launcher: $h"))
+        end
+        # An older Study may still name the now-retired root launcher.
+        if any(p -> normpath(h)==normpath(p), jfem_launcher_paths(canonical)[2:end])
+            return (canonical,canonical_launcher)
         end
         l = jfem_launcher(h)
         if l!==nothing

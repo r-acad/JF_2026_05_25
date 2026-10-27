@@ -5,6 +5,15 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Application launchers
+
+- Move application launchers into Windows, Linux and Mac folders within each
+  app, including a launcher-only JFEM-solver folder. Remove repository-root
+  launchers and keep the onboarding shortcuts pointed at the app folders.
+- Keep setup in the operating-system folders under `__Start here!__`, update
+  launch instructions and preserve Boxer solver discovery for saved Studies
+  that refer to the retired root command.
+
 ### Eigenvalue extraction and comparison
 
 - Make the fallback modal mass-participation floor homogeneous under common

@@ -41,8 +41,8 @@ uses the same local libraries.
 | `panel_app.html`  | The browser app: *Analysis source* toggle (build panel vs. run a deck), parameter form, cylindrical mesh + BDF generator (comma free-field), msgpack client, Babylon.js viewer (`parseJFEM`, v3/v4/v5). |
 | `panel_server.jl` | Pure-Julia **msgpack-over-HTTP** server. Serves the app, runs a deck through OpenJFEM in-process, and is **SOL-agnostic** — it detects the SOL from the deck and returns `sol`, `analysis_type`, eigenvalues, frequencies, the report text, and the `.jfem` bytes. Uses `HTTP.jl` + `MsgPack.jl`. |
 | `panel_launch.jl` | Cross-platform launcher: starts the server **and** opens the browser. |
-| `RUN_PANDEATOR_WINDOWS.cmd`   | Windows double-click launcher (calls `panel_launch.jl`). Honors `JFEM_JULIA` and loads the standard solver image only after its provenance receipt passes. |
-| `RUN_PANDEATOR_MAC_LINUX.sh`    | macOS/Linux launcher (`chmod +x` then run). Honors `JFEM_JULIA` and loads the standard solver image only after its provenance receipt passes. |
+| `Windows/PANDEATOR.cmd`   | Windows double-click launcher (calls `panel_launch.jl`). Honors `JFEM_JULIA` and loads the standard solver image only after its provenance receipt passes. |
+| `Linux/PANDEATOR.sh` / `Mac/PANDEATOR.command`    | macOS/Linux launcher (`chmod +x` then run). Honors `JFEM_JULIA` and loads the standard solver image only after its provenance receipt passes. |
 | `vendor/`         | Local copies of the front-end libraries (`babylon.js` minified, `msgpack.min.js`) so the app loads fast and works fully offline — no CDN needed. The server serves these at `/vendor/...`. |
 | `PANEL_APP_README.md` | This runbook. |
 
@@ -52,15 +52,15 @@ required at runtime).
 
 ## Installation and launch
 
-From the repository root, run `setup.cmd` on Windows or `bash setup.sh` on
-macOS/Linux. This is the shared installer for JFEM, JFEM-Boxer, PANDEATOR and the
+Use the setup launcher for your operating system under `__Start here!__`. This is the shared installer for JFEM, JFEM-Boxer, PANDEATOR and the
 static viewer; no manual package list is needed. PANDEATOR uses the root JFEM
 environment. Missing package sources are also installed before first launch;
 explicit setup repairs missing artifacts. See
 [the installation guide](<../../__Start here!__/README.md>).
 
-- **Windows:** double-click `RUN_PANDEATOR_WINDOWS.cmd`.
-- **macOS/Linux:** run `bash APPS/PANDEATOR_APP/RUN_PANDEATOR_MAC_LINUX.sh` from the repository root.
+- **Windows:** double-click `Windows/PANDEATOR.cmd`.
+- **Linux:** run `bash Linux/PANDEATOR.sh` from this app folder.
+- **macOS:** open `Mac/PANDEATOR.command`.
 
 The launcher uses `JFEM_JULIA` when set, otherwise `julia` on `PATH`. The
 checkout's recorded Julia release line is checked before package installation.
@@ -71,9 +71,8 @@ choose another port or `--no-open` to open the browser yourself.
 
 ### Optional sysimage through the same setup
 
-From the repository root run `setup.cmd --sysimage` or
-`bash setup.sh --sysimage`. Add `--dry-run` to inspect the plan without building.
-The historical CLICK/RUN installation scripts delegate to this same command.
+Pass `--sysimage` to the setup launcher in your `__Start here!__` operating-system
+folder. Add `--dry-run` to inspect the plan without building.
 
 PANDEATOR's launchers automatically use the standard local image only when
 its provenance receipt matches the Julia runtime, source and trained workload.

@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
-set -u
+set -eu
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
-exec bash "$root/Results-viewer.sh" "$@"
+exec bash "$root/APPS/JFEM_results_viewer/Mac/Results-viewer.command" "$@"

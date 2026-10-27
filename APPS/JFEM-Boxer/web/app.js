@@ -3775,8 +3775,8 @@ async function probeJfem() {
     if (j.found) {
       log("JFEM solver found at " + j.repo, "good");
     } else {
-      log("The integrated JFEM installation is incomplete. Run setup.cmd (Windows) " +
-          "or bash setup.sh from the repository root, then reopen JFEM-Boxer.", "warn");
+      log("The integrated JFEM installation is incomplete. Run the setup launcher " +
+          "for your OS in __Start here!__, then reopen JFEM-Boxer.", "warn");
     }
     return j.found;
   } catch (e) {

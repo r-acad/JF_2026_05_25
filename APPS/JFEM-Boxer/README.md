@@ -2,8 +2,8 @@
 
 This folder (`APPS/JFEM-Boxer`) is the authoritative application source.
 Develop and run Boxer here, using the repository root Julia project and shared
-sysimage. On Windows, double-click `JFEM-Boxer.cmd` here or at the repository
-root. No separate generator checkout or source synchronization is required.
+sysimage. Launch from `Windows/JFEM-Boxer.cmd`, `Linux/JFEM-Boxer.sh` or
+`Mac/JFEM-Boxer.command`. No separate generator checkout or source synchronization is required.
 
 JFEM-Boxer is the finite-element generator and browser interface included
 with OpenJFEM. It generates shell/bar lifting surfaces, aerodynamic lattices and
@@ -1025,8 +1025,8 @@ change can cross a pitch threshold and change the stringer count; the review
 shows both counts rather than treating this as an invalid geometry. No local
 assignments are discarded automatically.
 
-On Windows, double-click **JFEM-Boxer.cmd** in `__Start here!__/Windows`, at the
-repository root, or in this app folder. Setup builds the shared JFEM/app sysimage automatically; the launcher checks
+On Windows, double-click **JFEM-Boxer.cmd** in `__Start here!__/Windows` or
+`APPS/JFEM-Boxer/Windows`. Setup builds the shared JFEM/app sysimage automatically; the launcher checks
 and loads it. The Julia entry point is **JFEM-Boxer.jl**. Existing `.wingfem.json`
 studies and internal parameter keys remain readable.
 
@@ -1321,8 +1321,8 @@ julia APPS/JFEM-Boxer/setup.jl
 julia --project=. APPS/JFEM-Boxer/JFEM-Boxer.jl
 ```
 
-`APPS/JFEM-Boxer/setup.jl` delegates to the same unified installer as the repository-root
-`setup.cmd` (Windows) or `bash setup.sh` (macOS/Linux). The installer prepares
+`APPS/JFEM-Boxer/setup.jl` delegates to the same unified installer as the setup
+launchers under `__Start here!__/Windows`, `Linux` and `Mac`. The installer prepares
 one root environment and verifies JFEM, JFEM-Boxer, PANDEATOR and the static viewer.
 The shared sysimage is built automatically as part of setup. The first setup can
 take several minutes while Julia downloads and compiles packages. All apps use
@@ -1332,10 +1332,11 @@ The app opens a browser at `http://127.0.0.1:8080`. If the browser does not open
 visit that address manually. It is a local desktop web app, not a hosted service.
 Keep its terminal open while using it. Stop the server with Ctrl+C in that terminal.
 
-Alternatively, run the launchers in this directory:
+Alternatively, use this app's operating-system folders:
 
-- Windows: `setup.cmd`, followed by `JFEM-Boxer.cmd`.
-- Linux/macOS: `sh setup.sh`, followed by `sh run_fe_generator.sh`.
+- Windows: `Windows/setup.cmd`, then `Windows/JFEM-Boxer.cmd`.
+- Linux: `sh Linux/setup.sh`, then `sh Linux/JFEM-Boxer.sh`.
+- macOS: `Mac/setup.command`, then `Mac/JFEM-Boxer.command`.
 
 The repository may be cloned to a different folder name, including a path with
 spaces. JFEM-Boxer uses the enclosing OpenJFEM source and the repository root

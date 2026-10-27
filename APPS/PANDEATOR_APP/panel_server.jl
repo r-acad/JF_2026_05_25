@@ -559,7 +559,7 @@ function serve(; host="127.0.0.1", port=8088)
         if si["custom"]
             _log("  sysimage: YES ($(si["name"]))  -  fast startup active")
         else
-            _log("  sysimage: NO (default Julia image) - optional build: setup.cmd --sysimage or bash setup.sh --sysimage from the repository root")
+            _log("  sysimage: NO (default Julia image) - optional build: run the setup launcher for your OS in __Start here!__ with --sysimage")
         end
         _log("  threads:  $(Threads.nthreads())")
     end

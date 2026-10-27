@@ -39,8 +39,8 @@ function ensure_environment(project;io=stderr)
     missing=try missing_sources() catch; ["uninstalled project environment"] end
     isempty(missing) && return false
     if lowercase(get(ENV,"JFEM_AUTO_INSTALL","1")) in ("0","false","no","off")
-        error("Missing Julia packages: $(join(missing,", ")). Run setup.cmd (Windows), "*
-            "bash setup.sh (macOS/Linux), or the install_julia_packages.jl helper from the repository root.")
+        error("Missing Julia packages: $(join(missing,", ")). Run the setup launcher in "*
+            "__Start here!__/Windows, Linux or Mac, or the install_julia_packages.jl helper.")
     end
     println(io,"Installing missing Julia dependencies for ",project," (first launch; network access may be needed).")
     flush(io)
@@ -48,7 +48,7 @@ function ensure_environment(project;io=stderr)
         Pkg.instantiate(;allow_autoprecomp=false,io)
     catch failure
         error("Automatic package installation failed: $(sprint(showerror,failure)). "*
-            "Check network/proxy access and folder permissions, then rerun setup.cmd or bash setup.sh. "*
+            "Check network/proxy access and folder permissions, then rerun the setup launcher for your OS in __Start here!__. "*
             "Offline setup requires an already populated matching Julia depot.")
     end
     return true

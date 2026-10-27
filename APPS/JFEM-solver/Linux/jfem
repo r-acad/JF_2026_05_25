@@ -28,10 +28,10 @@ while [ -h "$SOURCE" ]; do
   SOURCE="$(readlink "$SOURCE")"
   [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
 done
-REPO_ROOT="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
+REPO_ROOT="$(cd -P "$(dirname "$SOURCE")/../../.." >/dev/null 2>&1 && pwd)"
 JULIA_BIN="${JFEM_JULIA:-julia}"
 if ! command -v "$JULIA_BIN" >/dev/null 2>&1; then
-  echo "Julia was not found. Install it from https://julialang.org/downloads/ and run bash setup.sh." >&2
+  echo "Julia was not found. Install it from https://julialang.org/downloads/ and run the setup launcher in __Start here!__ for your operating system." >&2
   exit 1
 fi
 

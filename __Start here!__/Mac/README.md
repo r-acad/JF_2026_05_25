@@ -31,7 +31,7 @@ Double-click a launcher in this Mac folder, or run it with `bash` in Terminal:
 | **JFEM-solver.command** | A deck chooser for standalone JFEM. |
 
 You can pass a deck directly: `bash JFEM-solver.command '/path/to/model.bdf'`.
-Root launchers remain available. Keep the Boxer/PANDEATOR/results-viewer Terminal open while
+The app-owned launchers are also available in `APPS/<app>/Mac/`. Keep the Boxer/PANDEATOR/results-viewer Terminal open while
 using the local browser app; press **Ctrl+C** there to stop it.
 The results-viewer server loads only browser assets, not the FE solver. If Julia
 is unavailable, the launcher opens the offline WebGL viewer directly. Opening

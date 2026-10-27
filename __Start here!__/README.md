@@ -10,8 +10,8 @@ application launchers and one guide covering installation, repair and offline us
 | macOS | [Mac/README.md](Mac/README.md) |
 
 Use the complete extracted repository in a writable location. All apps share
-the root Project/Manifest and one compiled image. The existing launchers in the
-repository root work too.
+the root Project/Manifest and one compiled image. These shortcuts forward to
+the `Windows/`, `Linux/` and `Mac/` launchers inside each [app folder](../APPS/README.md).
 
 After installation, Boxer, PANDEATOR and the results viewer run offline.
 Babylon.js and the browser libraries are included in the download; no CDN or
