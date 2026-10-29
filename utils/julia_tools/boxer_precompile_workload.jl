@@ -1,7 +1,10 @@
 # Executed in a temporary process by PackageCompiler, never in the user's study.
 using WingFEGen
 using Pkg
-Pkg.activate(normpath(joinpath(@__DIR__,"..",".."));io=devnull)
+# Prepared builds already selected a derived/cached graph. Activating the
+# checkout here would silently restore different dependency versions.
+isempty(strip(get(ENV,"JFEM_PACKAGE_ENV",""))) &&
+    Pkg.activate(normpath(joinpath(@__DIR__,"..",".."));io=devnull)
 Pkg.dependencies()
 let W=WingFEGen
     W.main(["--help"])

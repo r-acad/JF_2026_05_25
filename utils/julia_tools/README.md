@@ -2,26 +2,85 @@
 
 This reference covers solver flags, exports, batch manifests, Python integration
 and result interpretation. Run its commands from the **repository root** after
-following your [operating-system installation guide](../README.md).
-The helper files in this directory share that root Project/Manifest and sysimage.
+following your [operating-system installation guide](../README.md), or use the
+existing prepared-environment workflow below. The helpers share the source
+checkout and root sysimage; normal setup uses the root Project/Manifest.
+
+## Existing prepared package environments
 
 For an existing deployment prepared with different package versions, keep the
 solver checkout and package records separate. Set `JFEM_PACKAGE_ENV` to the
-directory containing the prepared `Project.toml` and `Manifest.toml`, and
-`JULIA_DEPOT_PATH` to its matching depot before launching the normal runner.
-The prepared environment is first on Julia's load path, followed by the source
-checkout and standard library. Its recorded dependency versions are used;
-the repository's package records are not rewritten. This opt-in mode checks
-existing sources and never installs, resolves or updates packages, even if
-automatic installation was enabled in another configuration. A different
-environment also disables the repository sysimage, whose compiled dependency
-versions may differ. Normal code loading/compilation still occurs.
+directory containing its prepared `Project.toml` and `Manifest.toml`, and
+`JULIA_DEPOT_PATH` to the matching depot before launching the normal runner:
 
-Having a package-name folder in a depot is insufficient: Julia selects the
-source tree recorded by the active manifest. Missing exact trees in the
-prepared environment produce an error listing the environment and depots.
-The prepared versions must support the current solver/application code;
-validate analyses when choosing a different dependency environment.
+```bash
+export JFEM_PACKAGE_ENV=/path/to/prepared/project
+export JULIA_DEPOT_PATH=/path/to/depot
+```
+
+The prepared environment is first on Julia's load path, followed by the source
+checkout and standard library. Normal launch checks existing sources without
+installing, resolving or updating packages, even if automatic installation
+was enabled elsewhere. Neither original Project/Manifest pair is rewritten.
+A package-name folder alone is insufficient: the exact source tree recorded
+by the prepared manifest must be cached. Missing trees produce an error
+listing the selected environment and depots. The prepared versions must
+support the current solver/application code; validate analyses when changing
+the dependency environment.
+
+### Build a shared image from existing caches
+
+For an already hydrated, disconnected Linux deployment, download the complete
+current repository on the connected computer and copy it to Linux. Keep the
+existing matching Linux Julia runtime, prepared project records and depot.
+This build-only path does not require running `setup.sh` again.
+`PackageCompiler` must already be in the prepared environment, and a native
+compiler (`gcc` or `clang`, or the compiler selected by `JULIA_CC`) must already
+be available on the target Linux machine.
+
+From the repository root, after exporting the two paths above:
+
+```bash
+julia --startup-file=no --threads=2 --project="$JFEM_PACKAGE_ENV" \
+  utils/julia_tools/build_prepared_sysimage.jl --check-only
+
+julia --startup-file=no --threads=2 --project="$JFEM_PACKAGE_ENV" \
+  utils/julia_tools/build_prepared_sysimage.jl
+```
+
+`--check-only` checks prerequisites without compiling an image. The builder
+checks cached package sources and platform artifacts, including lazy artifacts,
+and compiler availability. Missing inputs cause a diagnostic failure without
+starting downloads. It constructs separate build metadata under
+`sysimage/builds/` that combines the prepared dependency graph with the local
+OpenJFEM and Boxer packages. Both original Project/Manifest pairs stay intact.
+PackageCompiler's internal instantiate/precompile checks still run against
+this fully cached build environment; they do not replace the prepared graph
+or run a package-resolution step. Compiled caches can be created or refreshed.
+
+The default output on Linux is `sysimage/OpenJFEM_sysimage.so`, with its
+`.jfem.toml` compatibility receipt. The build uses a candidate image, runs a
+fresh-process import check, and publishes the image after successful checks.
+The receipt ties it to the source, selected prepared package records,
+preferences and Julia/runtime identity. A failed build does not make its
+candidate eligible for normal launch.
+
+The build command also accepts:
+
+| Option | Purpose |
+| --- | --- |
+| `--sysimage=/absolute/path/image.so` | Choose a different image output. |
+| `--deck /path/to/model.bdf` | Add a representative workload; repeatable. |
+| `--manifest /path/to/cases.json` | Add decks listed in a batch manifest. |
+| `--flags NAME=value,...` | Set workload flags. |
+
+Normal launchers select the default image only when its receipt matches the
+current source and package environment. Otherwise they fall back to source
+loading. Keep the two environment variables set when launching applications
+or workers. Rebuild after changing the source, prepared metadata/preferences,
+Julia runtime or installation location. Set `JFEM_NO_SYSIMAGE=1` to intentionally
+use source loading. The generated image and build metadata are local outputs;
+they are not included in a GitHub repository download.
 
 ## Comparing eigenvalues and modes
 

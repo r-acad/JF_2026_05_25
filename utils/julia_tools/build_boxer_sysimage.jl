@@ -6,3 +6,4 @@ empty!(ARGS);push!(ARGS,"--sysimage="*image)
 using Pkg
 Pkg.activate(repo;io=devnull)
 include("deploy_fast.jl")
+deploy_main()

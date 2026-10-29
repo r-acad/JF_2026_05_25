@@ -5,6 +5,19 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Offline sysimages with prepared package environments
+
+- Add a build-only shared-image command for already hydrated depots and
+  separate prepared Project/Manifest records. Check cached package sources,
+  platform artifacts and compiler availability before compilation; derive
+  local build metadata without replacing either original package graph.
+- Validate a candidate image in a fresh Julia process before publication.
+  Record the selected package environment and preferences in image provenance,
+  and permit automatic loading only when source, environment and runtime match.
+- Document Linux transfer, prerequisite checks and image building without
+  rerunning the package installer; keep generated images and site configuration
+  outside the public repository.
+
 ### Existing package environments
 
 - Add explicit `JFEM_PACKAGE_ENV` selection for already prepared package

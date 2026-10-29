@@ -209,60 +209,74 @@ function _maybe_build_sysimage(sysimage::AbstractString, decks::Vector{String}, 
     flush(stdout)
     repo_root = normpath(joinpath(@__DIR__, "..", ".."))
     source_before = JFEMSysimageProvenance.input_hashes(repo_root)
+    environment_before = JFEMSysimageProvenance.environment_identity(repo_root; environment=repo_root)
     workload_before = JFEMSysimageProvenance.workload_hashes(decks, flags)
     Base.invokelatest(getfield(packagecompiler, :create_sysimage), pkgs;
         sysimage_path=sysimage,
         precompile_execution_file=script)
-    receipt = JFEMSysimageProvenance.write_sidecar(repo_root, sysimage, source_before, workload_before)
+    receipt = JFEMSysimageProvenance.write_sidecar(repo_root, sysimage, source_before, workload_before;
+        environment=repo_root, environment_before)
     println("Sysimage provenance: $receipt")
     println("Sysimage complete: $sysimage")
     return sysimage
 end
 
-decks, flags, sysimage, install_packagecompiler = _parse_args(ARGS)
-isempty(decks) && error("no precompile decks found")
+function deploy_main(args=ARGS)
+    repo_root = normpath(joinpath(@__DIR__, "..", ".."))
+    selected = JFEMSysimageProvenance.environment_directory(repo_root,nothing)
+    selected == realpath(repo_root) || error("For an existing prepared package environment, use build_prepared_sysimage.jl (JFEM_BUILD_SYSIMAGE); ordinary deployment uses the repository environment.")
+    active = Base.active_project()
+    active !== nothing && realpath(dirname(active)) == realpath(repo_root) ||
+        error("Run ordinary deployment with --project pointing to the repository, or use build_prepared_sysimage.jl for a prepared environment.")
+    decks, flags, sysimage, install_packagecompiler = _parse_args(args)
+    isempty(decks) && error("no precompile decks found")
 
-println("OpenJFEM fast deployment")
-println("  decks:   $(length(decks))")
-for deck in decks
-    println("    - ", deck)
-end
-println("  flags:   ", flags)
-println("  threads: ", Threads.nthreads())
-println()
+    println("OpenJFEM fast deployment")
+    println("  decks:   $(length(decks))")
+    for deck in decks
+        println("    - ", deck)
+    end
+    println("  flags:   ", flags)
+    println("  threads: ", Threads.nthreads())
+    println()
 
-old_env = Dict{String,Union{Nothing,String}}()
-try
-    _setenv_preserving!(old_env, "JFEM_PRECOMPILE_WORKLOAD", "true")
-    _setenv_preserving!(old_env, "JFEM_PRECOMPILE_BDF", join(decks, ";"))
-    _setenv_preserving!(old_env, "JFEM_PRECOMPILE_FLAGS", flags)
-    _setenv_preserving!(old_env, "JFEM_SOL105_PRECOMPILE_WORKLOAD", "true")
-    _setenv_preserving!(old_env, "JFEM_SOL105_PRECOMPILE_BDF", join(decks, ";"))
-    _setenv_preserving!(old_env, "JFEM_SOL105_PRECOMPILE_FLAGS", flags)
-    _setenv_preserving!(old_env, "JFEM_SUPPRESS_THREAD_HINT", "1")
+    old_env = Dict{String,Union{Nothing,String}}()
+    try
+        _setenv_preserving!(old_env, "JFEM_PRECOMPILE_WORKLOAD", "true")
+        _setenv_preserving!(old_env, "JFEM_PRECOMPILE_BDF", join(decks, ";"))
+        _setenv_preserving!(old_env, "JFEM_PRECOMPILE_FLAGS", flags)
+        _setenv_preserving!(old_env, "JFEM_SOL105_PRECOMPILE_WORKLOAD", "true")
+        _setenv_preserving!(old_env, "JFEM_SOL105_PRECOMPILE_BDF", join(decks, ";"))
+        _setenv_preserving!(old_env, "JFEM_SOL105_PRECOMPILE_FLAGS", flags)
+        _setenv_preserving!(old_env, "JFEM_SUPPRESS_THREAD_HINT", "1")
 
-    if isempty(sysimage)
-        println("Instantiating dependencies and refreshing the requested package workload...")
-        refresh_deployment_precompile!(Base.PkgId(
-            Base.UUID("5f27aa24-1c38-4f48-8d29-0194396c76b2"), "OpenJFEM"))
-    else
-        # The image's execution script runs every requested deck below. Reuse
-        # current package caches instead of rebuilding them immediately after
-        # setup; Pkg still compiles missing or stale package sources normally.
-        println("Instantiating dependencies and reusing current package caches...")
-        Pkg.instantiate(;allow_autoprecomp=false)
-        Pkg.precompile()
+        if isempty(sysimage)
+            println("Instantiating dependencies and refreshing the requested package workload...")
+            refresh_deployment_precompile!(Base.PkgId(
+                Base.UUID("5f27aa24-1c38-4f48-8d29-0194396c76b2"), "OpenJFEM"))
+        else
+            # The image's execution script runs every requested deck below. Reuse
+            # current package caches instead of rebuilding them immediately after
+            # setup; Pkg still compiles missing or stale package sources normally.
+            println("Instantiating dependencies and reusing current package caches...")
+            Pkg.instantiate(;allow_autoprecomp=false)
+            Pkg.precompile()
+        end
+
+        println("Verifying package load...")
+        @eval using OpenJFEM
+    finally
+        _restore_env!(old_env)
     end
 
-    println("Verifying package load...")
-    @eval using OpenJFEM
-finally
-    _restore_env!(old_env)
+    _maybe_build_sysimage(sysimage, decks, flags, install_packagecompiler)
+
+    println()
+    println("OpenJFEM fast deployment complete.")
+    println("For command-line batches use JFEM/utils/julia_tools/run_batch_manifest.jl.")
+    println("For Python optimization loops start JFEM/utils/julia_tools/jfem_worker_jsonl.jl once and send JSONL commands.")
 end
 
-_maybe_build_sysimage(sysimage, decks, flags, install_packagecompiler)
-
-println()
-println("OpenJFEM fast deployment complete.")
-println("For command-line batches use JFEM/utils/julia_tools/run_batch_manifest.jl.")
-println("For Python optimization loops start JFEM/utils/julia_tools/jfem_worker_jsonl.jl once and send JSONL commands.")
+if abspath(PROGRAM_FILE) == @__FILE__
+    deploy_main()
+end

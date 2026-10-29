@@ -1,4 +1,4 @@
-> **Setup must run first.** From the repository root, run `bash setup.sh`. All applications share these packages and the root `sysimage/`; this folder contains application shortcuts only.
+> **Fresh installation:** run `bash setup.sh` from the repository root first. For an already hydrated package environment, use [Already prepared Linux packages](#already-prepared-linux-packages) instead. All applications use the root `sysimage/`; this folder contains application shortcuts only.
 
 # JFEM on Linux
 
@@ -45,8 +45,9 @@ Commands below assume a terminal opened in this Linux folder.
   terminal or launcher. `JFEM_JULIA` can name its full executable path without flags.
 - **Download failure:** restore network/proxy access and rerun setup; completed
   downloads are reused. Keep the error text if it fails again.
-- **Image missing or stale:** rerun setup after source, Julia, package or folder
-  changes. Launchers check the image receipt before loading it. Do not force an
+- **Image missing or stale:** rebuild with the prepared-environment command
+  documented below if using that workflow; otherwise rerun setup after source, Julia,
+  package or folder changes. Launchers check the image receipt before loading it. Do not force an
   old image with `-J`.
 - **Image build runs out of memory:** close other applications and use
   `bash setup.sh --sysimage-threads=1`. `bash setup.sh --no-sysimage` explicitly skips the image;
@@ -63,6 +64,68 @@ The generated image (`sysimage/OpenJFEM_sysimage.dll` on Windows, `.so` on
 Linux or `.dylib` on macOS) is local installation output. It is not included
 in GitHub: it depends on the operating system, Julia version, CPU and source
 revision. Setup builds it for this computer and launchers check its receipt.
+
+## Already prepared Linux packages
+
+Use this path when the Linux machine is disconnected and already has a working
+Julia runtime, a hydrated Linux depot and the prepared Project/Manifest that
+matches its cached versions. Download the complete current repository on a
+connected computer (Windows is fine for downloading/copying the source) and
+copy it into the Linux repository directory. Keep the prepared package records
+and depot in place. The earlier two-file source-runner update alone does not
+include all image-building helpers.
+
+Open a Bash terminal at the repository root and set your existing locations:
+
+```bash
+export JFEM_PACKAGE_ENV=/path/to/prepared/project
+export JULIA_DEPOT_PATH=/path/to/depot
+```
+
+`JFEM_PACKAGE_ENV` contains `Project.toml` and `Manifest.toml`;
+`JULIA_DEPOT_PATH` contains the cached package sources and native artifacts.
+Do not copy the prepared project over the repository's own project metadata.
+Use the matching Julia executable already installed on Linux. PackageCompiler
+must be present in the prepared environment, and a compiler must be available:
+
+```bash
+command -v gcc || command -v clang
+```
+
+If your compiler has another executable name/path, set `JULIA_CC` to it.
+Then check inputs and build the shared image:
+
+```bash
+julia --startup-file=no --threads=2 --project="$JFEM_PACKAGE_ENV" \
+  utils/julia_tools/build_prepared_sysimage.jl --check-only
+
+julia --startup-file=no --threads=2 --project="$JFEM_PACKAGE_ENV" \
+  utils/julia_tools/build_prepared_sysimage.jl
+```
+
+This does not run the installer or fetch missing inputs. Missing package trees,
+platform artifacts (including lazy artifacts) or a compiler produce an error
+before compilation. `--check-only` performs the checks without compiling an
+image. A separate build environment under `sysimage/builds/` preserves the
+prepared dependency graph and adds the local solver/application packages;
+both original Project/Manifest pairs remain intact. PackageCompiler still
+performs its internal instantiate/precompile checks against the already
+cached build environment and may create compiled caches.
+
+The builder creates a candidate image, checks imports in a fresh Julia process,
+and publishes `sysimage/OpenJFEM_sysimage.so` and its `.jfem.toml` receipt after
+success. Keep `JFEM_PACKAGE_ENV` and `JULIA_DEPOT_PATH` set when launching the
+normal app shortcuts. They load the image only while its source, environment,
+preferences and runtime identity match. A missing or stale default image falls
+back to source loading. Rebuild with the same command after source, package
+metadata/preferences or Julia changes; this prepared workflow does not require
+`bash setup.sh --offline`.
+
+Use `--threads=1` on the Julia command if build memory is limited. Workload
+options `--deck PATH` (repeatable), `--manifest PATH` and `--flags NAME=value,...`
+and a custom `--sysimage=/absolute/path/image.so` are supported. See
+[Existing prepared package environments](../../utils/julia_tools/README.md#existing-prepared-package-environments)
+for details. The generated image is local Linux output, not part of GitHub.
 
 ## Offline use
 

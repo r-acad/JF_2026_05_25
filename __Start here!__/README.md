@@ -1,6 +1,11 @@
 # Install and run JFEM
 
-**Run the shared setup at the repository root first:** [`setup.cmd`](../setup.cmd) on Windows, `bash setup.sh` on Linux, or `bash setup.command` on macOS. It downloads the packages and builds the shared image under the root `sysimage/` directory. Wait for setup to finish before opening an app.
+**For a fresh installation, run the shared setup at the repository root first:** [`setup.cmd`](../setup.cmd) on Windows, `bash setup.sh` on Linux, or `bash setup.command` on macOS. It downloads the packages and builds the shared image under the root `sysimage/` directory. Wait for setup to finish before opening an app.
+
+**Already have a prepared Linux package environment and hydrated depot?** Use
+[Build an image from an existing prepared environment](Linux/README.md#already-prepared-linux-packages)
+to build locally from the cached dependencies, without rerunning package setup.
+Keep the complete repository and your matching prepared package records.
 
 Each operating-system folder contains application shortcuts and a guide covering installation, repair and offline use. There are no app-specific installers.
 
@@ -10,8 +15,9 @@ Each operating-system folder contains application shortcuts and a guide covering
 | Linux | [Linux/README.md](Linux/README.md) |
 | macOS | [Mac/README.md](Mac/README.md) |
 
-Use the complete extracted repository in a writable location. All apps share
-the root Project/Manifest and one compiled image. These shortcuts forward to
+Use the complete extracted repository in a writable location. Normal setup gives all apps
+the root Project/Manifest and one compiled image. An explicitly selected
+prepared environment can supply the dependency graph for that shared image. These shortcuts forward to
 the `Windows/`, `Linux/` and `Mac/` launchers inside each [app folder](../APPS/README.md).
 
 After installation, Boxer, PANDEATOR and the results viewer run offline.

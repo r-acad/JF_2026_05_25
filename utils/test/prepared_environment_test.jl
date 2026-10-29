@@ -70,7 +70,7 @@ end
                 @test Base.find_package("JFEMBundledAppFixture")==joinpath(app,"src","JFEMBundledAppFixture.jl")
                 localapp=Base.require(Main,:JFEMBundledAppFixture)
                 @test Base.invokelatest(()->localapp.answer())==42
-                @test PreparedImages.selected_image(repo)==(nothing,"external_package_environment")
+                @test PreparedImages.selected_image(repo)==(nothing,"image_missing")
                 # Exercise the normal two-process launcher with the same
                 # mismatched source manifest and intact prepared dependency.
                 probe=joinpath(work,"launch probe.jl")

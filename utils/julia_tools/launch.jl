@@ -5,7 +5,10 @@ length(ARGS)>=3||error("usage: launch.jl solver|boxer ROOT ENTRY [arguments...]"
 kind,root,entry=ARGS[1:3]
 image,reason=JFEMRuntimeImages.selected_image(abspath(root);kind)
 if image===nothing
-    reason in ("image_missing","disabled","external_package_environment")||println(stderr,"JFEM: local image skipped ($reason); run setup to refresh it.")
+    if !(reason in ("image_missing","disabled"))
+        hint=isempty(strip(get(ENV,"JFEM_PACKAGE_ENV",""))) ? "run setup" : "run JFEM_BUILD_SYSIMAGE (build_prepared_sysimage.jl)"
+        println(stderr,"JFEM: local image skipped ($reason); $hint to refresh it.")
+    end
 else
     println("JFEM: using verified ",kind," sysimage.")
 end
