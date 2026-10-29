@@ -124,8 +124,8 @@ function add_fuel_references!(m::Model)
     concentrated=structural_mass_is_concentrated(m)
     bays=concentrated ? [fuel_bay_geometry(m,rib) for rib in 1:length(m.grid.ribs)-1] : fuel_geometry_bays(m)
     if isempty(bays)
-        needs_inertia=any(spec->get(spec.params,"loads.structure_inertia",false)&&
-            !iszero(spec.params["loads.load_factor"])&&any(axis->!iszero(get(spec.params,"loads.fuel_accel_"*axis,0.)),("x","y","z")),load_case_specs(m.params))
+        needs_inertia=any(spec->structure_inertia_enabled(spec.params)&&
+            !iszero(spec.params["loads.load_factor"])&&any(!iszero,inertia_acceleration_g(spec.params)),load_case_specs(m.params))
         needs_inertia||return m
         selection=get(m.params,"fuel.enabled",false) ? fuel_bay_selection(m.params,length(m.grid.ribs)) : nothing
         ribs=selection===nothing ? (1:length(m.grid.ribs)-1) : (selection.first_rib:selection.last_rib-1)
@@ -209,7 +209,7 @@ function fuel_mass_state(m::Model;params=m.params)
 end
 
 function fuel_applied_loads(m::Model;params=m.params,state=fuel_mass_state(m;params))
-    acceleration=FUEL_MASS_GRAVITY.*Float64[get(params,"loads.fuel_accel_x",0.),get(params,"loads.fuel_accel_y",0.),get(params,"loads.fuel_accel_z",-1.)]
+    acceleration=FUEL_MASS_GRAVITY.*inertia_acceleration_g(params)
     factor=Float64(params["loads.load_factor"]);loads=NamedTuple[]
     for row in state["bays"]
         row["mass_kg"]>0||continue

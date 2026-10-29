@@ -1,6 +1,48 @@
 # Master ribs define actual planes and a rear-spar arc-length station coordinate.
 # Empty intermediate tables retain the existing span-normal mesh exactly.
 
+"""Resolve persistent spar identities in the untwisted reference plan.
+
+Rear ETA is a dependent coordinate. Preserve the direction convention and pitch;
+never retarget a deleted identity to the point that happens to replace its index.
+"""
+function resolve_master_spar_links(p::AbstractDict)
+    rows=normalize_rib_tables(deepcopy(get(p,"ribs.masters",Any[])),"ribs.masters";end_eta=p["box.end_eta"])
+    any(r->haskey(r,"spar_link"),rows)||return rows
+    q=copy(p);apply_point_angle_constraints!(q)
+    s=sqrt(q["planform.area"]*q["planform.aspect_ratio"])/2
+    cr=q["planform.area"]/(s*(1+q["planform.taper_ratio"]))
+    chord(e)=cr*(1-(1-q["planform.taper_ratio"])*e)
+    xy(e,offset,edge)=(e*s*tand(q["planform.sweep"])+(q["box.$(edge)_spar_xc"]+offset-q["planform.sweep_ref_xc"])*chord(e),e*s)
+    rear=deepcopy(get(q,"box.rear_spar_points",Any[]))
+    isempty(rear)||sort!(rear;by=r->r["eta"])
+    (isempty(rear)||first(rear)["eta"]>0)&&pushfirst!(rear,Dict("eta"=>0.,"dxc"=>0.))
+    last(rear)["eta"]<1&&push!(rear,Dict("eta"=>1.,"dxc"=>0.))
+    cross2(a,b)=a[1]*b[2]-a[2]*b[1]
+    for row in rows
+        haskey(row,"spar_link")||continue
+        link=row["spar_link"];edge=link["edge"]
+        target=findfirst(r->get(r,"point_id",nothing)==link["point_id"],q["box.$(edge)_spar_points"])
+        if target===nothing;delete!(row,"spar_link");continue;end
+        point=q["box.$(edge)_spar_points"][target];te=point["eta"]
+        0<te<q["box.end_eta"]||throw(ArgumentError("linked spar point must remain strictly inside the box; unlink the master before moving the point to a closure"))
+        if edge=="rear";row["eta"]=te;continue;end
+        position=xy(te,point["dxc"],edge);candidates=Float64[]
+        for i in 2:length(rear)
+            a,b=rear[i-1],rear[i];pa,pb=xy(a["eta"],a["dxc"],"rear"),xy(b["eta"],b["dxc"],"rear")
+            segment=pb.-pa;t=unit3((segment[1],segment[2],0.));sn,cs=sincosd(row["angle"])
+            d=row["mode"]=="flight_direction" ? (-1.,0.) : (cs*t[1]-sn*t[2],sn*t[1]+cs*t[2])
+            den=cross2(segment,d);abs(den)>1e-14||continue
+            offset=position.-pa;u=cross2(offset,d)/den;distance=cross2(segment,offset)/den
+            e=a["eta"]+u*(b["eta"]-a["eta"])
+            0<=u<=1&&distance>=-1e-10&&0<e<q["box.end_eta"]&&push!(candidates,e)
+        end
+        isempty(candidates)&&throw(ArgumentError("linked master cannot reach its front-spar point with the selected direction; change its direction or unlink it"))
+        row["eta"]=candidates[argmin(abs.(candidates.-row["eta"]))]
+    end
+    return normalize_rib_tables(rows,"ribs.masters";end_eta=q["box.end_eta"])
+end
+
 """Untwisted rear-spar reference path, including sweep, dihedral and spar kinks."""
 function rear_spar_arc(w::Wing,p::AbstractDict)
     spar=spar_geometry(p)
@@ -31,7 +73,7 @@ end
 
 """Physical ribs, with exact master anchors and interpolated secondary orientations."""
 function physical_rib_layout(w::Wing,p::AbstractDict)
-    rows=normalize_rib_tables(get(p,"ribs.masters",Any[]),"ribs.masters";end_eta=p["box.end_eta"])
+    rows=resolve_master_spar_links(p)
     arc=rear_spar_arc(w,p);end_eta=Float64(p["box.end_eta"])
     masters=vcat([Dict{String,Any}("eta"=>0.0,"mode"=>"flight_direction","angle"=>90.0,"pitch"=>Float64(p["box.rib_pitch"]))],rows,
         [Dict{String,Any}("eta"=>end_eta,"mode"=>"flight_direction","angle"=>90.0,"pitch"=>0.0)])
@@ -40,6 +82,7 @@ function physical_rib_layout(w::Wing,p::AbstractDict)
     distances=rear_arc_length.(Ref(arc),master_etas)
     directions=[master_rib_direction(arc,row["eta"],row["mode"],row["angle"]) for row in masters]
     deltas=[atan(d[2],-d[1]) for d in directions]
+    plane_tilts=[get(row,"plane","vertical")=="normal_to_midplane" ? 1.0 : 0.0 for row in masters]
     physical=NamedTuple[];legacy=isempty(rows)
     for interval in 1:length(masters)-1
         length_interval=legacy ? end_eta*reference_length(w) : distances[interval+1]-distances[interval]
@@ -59,7 +102,7 @@ function physical_rib_layout(w::Wing,p::AbstractDict)
     end
     push!(physical,(eta=end_eta,arc=last(distances),master=true,master_index=length(masters),interval=length(masters)-1,
         mode="flight_direction",angle=90.0,pitch=0.0,delta=0.0,direction=(-1.0,0.0,0.0)))
-    return (;arc,masters,master_etas,distances,deltas,physical,legacy)
+    return (;arc,masters,master_etas,distances,deltas,plane_tilts,physical,legacy)
 end
 
 function rib_row_direction(layout,eta::Real)
@@ -68,12 +111,30 @@ function rib_row_direction(layout,eta::Real)
     return (-cos(delta),sin(delta),0.0)
 end
 
-"""Plane through both rear-spar skin points with the requested horizontal direction."""
+"""Local chord-sheet normal, including twist, dihedral and loft Z translation."""
+function local_midplane_normal(w::Wing,eta::Real,xc::Real)
+    e=Float64(eta);x=Float64(xc)
+    chord_axis=section_point(w,e,1.,0.).-section_point(w,e,0.,0.)
+    # One-sided at linear loft anchors, matching the outboard slope convention.
+    h=1e-7;lo=e<1-h ? e : max(0.,e-h);hi=e<1-h ? min(1.,e+h) : e
+    span_axis=(section_point(w,hi,x,0.).-section_point(w,lo,x,0.))./(hi-lo)
+    return unit3(cross3(chord_axis,span_axis))
+end
+
+"""Plane at the rear mid-surface datum; secondary tilt blends between masters."""
 function main_rib_plane(w::Wing,layout,eta::Real)
     xc=spar_surface_xc(w,layout.arc.spar,eta,:rear)
     lower,upper=lower_point(w,Float64(eta),xc),upper_point(w,Float64(eta),xc)
     origin=(lower.+upper)./2;direction=rib_row_direction(layout,eta)
-    normal=unit3(cross3(direction,upper.-lower))
+    vertical=unit3(cross3(direction,(0.,0.,1.)))
+    fraction=edge_offset(layout.distances,layout.plane_tilts,rear_arc_length(layout.arc,eta))
+    normal=vertical
+    if fraction>0
+        local_normal=local_midplane_normal(w,eta,xc)
+        tilted=unit3(cross3(direction,local_normal))
+        sum(tilted.*vertical)<0&&(tilted=(-1.).*tilted)
+        normal=unit3((1-fraction).*vertical.+fraction.*tilted)
+    end
     norm3(normal)>0.5||throw(ArgumentError("main rib plane is undefined at rear-spar ETA $eta"))
     return (;origin,direction,normal,lower,upper,eta=Float64(eta),scale=max(w.semispan,w.chord_root,1.0))
 end

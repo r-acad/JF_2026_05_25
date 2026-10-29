@@ -1,0 +1,18 @@
+#panel-potato { max-width:1400px; margin:0 auto; }
+.potato-toolbar,.potato-legend { display:flex; flex-wrap:wrap; align-items:center; gap:8px 18px; }
+.potato-toolbar label,.potato-case { display:inline-flex; align-items:center; gap:7px; }
+.potato-toolbar select { width:auto; }
+.potato-case i { width:12px; height:12px; border-radius:50%; }
+.potato-charts { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,520px),1fr)); gap:16px; }
+.potato-chart { min-width:0; padding:12px; background:#111c27; border:1px solid #344c61; border-radius:6px; }
+.potato-chart h3 { margin:0 0 8px; font-size:14px; }
+.potato-chart svg { width:100%; height:auto; display:block; overflow:visible; }
+.potato-frame { fill:none; stroke:#72899a; }
+.potato-grid { stroke:#26394a; stroke-width:1; }
+.potato-zero { stroke:#72899a; stroke-width:1; }
+.potato-tick,.potato-axis { fill:#c7d7e5; font:12px system-ui,sans-serif; }
+.potato-point-label { font:12px system-ui,sans-serif; paint-order:stroke; stroke:#111c27; stroke-width:3px; }
+.potato-chart circle { stroke:#101b26; stroke-width:1.5; }
+.potato-chart circle:is(:hover,:focus) { r:9; outline:none; stroke:#fff; }
+#tab-deck.deck-current { color:#a2f2bf; background:#1c5338; border-color:#4cc181; }
+#tab-deck.deck-stale { color:#8a98a6; background:#202932; border-color:#3d4853; }

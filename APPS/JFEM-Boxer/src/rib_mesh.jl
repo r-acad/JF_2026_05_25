@@ -48,9 +48,6 @@ function oriented_row(w,context,eta,previous,pitch,cuts;detect_runouts=true)
     clearance=pitch*get(context.params,"mesh.stringer_runout_ratio",1.0)
     states=copy(previous);lx=zeros(count);ux=zeros(count);le=zeros(count);ue=zeros(count)
     function intersect(index,state,upper)
-        if index==count||state>0
-            return eta,spar_surface_xc(w,context.arc.spar,eta,:rear)
-        end
         xc(e)=rib_curve_xc(w,context,index,state,e,upper)
         surface=upper ? upper_point : lower_point
         curve(e)=surface(w,e,xc(e))
@@ -242,12 +239,24 @@ function kink_column_point(g,i,j,eta,upper)
             xc=rib_skin_xc(w,eta,(1-blend_fraction)*pl[1]+blend_fraction*pr[1],upper)
             return (upper ? upper_point : lower_point)(w,eta,xc)
         end
-        fraction(row)=begin
-            e=spans[i+1,row];f=spar_surface_xc(w,spars,e,:front);r=spar_surface_xc(w,spars,e,:rear)
-            (xcs[i+1,row]-f)/(r-f)
-        end
-        f=spar_surface_xc(w,spars,eta,:front);r=spar_surface_xc(w,spars,eta,:rear)
-        xc=f+((1-t)*fraction(j+1)+t*fraction(j+2))*(r-f)
+        # Retire inside the local strip bounded by the destination spar and
+        # the nearest surviving physical stringer. Whole-box fractions coupled
+        # a front runout to rear-spar corners and could pull its diagonal across
+        # neighbouring attachment paths. A convex local fraction preserves their
+        # order even when several adjacent stringers retire in the same bay.
+        side=g.collapsed[i+1,j+2]
+        edge=side<0 ? :front : :rear
+        candidates=side<0 ? filter(k->k>i,boundaries) : reverse(filter(k->k<i,boundaries))
+        neighbor=first(k for k in candidates if k in (0,ni(g)) || g.collapsed[k+1,j+2]==0)
+        surface=upper ? upper_point : lower_point
+        sparpoint(e)=surface(w,e,spar_surface_xc(w,spars,e,edge))
+        start=surface(w,a,xcs[i+1,j+1])
+        otherstart=surface(w,spans[neighbor+1,j+1],xcs[neighbor+1,j+1])
+        fraction=(start[1]-sparpoint(a)[1])/(otherstart[1]-sparpoint(a)[1])
+        other=kink_column_point(g,neighbor,j,eta,upper)
+        target=sparpoint(eta)
+        x=target[1]+(1-t)*fraction*(other[1]-target[1])
+        xc=rib_skin_xc(w,eta,x,upper)
         return (upper ? upper_point : lower_point)(w,eta,xc)
     end
     g.shell_columns!==nothing&&return shell_stringer_kink_point(g,i,j,eta,upper)
@@ -364,8 +373,12 @@ function split_oriented_kink_edges!(reg,g,groups,eid;p=nothing)
         else
             related=copy(context.path.kink_etas)
             if kink_column_runs_out(g,i,j)
-                append!(related,context.arc.spar.front_etas)
-                append!(related,context.arc.spar.rear_etas)
+                side=g.collapsed[i+1,j+2]
+                # A shell-only interpolation column can border either side;
+                # physical runouts depend only on their destination spar.
+                physical=i in g.stringer_indices
+                (!physical||side<0)&&append!(related,context.arc.spar.front_etas)
+                (!physical||side>0)&&append!(related,context.arc.spar.rear_etas)
             end
             first_stringer=isempty(g.stringer_indices) ? ni(g) : first(g.stringer_indices)
             last_stringer=isempty(g.stringer_indices) ? 0 : last(g.stringer_indices)

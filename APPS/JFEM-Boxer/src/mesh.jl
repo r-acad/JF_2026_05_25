@@ -75,7 +75,7 @@ BoxGrid(w,xcs,etas,nh,ribs,lower,upper,collapsed,stringers,lower_etas,upper_etas
 BoxGrid(w,xcs,etas,nh,ribs,lower,upper,collapsed,stringers)=BoxGrid(w,xcs,etas,nh,ribs,lower,upper,collapsed,stringers,
     repeat(reshape(etas,1,:),length(xcs),1),repeat(reshape(etas,1,:),length(xcs),1),nothing)
 grid_surface_eta(g::BoxGrid,i::Int,j::Int,upper::Bool)= (upper ? g.upper_etas : g.lower_etas)[i+1,j+1]
-oriented_ribs(g::BoxGrid)=g.rib_layout!==nothing&&any(!iszero,g.rib_layout.deltas)
+oriented_ribs(g::BoxGrid)=g.rib_layout!==nothing&&(any(!iszero,g.rib_layout.deltas)||any(!iszero,g.rib_layout.plane_tilts))
 main_rib_plane(g::BoxGrid,p::AbstractDict,j::Int)=main_rib_plane(g.wing,g.rib_layout===nothing ? physical_rib_layout(g.wing,p) : g.rib_layout,g.etas[j+1])
 
 ni(g::BoxGrid) = length(g.xcs) - 1
@@ -364,7 +364,7 @@ and a non-overlapping triangle fan, even for simultaneous retirements.
 """
 function stringer_grid(w, p, xcs, base_etas, base_ribs, nh)
     layout=physical_rib_layout(w,p)
-    any(!iszero,layout.deltas)&&return oriented_stringer_grid(w,p,xcs,base_etas,base_ribs,nh,layout)
+    (any(!iszero,layout.deltas)||any(!iszero,layout.plane_tilts))&&return oriented_stringer_grid(w,p,xcs,base_etas,base_ribs,nh,layout)
     spars = spar_geometry(p)
     pitch = p["box.stringer_pitch"]
     clearance = pitch * get(p, "mesh.stringer_runout_ratio", 1.0)

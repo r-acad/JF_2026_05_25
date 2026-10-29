@@ -33,6 +33,8 @@
   <link rel="stylesheet" href="toml_preview.css">
   <link rel="stylesheet" href="leading_edge_gaps.css">
   <link rel="stylesheet" href="load_plots.css">
+  <link rel="stylesheet" href="potato_plots.css">
+  <link rel="stylesheet" href="aerodynamic_study.css">
   <link rel="stylesheet" href="sensitivity.css">
   <link rel="stylesheet" href="viewport-legends.css">
   <link rel="stylesheet" href="study_files.css">
@@ -91,6 +93,7 @@
       <label class="live-switch" title="Automatically rebuild after parameter edits"><input id="auto-mesh" type="checkbox" checked><span>Live mesh</span></label>
       <span id="jfem-running" class="jfem-running" role="status" aria-live="polite" hidden>JFEM is running</span>
       <span id="mesh-status" role="status" aria-live="polite">Starting…</span>
+      <span id="geometry-preview-status" role="status" aria-live="polite" hidden></span>
     </div>
     <button id="btn-study-information" type="button" class="workspace-help" aria-label="Information: Study and server input" aria-controls="study-information" aria-expanded="false" title="Information: current Study, save status, TOML and server input">ⓘ</button>
     <label class="background-picker" title="Change the viewport background color">Background<input id="background-color" type="color" value="#0e131a" aria-label="Viewport background color"></label>
@@ -231,6 +234,15 @@
         <div id="sensitivity-editor"></div>
       </section>
 
+      <section id="panel-aerostudy" class="workspace-panel" data-workspace-panel="aerostudy" role="tabpanel" aria-labelledby="tab-aerostudy" hidden>
+        <div class="parameter-heading"><h2>Aerodynamics <button id="btn-aero-information" class="aero-info-button" type="button" title="Aerodynamics information" aria-label="Aerodynamics information" aria-haspopup="dialog" popovertarget="aero-information">i</button></h2><button id="btn-max-aerostudy" class="mini">Maximize</button></div>
+        <div id="aerodynamic-study"></div>
+      </section>
+      <section id="panel-potato" class="workspace-panel" data-workspace-panel="potato" role="tabpanel" aria-labelledby="tab-potato" hidden>
+        <div class="parameter-heading"><h2>Potato - root load envelopes</h2><button id="btn-max-potato" class="mini">Maximize</button></div>
+        <div id="potato-plots"></div>
+      </section>
+
       <section id="panel-loadplots" class="workspace-panel" data-workspace-panel="loadplots" role="tabpanel" aria-labelledby="tab-loadplots" hidden>
         <div class="parameter-heading"><h2>Spanwise load distributions</h2><button id="btn-help-loadplots" class="help-button" title="Compare aerodynamic, fuel-inertia, structural-inertia and total shear, bending and torque. Distributed curves preserve deck resultants; FE point-load mode shows individual station jumps." aria-label="Help: load plots">?</button><button id="btn-max-loadplots" class="mini" title="Maximize load plots">Maximize</button></div>
         <div id="load-plots"></div>
@@ -338,7 +350,7 @@
       <label class="layer"><input id="show-aero-overlay" type="checkbox" disabled><span>Deformed Aerodynamic loft</span></label>
       <p class="pick-note">The loft shows the full lifting-surface shape outside the structural box. Its visibility is independent of structural opacity and the VLM mesh.</p>
       <label class="display-control">Node radius (m)<input id="node-radius" type="number" min="0" step="any" value="0.005"></label>
-      <label class="display-control">Marker radius (m)<input id="marker-radius" type="number" min="0" step="any" value="0.01"></label>
+      <label class="display-control">Marker radius (m)<input id="marker-radius" type="number" min="0" step="0.1" value="0.01"></label>
       <p class="pick-note">Constraints: cones for translations 1–3 and open cubes for rotations 4–6, oriented in each GRID's displacement coordinates. x is red, y deep green, z deep blue. Constraint size multiplies Marker radius for these glyphs only; cone tips remain at the node. Other connection and mass markers keep Marker radius.</p>
       <div id="aerodynamic-appearance">
         <label class="display-control">Aerodynamic loft finish
@@ -659,6 +671,7 @@
 <script src="activity.js"></script>
 <script src="flight_conditions.js" defer></script>
 <script src="numbers.js" defer></script>
+<script src="coordinate_inputs.js" defer></script>
 <script src="result_display.js" defer></script>
 <script src="parameter_locks.js" defer></script>
 <script src="vendor/babylon.js" defer></script>
@@ -724,6 +737,13 @@
 <script src="rbe3_labels.js" defer></script>
 <script src="annotations.js" defer></script>
 <script src="load_plots.js" defer></script>
+<script src="potato_plots.js" defer></script>
+<script src="aerodynamic_reference.js" defer></script>
+<script src="aerodynamic_plots.js" defer></script>
+<script src="aerodynamic_view_svg.js" defer></script>
+<script src="aerodynamic_derivatives.js" defer></script>
+<script src="aerodynamic_study.js" defer></script>
+<script src="geometry_preview.js" defer></script>
 <script src="sensitivity_results.js" defer></script>
 <script src="sensitivity_table_data.js" defer></script>
 <script src="sensitivity_table_window.js" defer></script>
@@ -757,6 +777,8 @@
 <script src="rf_property_editor.js" defer></script>
 <script src="reserve_factor_table_window.js" defer></script>
 <script src="stress_report_snapshot.js" defer></script>
+<script src="rf_incremental.js" defer></script>
+<script src="rf_compute_client.js" defer></script>
 <script src="stress_report.js" defer></script>
 <script src="panel_override_review.js" defer></script>
 <script src="mesh_quality_review.js" defer></script>

@@ -1,0 +1,40 @@
+# SI units. Small swept, closed wing box with intentionally slender skins.
+# This is a connection/sizing demonstration, not an aircraft design.
+[planform]
+area = 4.0
+aspect_ratio = 4.0
+taper_ratio = 0.7
+sweep = 5.0
+dihedral = 0.0
+twist_tip = 0.0
+[box]
+end_eta = 1.0
+rib_pitch = 0.7
+stringer_pitch = 0.35
+[mesh]
+elements_between_ribs = 2
+elements_between_stringers = 2
+elements_spar_height = 2
+[properties]
+t_skin_upper = 0.0007
+t_skin_lower = 0.0007
+t_spar_web = 0.0010
+t_rib_web = 0.0015
+rib_stiffeners_enabled = false
+stringer_flange_width = 0.012
+stringer_height = 0.015
+stringer_flange_thickness = 0.001
+stringer_web_thickness = 0.001
+spar_cap_side = 0.008
+[loads]
+method = "analytic"
+lift_total = 36000.0
+load_factor = 1.0
+structure_inertia = false
+match_aircraft_lift = false
+[output]
+title = "Python warm-worker wing-box sizing demo"
+solution = "105"
+n_modes = 4
+buckling_max_factor = 1000000.0
+include_aero_shells = false

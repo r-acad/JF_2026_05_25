@@ -77,12 +77,12 @@ To add your own representative cases,
 run one of these from the repository root:
 
 ```powershell
-& ".\__Start here!__\Windows\setup.cmd" --deck 'C:\models\representative.bdf'
-& ".\__Start here!__\Windows\setup.cmd" --manifest 'C:\models\cases.json'
+& ".\setup.cmd" --deck 'C:\models\representative.bdf'
+& ".\setup.cmd" --manifest 'C:\models\cases.json'
 ```
 
-On Linux/macOS, use `bash "__Start here!__/Linux/setup.sh"` or
-`bash "__Start here!__/Mac/setup.command"` with the same options. `--deck` is repeatable;
+On Linux/macOS, use `bash "setup.sh"` or
+`bash "setup.command"` with the same options. `--deck` is repeatable;
 `--flags` accepts workload `NAME=value` options. Setup verifies the resulting
 shared image before launchers use it. Workloads prepare compilation; they are
 separate from your analysis runs. New specializations may still compile.
@@ -778,6 +778,12 @@ recovery enabled and writes the eigenvectors to `.BUCKLING.JSON` under
 `batch_summary.json` as `cases[].result_json`.
 
 ## Python Optimization Loop
+
+For repeated PSHELL thickness updates to a fixed wing-box topology, use the
+[warm-model sizing example](../python_client/README.md). It generates the model
+with Boxer, parses it once in Julia, exchanges compact property updates/results
+and keeps one solver process alive until the buckling target is reached.
+The manifest workflow below remains useful for independent decks.
 
 For heavy optimization, Python should not launch Julia for every case or every
 iteration. Run Python from the repository root, or put the repository root on

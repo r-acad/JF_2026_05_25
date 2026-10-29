@@ -9,7 +9,7 @@ if errorlevel 1 if not exist "%JFEM_SETUP_JULIA%" (
   if not "%OPENJFEM_NO_PAUSE%"=="1" pause
   exit /b 1
 )
-"%JFEM_SETUP_JULIA%" --startup-file=no --project="%~dp0..\.." "%~dp0..\..\utils\julia_tools\install_julia_packages.jl" %*
+"%JFEM_SETUP_JULIA%" --startup-file=no --project="%~dp0." "%~dp0utils\julia_tools\install_julia_packages.jl" %*
 set "JFEM_SETUP_EXIT=%errorlevel%"
 echo.
 echo Setup finished with exit code %JFEM_SETUP_EXIT%.

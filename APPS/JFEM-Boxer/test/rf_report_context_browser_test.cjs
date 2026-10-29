@@ -47,7 +47,7 @@ const scripts=['color_scales','panel_table_data','component_table_data','materia
   await popup.locator('#failure-mode').selectOption('von_mises');await page.waitForFunction(()=>activeField.request.failureMode==='von_mises');await popup.waitForFunction(()=>document.querySelectorAll('.rf-value[data-value]').length===0);
   assert.equal(await page.getByRole('button',{name:'Edit material allowables',exact:true}).count(),0);
   await page.locator('#stress-report-field-only-failing').uncheck();
-  await page.evaluate(()=>{fixture.allowables=fixture.allowables.map(a=>a.material_id===1?{...a,stress:300e9}:a);ui.refresh(true);ui.report.rows.find(r=>r.pid===10).approximation=true;ui.report.rows.find(r=>r.pid===10).governingApproximation=true;});
+  await page.evaluate(async()=>{fixture.allowables=fixture.allowables.map(a=>a.material_id===1?{...a,stress:300e9}:a);await ui.refresh(true);ui.report.rows.find(r=>r.pid===10).approximation=true;ui.report.rows.find(r=>r.pid===10).governingApproximation=true;});
   await page.locator('#stress-report-reserve').click();
   // This synthetic approximation marker was assigned after the report was
   // published. Reconnect to take a fresh snapshot, as a newly built report does.

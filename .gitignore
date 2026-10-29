@@ -21,6 +21,8 @@ tmp_*
 APPS/JFEM-Boxer/input/
 APPS/JFEM-Boxer/output/
 APPS/JFEM-Boxer/**/*.wingfem.json
+# Reviewed example studies are intentionally public.
+!APPS/JFEM-Boxer/examples/**/*.wingfem.json
 APPS/JFEM-Boxer/**/*.reference_assets/
 
 # Locally generated sysimages created by each user's installation script

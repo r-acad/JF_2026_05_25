@@ -29,8 +29,9 @@ function missing_sources(dependencies=Pkg.dependencies())
     sort!(missing)
 end
 
-"""Install missing sources before application imports, without registry work on
-the ready fast path. Explicit setup also repairs missing artifact downloads."""
+"""Check the shared environment before app imports. Run root setup first.
+Legacy opt-in JFEM_AUTO_INSTALL=1 installs missing sources only; explicit setup
+also repairs artifacts and builds the shared image."""
 function ensure_environment(project;io=stderr)
     project=abspath(project)
     isfile(joinpath(project,"Project.toml")) || error("Project.toml missing from $project")
@@ -38,9 +39,9 @@ function ensure_environment(project;io=stderr)
     Pkg.activate(project;io=devnull)
     missing=try missing_sources() catch; ["uninstalled project environment"] end
     isempty(missing) && return false
-    if lowercase(get(ENV,"JFEM_AUTO_INSTALL","1")) in ("0","false","no","off")
-        error("Missing Julia packages: $(join(missing,", ")). Run the setup launcher in "*
-            "__Start here!__/Windows, Linux or Mac, or the install_julia_packages.jl helper.")
+    if lowercase(get(ENV,"JFEM_AUTO_INSTALL","0")) in ("0","false","no","off")
+        error("Missing Julia packages: $(join(missing,", ")). Run setup.cmd (Windows), bash setup.sh (Linux), or "*
+            "bash setup.command (macOS) at the repository root first.")
     end
     println(io,"Installing missing Julia dependencies for ",project," (first launch; network access may be needed).")
     flush(io)
@@ -48,7 +49,7 @@ function ensure_environment(project;io=stderr)
         Pkg.instantiate(;allow_autoprecomp=false,io)
     catch failure
         error("Automatic package installation failed: $(sprint(showerror,failure)). "*
-            "Check network/proxy access and folder permissions, then rerun the setup launcher for your OS in __Start here!__. "*
+            "Check network/proxy access and folder permissions, then rerun setup.cmd, setup.sh or setup.command at the repository root. "*
             "Offline setup requires an already populated matching Julia depot.")
     end
     return true

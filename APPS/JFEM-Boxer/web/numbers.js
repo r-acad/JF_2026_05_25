@@ -1,4 +1,4 @@
-/* Read-only engineering labels. Model inputs and exports retain full precision. */
+/* Read-only engineering labels. Coordinate-input rounding lives in coordinate_inputs.js. */
 (function(root,factory){const api=factory();if(typeof module==="object"&&module.exports)module.exports=api;else root.WingNumbers=api;})(typeof globalThis!=="undefined"?globalThis:this,function(){
   "use strict";
   function format(value,digits=6){

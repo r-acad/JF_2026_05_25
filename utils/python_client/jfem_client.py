@@ -1,6 +1,8 @@
 """Small stdlib-only Python client for OpenJFEM batch execution.
 
-The fastest optimization workflow is:
+For repeated thickness changes to a fixed model, use ``load_model`` once and
+``solve_model`` for each update. See ``wingbox_sizing_demo.py`` and README.md.
+For independent input decks, the batch workflow is:
 
 1. Start one JSONL worker process.
 2. Generate one JSON manifest per optimization iteration.
@@ -13,8 +15,11 @@ This module intentionally has no third-party Python dependencies.
 from __future__ import annotations
 
 import json
+import os
+import queue
 import subprocess
 import sys
+import threading
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Union
 
@@ -25,6 +30,27 @@ DEFAULT_FAST_FLAGS: Dict[str, str] = {
     "JFEM_SOL105_STORE_PUBLIC_MODE_SHAPES": "false",
     "JFEM_SUPPRESS_THREAD_HINT": "1",
 }
+
+
+def resolve_sysimage(repo_root: Union[str, Path], sysimage: Union[str, Path],
+                     *, julia: str = "julia") -> Path:
+    """Resolve ``auto`` or an explicit image and verify its provenance receipt.
+
+    An existing DLL/SO alone is insufficient: it must match this checkout,
+    sources, package lock and Julia runtime. Validation uses a bare Julia
+    process, before an image containing older compiled code can be loaded.
+    """
+    repo = Path(repo_root).resolve()
+    suffix = ".dll" if sys.platform == "win32" else ".dylib" if sys.platform == "darwin" else ".so"
+    image = repo / "sysimage" / ("OpenJFEM_sysimage" + suffix) if str(sysimage) == "auto" else Path(sysimage).resolve()
+    if not image.is_file():
+        raise FileNotFoundError(f"JFEM sysimage does not exist: {image}")
+    check = subprocess.run([julia, "--startup-file=no", f"--project={repo}",
+        str(repo / "utils/julia_tools/check_sysimage.jl"), str(repo), str(image)],
+        cwd=repo, text=True, encoding="utf-8", capture_output=True, timeout=120)
+    if check.returncode:
+        raise RuntimeError(f"JFEM sysimage is not current: {check.stderr.strip()}")
+    return image
 
 
 def write_batch_manifest(
@@ -95,7 +121,8 @@ def run_batch_once(
         "--startup-file=no",
     ]
     if sysimage is not None:
-        cmd.append(f"--sysimage={sysimage}")
+        image = resolve_sysimage(repo, sysimage, julia=julia)
+        cmd.append(f"--sysimage={image}")
     cmd.extend(
         [
             f"--project={repo}",
@@ -107,11 +134,16 @@ def run_batch_once(
         cmd.append("--quiet")
     if stop_on_error:
         cmd.append("--stop-on-error")
-    return subprocess.run(cmd, cwd=repo, text=True, check=True)
+    return subprocess.run(cmd, cwd=repo, text=True, encoding="utf-8", check=True)
 
 
 class JFEMWorker:
-    """Persistent JSONL worker client."""
+    """One persistent Julia process, with serialized requests and owned cleanup.
+
+    Pass ``sysimage="auto"`` or a receipt-verified explicit image for fast
+    startup. ``None`` deliberately uses normal package loading. Loaded model
+    sessions avoid BDF parsing and result-file transfers on each iteration.
+    """
 
     def __init__(
         self,
@@ -122,8 +154,14 @@ class JFEMWorker:
         flags: Optional[Mapping[str, Any]] = None,
         sysimage: Optional[Union[str, Path]] = None,
         stderr: Any = None,
+        startup_timeout: float = 900,
+        request_timeout: Optional[float] = None,
     ) -> None:
         self.repo_root = Path(repo_root).resolve()
+        self.request_timeout = request_timeout
+        self._responses: queue.Queue[Any] = queue.Queue()
+        self._lock = threading.Lock()
+        self._next_id = 0
         merged_flags = dict(DEFAULT_FAST_FLAGS)
         if flags:
             merged_flags.update({str(k): str(v) for k, v in flags.items()})
@@ -132,9 +170,11 @@ class JFEMWorker:
             julia,
             f"--threads={threads}",
             "--startup-file=no",
+            "--compiled-modules=existing",
         ]
         if sysimage is not None:
-            cmd.append(f"--sysimage={sysimage}")
+            image = resolve_sysimage(self.repo_root, sysimage, julia=julia)
+            cmd.append(f"--sysimage={image}")
         cmd.extend(
             [
                 f"--project={self.repo_root}",
@@ -148,32 +188,89 @@ class JFEMWorker:
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=stderr if stderr is not None else sys.stderr,
+            # A sysimage initializes its packages before the worker script runs.
+            env={**os.environ, **merged_flags},
             text=True,
+            encoding="utf-8",
             bufsize=1,
         )
-        ready = self._read_response()
-        if ready.get("status") != "ready":
-            self.close()
-            raise RuntimeError(f"OpenJFEM worker did not start cleanly: {ready}")
+        self._reader = threading.Thread(target=self._receive, daemon=True)
+        self._reader.start()
+        try:
+            self.ready = self._read_response(startup_timeout)
+            if self.ready.get("status") != "ready":
+                raise RuntimeError(f"OpenJFEM worker did not start cleanly: {self.ready}")
+        except BaseException:
+            self._terminate()
+            self._close_pipes()
+            raise
 
-    def _read_response(self) -> Dict[str, Any]:
-        if self.process.stdout is None:
-            raise RuntimeError("worker stdout is not available")
-        line = self.process.stdout.readline()
-        if not line:
-            code = self.process.poll()
-            raise RuntimeError(f"OpenJFEM worker closed unexpectedly, returncode={code}")
-        return json.loads(line)
+    def _receive(self) -> None:
+        try:
+            assert self.process.stdout is not None
+            for line in self.process.stdout:
+                self._responses.put(json.loads(line))
+            self._responses.put(RuntimeError("OpenJFEM worker closed its response stream"))
+        except BaseException as error:
+            self._responses.put(error)
+
+    def _read_response(self, timeout: Optional[float] = None) -> Dict[str, Any]:
+        try:
+            response = self._responses.get(timeout=timeout)
+        except queue.Empty as error:
+            self._terminate()
+            raise TimeoutError("JFEM response timed out; owned worker stopped") from error
+        if isinstance(response, BaseException):
+            raise RuntimeError(f"JFEM protocol/worker failure: {response}") from response
+        if not isinstance(response, dict):
+            raise RuntimeError("JFEM response must be a JSON object")
+        return response
 
     def request(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
-        if self.process.stdin is None:
-            raise RuntimeError("worker stdin is not available")
-        self.process.stdin.write(json.dumps(dict(payload)) + "\n")
-        self.process.stdin.flush()
-        response = self._read_response()
-        if response.get("status") == "error":
-            raise RuntimeError(response.get("error", "OpenJFEM worker command failed"))
-        return response
+        with self._lock:
+            if self.process.stdin is None or self.process.poll() is not None:
+                raise RuntimeError("worker is not running")
+            command = dict(payload)
+            self._next_id += 1
+            command.setdefault("id", self._next_id)
+            encoded = json.dumps(command, allow_nan=False)
+            try:
+                self.process.stdin.write(encoded + "\n")
+                self.process.stdin.flush()
+                response = self._read_response(self.request_timeout)
+            except BaseException:
+                self._terminate()
+                raise
+            if response.get("id") != command["id"]:
+                self._terminate()
+                raise RuntimeError("JFEM response ID does not match the request")
+            if response.get("status") == "error":
+                raise RuntimeError(response.get("error", "OpenJFEM worker command failed"))
+            return response
+
+    def load_model(self, input_path: Union[str, Path], *, model_id: str = "default") -> Dict[str, Any]:
+        """Parse one SOL105 deck once; retain a clean baseline in Julia memory."""
+        return self.request({"command": "load_model", "input": str(Path(input_path).resolve()), "model_id": model_id})
+
+    def solve_model(self, *, model_id: str = "default",
+                    thicknesses: Optional[Mapping[Union[int, str], float]] = None,
+                    expected_revision: Optional[int] = None,
+                    expected_modes: Optional[int] = None) -> Dict[str, Any]:
+        """Apply absolute PSHELL thicknesses and solve in the existing process.
+
+        Failed commands commit no property changes. Model vectors and result
+        matrices stay in Julia; the reply contains spectra and property energy.
+        """
+        command: Dict[str, Any] = {"command": "solve_model", "model_id": model_id,
+            "thicknesses": {str(k): v for k, v in (thicknesses or {}).items()}}
+        if expected_revision is not None:
+            command["expected_revision"] = expected_revision
+        if expected_modes is not None:
+            command["expected_modes"] = expected_modes
+        return self.request(command)
+
+    def unload_model(self, model_id: str = "default") -> Dict[str, Any]:
+        return self.request({"command": "unload_model", "model_id": model_id})
 
     def status(self) -> Dict[str, Any]:
         return self.request({"command": "status"})
@@ -188,18 +285,34 @@ class JFEMWorker:
         return self.request(payload)
 
     def close(self) -> None:
-        if self.process.poll() is not None:
-            return
         try:
-            if self.process.stdin is not None:
+            if self.process.poll() is None and self.process.stdin is not None:
                 self.process.stdin.write(json.dumps({"command": "quit"}) + "\n")
                 self.process.stdin.flush()
-                self._read_response()
+                self._read_response(10)
+        except (OSError, RuntimeError, TimeoutError):
+            pass
         finally:
             try:
                 self.process.wait(timeout=10)
             except subprocess.TimeoutExpired:
-                self.process.terminate()
+                self._terminate()
+            self._close_pipes()
+
+    def _close_pipes(self) -> None:
+        for stream in (self.process.stdin, self.process.stdout):
+            if stream is not None:
+                stream.close()
+        self._reader.join(timeout=2)
+
+    def _terminate(self) -> None:
+        """Stop only the child process owned by this client."""
+        if self.process.poll() is None:
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
                 self.process.wait(timeout=10)
 
     def __enter__(self) -> "JFEMWorker":
@@ -220,4 +333,5 @@ __all__ = [
     "load_summary",
     "run_batch_once",
     "write_batch_manifest",
+    "resolve_sysimage",
 ]

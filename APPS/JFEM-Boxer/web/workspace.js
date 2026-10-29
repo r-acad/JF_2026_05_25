@@ -180,6 +180,8 @@
       if(!api)throw new Error("Color-scale settings require the updated viewer.");view.legends=api.validateState(view.legends);}
     if(view.loadPlots!==undefined){const api=typeof WingLoadPlots!=="undefined"?WingLoadPlots:typeof require==="function"?require("./load_plots.js"):null;
       if(!api)throw new Error("Load-plot settings require the updated viewer.");view.loadPlots=api.validateState(view.loadPlots);}
+    if(view.aerodynamics!==undefined){const api=typeof WingAerodynamicStudy!=='undefined'?WingAerodynamicStudy:typeof require==='function'?require('./aerodynamic_study.js'):null;if(!api)throw Error('Aerodynamic settings require the updated viewer.');view.aerodynamics=api.validateState(view.aerodynamics);}
+    if(view.potato!==undefined){const api=typeof WingPotatoPlots!=="undefined"?WingPotatoPlots:typeof require==="function"?require("./potato_plots.js"):null;if(!api)throw Error("Potato settings require the updated viewer.");view.potato=api.validateState(view.potato);}
     return view;
   }
   // Sparse older Studies must use current markup defaults for new controls,
@@ -201,6 +203,8 @@
     view.editingCase??=1;view.resultVariant??="";view.contourPreference??=null;view.realScale??=false;view.loadLayers??={};view.parameterLocks??={planform:false,mesh:false};
     view.reference??={selectedIndex:-1,mode:"off"};view.drawings??={};view.viewportTools??={collapsed:false};view.planformInputs??={method:"area"};view.legends??={collapsed:{}};
     view.panelExplosion??={enabled:false,origin:"centroid",distance:1};view.layerGroups??={};view.geometryAppearance??={};
+    view.aerodynamics??={settings:{},field:"delta_cp",frame:"wind",vectors:false,wireframe:true,commonScale:true,selected:0};
+    view.potato??={selected:null,labels:"none"};
     view.loadPlots??={mode:"distributed",visible:["aerodynamic","structure","fuel","total"]};
     view.camera.mode??=0;view.camera.fov??=.8;
     for(const key of ["orthoLeft","orthoRight","orthoTop","orthoBottom"])view.camera[key]??=null;
@@ -287,6 +291,8 @@
       ...(state.propertyDisplay ? {propertyDisplay:state.propertyDisplay.capture()} : {}),
       geometryAppearance:JSON.parse(JSON.stringify(state.geometryAppearance||{})),
       ...(typeof WingLegends!=="undefined" ? {legends:WingLegends.capture()} : {}),
+      aerodynamics:state.aerodynamicStudy?.capture()||{settings:{},field:"delta_cp",frame:"wind",vectors:false,wireframe:true,commonScale:true,selected:0},
+      potato:state.potatoPlots?.capture()||{selected:null,labels:"none"},
       loadPlots:state.loadPlots?.capture()||{mode:"distributed",visible:["aerodynamic","structure","fuel","total"]},
       workspace:{activeTab:workspace.activeTab,width:workspace.preferredWidth,collapsed:document.getElementById("sidebar").classList.contains("panel-collapsed"),maximizedTab:workspace.maximizedTab||null,
         panels:Object.fromEntries(PANEL_IDS.filter(id=>document.getElementById(id)).map(id=>[id,document.getElementById(id).classList.contains("panel-collapsed")]))},

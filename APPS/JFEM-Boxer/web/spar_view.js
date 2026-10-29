@@ -2,7 +2,7 @@
 (function(root,factory){const api=factory(root,typeof module==="object"&&module.exports?require("./planform_view.js"):root.WingPlanformView);if(typeof module==="object"&&module.exports)module.exports=api;else root.WingSparView=api;})(typeof globalThis!=="undefined"?globalThis:this,function(root,P){
  "use strict";
  const POINT_KEYS=["box.front_spar_points","box.rear_spar_points"],ANCHOR_KEYS=["box.front_spar_xc","box.rear_spar_xc"];
- const PARAM_KEYS=[...P.PARAM_KEYS,...ANCHOR_KEYS,...POINT_KEYS,"box.stringer_angle","box.stringer_angle_reference","box.rib_pitch","ribs.masters"],views=new WeakMap();
+ const PARAM_KEYS=[...P.PARAM_KEYS,...ANCHOR_KEYS,...POINT_KEYS,"box.stringer_angle","box.stringer_angle_reference","box.stringer_segment_angles","box.rib_pitch","ribs.masters"],views=new WeakMap();
  const number=value=>root.WingNumbers?root.WingNumbers.format(value,6):Number(value.toPrecision(6)).toString();
  function sample(data,edge,eta){
   const vertices=data.edgeVertices[POINT_KEYS[edge]];if(!vertices||!Number.isFinite(eta)||eta<0||eta>1)throw new Error("Spar samples need edge 0 or 1 and eta between 0 and 1.");
@@ -31,11 +31,12 @@
   const breaks=[...new Set([0,endEta,...Object.values(edgeVertices).flat().map(p=>p.eta),...Object.values(data.edgeVertices).flat().map(p=>p.eta)])].sort((a,b)=>a-b),stations=breaks.map(eta=>{const leading=edgeOffset(0,eta),trailing=chord(eta)+edgeOffset(1,eta),front=sampleAt(0,eta),rear=sampleAt(1,eta);return{eta,front,rear,leading,trailing,surfaceFront:(front.q-leading)/(trailing-leading),surfaceRear:(rear.q-leading)/(trailing-leading)};});
   if(stations.some(s=>s.eta<=endEta&&!(s.leading<s.front.q&&s.front.q<s.rear.q&&s.rear.q<s.trailing)))report("Within the modeled box, both spars must remain inside the refined lifting surface without crossing or touching. Change the spar points or the lifting surface outline.",[...POINT_KEYS,...P.POINT_KEYS]);
   const stringerSegments=[],rearPoints=controls[POINT_KEYS[1]],rearVertices=edgeVertices[POINT_KEYS[1]],stringerReference=params["box.stringer_angle_reference"]??"rear_spar";
-  if(!["rear_spar","front_spar","global_y"].includes(stringerReference))report("Choose Rear spar, Front spar or Global Y for stringer angles.",["box.stringer_angle_reference"]);
+  if(!["rear_spar","front_spar","global_y"].includes(stringerReference))report("Choose Local rear spar, Local front spar or Angle from Y axis.",["box.stringer_angle_reference"]);
   if(stringerReference!=="rear_spar"){
-   const knots=[...new Set([0,1,...rearPoints.map(p=>p.eta),...(stringerReference==="front_spar"?edgeVertices[POINT_KEYS[0]].map(p=>p.eta):[])])].sort((a,b)=>a-b);
+   const masterKnots=[0,...(params['ribs.masters']||[]).map(row=>row.eta).sort((a,b)=>a-b),endEta],schedule=params['box.stringer_segment_angles']||[];
+   const knots=[...new Set(stringerReference==='global_y'?[...masterKnots,1]:[0,1,...rearPoints.map(p=>p.eta),...edgeVertices[POINT_KEYS[0]].map(p=>p.eta)])].sort((a,b)=>a-b);
    for(let i=1;i<knots.length;i++){
-    const a=knots[i-1],b=knots[i],angle=rearPoints.length?(rearPoints.find(p=>p.eta>=b)||rearPoints.at(-1)).stringer_angle:(params["box.stringer_angle"]??0);
+    const a=knots[i-1],b=knots[i],segment=Math.min(masterKnots.length-2,Math.max(0,masterKnots.filter(v=>v<=a).length-1)),angle=stringerReference==='global_y'?(schedule[segment]??params['box.stringer_angle']??0):rearPoints.length?(rearPoints.find(p=>p.eta>=b)||rearPoints.at(-1)).stringer_angle:(params["box.stringer_angle"]??0);
     const va=sampleAt(0,a),vb=sampleAt(0,b),datumAngle=stringerReference==="global_y"?0:Math.atan2(vb.position[0]-va.position[0],(b-a)*data.semispan)*180/Math.PI,absoluteAngle=datumAngle+angle,active=a<endEta;
     if(active&&!(Number.isFinite(absoluteAngle)&&Math.abs(absoluteAngle)<89))report(`Stringer direction on eta ${number(a)} to ${number(b)} must stay within 89 degrees of +Y.`,["box.stringer_angle_reference",POINT_KEYS[1]]);
     stringerSegments.push({startEta:a,endEta:b,angle,datumAngle,absoluteAngle,active});

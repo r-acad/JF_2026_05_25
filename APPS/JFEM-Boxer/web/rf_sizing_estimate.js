@@ -9,7 +9,7 @@
  const clone=v=>v instanceof Map?new Map([...v].map(([k,x])=>[k,clone(x)])):Array.isArray(v)?v.map(clone):v&&typeof v==='object'?Object.fromEntries(Object.entries(v).map(([k,x])=>[k,clone(x)])):v;
  const json=v=>JSON.stringify(v,(_,x)=>typeof x==='number'&&!finite(x)?String(x):x);
  const fail=reason=>({reason}),near=(a,b,tol=1e-9)=>finite(a)&&finite(b)&&Math.abs(a-b)<=tol*Math.max(Math.abs(a),Math.abs(b),Number.MIN_VALUE);
- const certificates=new WeakMap(),cache=new WeakMap(),laminateCache=new WeakMap();
+ const sectionCertificates=new WeakMap(),certificates=new WeakMap(),cache=new WeakMap(),laminateCache=new WeakMap();
  const NOTE='Model and results are not in sync. Estimated reserve factors use the edited sections with the last solved element forces and moments held fixed. They ignore load redistribution, changes in mass loads, aeroelastic loads and nonlinear equilibrium. Rerun the FE analysis to confirm the design.';
  const ALLOWED=/^(properties\.|material\.|materials\.)|^stringers\.(euler_fixity_coefficient|skin_fixity_coefficient)$/;
  const geometryKeys=['elements','nodeIds','nodePositions','panels','componentGroups','eulerColumns','stringerBlades','skinBucklingPanels','componentBuckling'];
@@ -127,11 +127,12 @@
  }
  function beamRecovery(property,record){
   const s=property.section??property,d=s.dimensions_m,f=record?.forces;
+  if(s.shape==='BAR')return rectangularRecovery(property,record);
   if(property.material?.type!=='MAT1'||s.shape!=='T'||!Array.isArray(d)||d.length!==4||!d.every(positive))return fail('Fixed-load beam stress recovery currently supports isotropic PBARL T sections.');
   if(/distributed|varying|taper|interior/i.test(record?.stress?.von_mises_recovery?.reason||''))return fail(record.stress.von_mises_recovery.reason);
   const[b,h,tf,tw]=d,hw=h-tf;if(!(b>tw&&hw>0))return fail('The edited T section has overlapping or nonpositive walls.');
   const A=b*tf+hw*tw,yc=(hw*tw*hw/2+b*tf*(hw+tf/2))/A,yf=hw+tf/2,
-   I1=tw*hw**3/12+hw*tw*(yc-hw/2)**2+b*tf**3/12+b*tf*(yf-yc)**2,I2=hw*tw**3/12+tf*b**3/12,J=(hw*tw**3+b*tf**3)/3;
+   I1=tw*hw**3/12+hw*tw*(yc-hw/2)**2+b*tf**3/12+b*tf*(yf-yc)**2,I2=hw*tw**3/12+tf*b**3/12,J=s.torsion_formulation==='saint_venant_2d'?s.J_m4:(hw*tw**3+b*tf**3)/3;
   if(!near(s.area_m2??property.area_m2,A,1e-8)||!near(s.I1_m4??property.I1_m4,I1,1e-8)||!near(s.I2_m4??property.I2_m4,I2,1e-8)||!near(s.J_m4??property.J_m4,J,1e-8))return fail('Regenerated T-section area/inertia does not match its dimensions.');
   const I12=s.I12_m4??property.I12_m4??0;if(!finite(I12)||Math.abs(I12)>1e-12*Math.sqrt(I1*I2))return fail('The symmetric T-section sizing model requires zero product of inertia.');
   if(!finite(f?.axial))return fail('A finite solved beam axial force is required.');
@@ -143,17 +144,33 @@
   if(![axial,normal,shear,equivalent].every(finite))return fail('Projected beam stress exceeds the numeric range.');
   return{stress:{...stress,von_mises:equivalent,von_mises_recovery:{status:'complete',method:'fixed_load_thin_walled_t_section_envelope',description:'Sizing estimate using the native conservative T-section envelope with fixed solved end forces/moments and updated dimensions; no load redistribution.',normal_bound:normal,combined_shear_bound:shear}},strain:{},method:'Fixed beam resultants, conservative thin-walled T-section envelope'};
  }
+ function rectangularRecovery(property,record){
+  const s=property.section??property,d=s.dimensions_m,f=record?.forces;
+  if(property.material?.type!=='MAT1'||!Array.isArray(d)||d.length!==2||!d.every(positive))return fail('A dimension-defined isotropic solid rectangle is required.');
+  if(/distributed|varying|taper|interior/i.test(record?.stress?.von_mises_recovery?.reason||''))return fail(record.stress.von_mises_recovery.reason);
+  const[b,h]=d,A=b*h,I1=b*h**3/12,I2=h*b**3/12;
+  if(!near(s.area_m2??property.area_m2,A,1e-8)||!near(s.I1_m4??property.I1_m4,I1,1e-8)||!near(s.I2_m4??property.I2_m4,I2,1e-8))return fail('Rectangular area/inertia differs from the physical dimensions.');
+  const I12=s.I12_m4??property.I12_m4??0;if(!finite(I12)||Math.abs(I12)>1e-12*Math.sqrt(I1*I2))return fail('Rectangular principal section axes are required.');
+  const keys=['axial','shear_1','shear_2','torque','moment_a1','moment_a2','moment_b1','moment_b2'];if(!keys.every(k=>finite(f?.[k])))return fail('Complete rectangular beam resultants are required.');
+  const axial=f.axial/A,normal=Math.max(...['a','b'].flatMap(end=>[-h/2,h/2].flatMap(y=>[-b/2,b/2].map(z=>Math.abs(axial-f['moment_'+end+'1']*y/I1-f['moment_'+end+'2']*z/I2))))),transverse=1.5*(Math.abs(f.shear_1)+Math.abs(f.shear_2))/A,torsion=5*Math.abs(f.torque)/(Math.max(b,h)*Math.min(b,h)**2),shear=transverse+torsion,equivalent=Math.hypot(normal,Math.sqrt(3)*shear);
+  if(![axial,normal,shear,equivalent].every(finite))return fail('Rectangular stress exceeds the finite range.');
+  return{stress:{axial,von_mises:equivalent,von_mises_recovery:{status:'complete',method:'fixed_load_solid_rectangular_section_envelope',normal_bound:normal,transverse_shear_bound:transverse,torsional_shear_bound:torsion,combined_shear_bound:shear,torsion_stress_coefficient:.20}},strain:{},method:'Fixed beam resultants, conservative solid-rectangle equivalent-stress envelope'};
+ }
  function recovery(oldProperty,property,record){if(!record)return fail('No solved element recovery is available.');if(!oldProperty||!property)return fail('The old or regenerated property definition is unavailable.');
   if(['PSHELL','PCOMP'].includes(property.type)&&['PSHELL','PCOMP'].includes(oldProperty.type))return shellRecovery(oldProperty,property,record);
   if(['PBARL','PBAR','PBEAM','PBEAML'].includes(property.type))return beamRecovery(property,record);
   return fail('This property has no fixed-load local stress recovery; rerun the FE analysis.');
  }
+ // Certificates bind section-only responses to the original FEM and exact edit.
+ const sectionKeys=[...geometryKeys,'signature','definitionSignature','meshIdentity','studyEpoch','sectionBaselineSignature'];
+ function certifySections(context){const token={};sectionCertificates.set(token,Object.fromEntries(sectionKeys.map(key=>[key,context[key]])));return token;}
+ function hasSections(base,current){const stored=sectionCertificates.get(current.sectionUpdateCertificate);return!!stored&&current.sectionBaselineSignature===base.signature&&sectionKeys.every(key=>Object.is(stored[key],current[key]));}
  function isEstimateContext(context){const certificate=context?.estimateCertificate,stored=certificate&&certificates.get(certificate);return!!stored&&context.estimated===true&&!context.modelDirty&&!context.pendingDrafts&&!context.running&&certifiedKeys.every(key=>Object.is(stored[key],context[key]));}
  function project(base,current,options={}){
   const check=compatibility(base,current),reject=reason=>({context:base,estimated:false,reason,message:reason,changedPropertyIds:[],diagnostics:[]});
   if(!check.compatible)return reject(check.reason);
   if(current.pendingDrafts||current.running)return reject(current.running?'An FE analysis is running; sizing estimates resume after completion.':'Apply or cancel the current edit before updating sizing estimates.');
-  if(current.modelDirty||current.signature!==(current.definitionSignature??current.signature))return reject('Updating sections for the sizing estimate.');
+  if((current.modelDirty||current.signature!==(current.definitionSignature??current.signature))&&!hasSections(base,current))return reject('Updating sections for the sizing estimate.');
   const small=json({allowables:current.allowables,componentFixities:current.componentFixities,euler:current.eulerFixityCoefficient,skin:current.skinFixityCoefficient,expected:current.expectedCases,labels:entries(current.caseLabels)}),refs=[current.signature,current.meshIdentity,current.studyEpoch,...geometryKeys.map(key=>current[key]),small],old=cache.get(base);
   if(old&&old.refs.length===refs.length&&old.refs.every((x,i)=>Object.is(x,refs[i])))return old.value;
   const why=topologyReason(base,current);if(why)return reject(why);
@@ -178,5 +195,5 @@
   certificates.set(context.estimateCertificate,Object.fromEntries(certifiedKeys.map(key=>[key,context[key]])));
   const value={context,estimated:true,changedPropertyIds:[...changed].sort((a,b)=>a-b),diagnostics,message:NOTE+(diagnostics.length?' Some edited-property stress checks remain unassessed; see assessment details.':'')};cache.set(base,{refs,value});return value;
  }
- return{project,compatibility,definitionCompatible,isEstimateContext,NOTE,recovery,shellRecovery,beamRecovery,laminate,materialQ};
+ return{project,certifySections,compatibility,definitionCompatible,isEstimateContext,NOTE,recovery,shellRecovery,beamRecovery,laminate,materialQ};
 });

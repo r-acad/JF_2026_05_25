@@ -1,3 +1,5 @@
+> **Before first launch:** run `setup.cmd` (Windows), `bash setup.sh` (Linux), or `bash setup.command` (macOS) at the repository root. This installs shared packages and creates the shared image under the root `sysimage/` directory. Wait until setup completes.
+
 # JFEM Buckling & FE Analysis Web App (pure Julia)
 
 ![PANDEATOR with the default stiffened panel ready for analysis](<../../utils/images/pandeator.png>)
@@ -52,7 +54,7 @@ required at runtime).
 
 ## Installation and launch
 
-Use the setup launcher for your operating system under `__Start here!__`. This is the shared installer for JFEM, JFEM-Boxer, PANDEATOR and the
+Run the setup launcher for your operating system at the repository root first. This is the shared installer for JFEM, JFEM-Boxer, PANDEATOR and the
 static viewer; no manual package list is needed. PANDEATOR uses the root JFEM
 environment. Missing package sources are also installed before first launch;
 explicit setup repairs missing artifacts. See
@@ -71,8 +73,7 @@ choose another port or `--no-open` to open the browser yourself.
 
 ### Optional sysimage through the same setup
 
-Pass `--sysimage` to the setup launcher in your `__Start here!__` operating-system
-folder. Add `--dry-run` to inspect the plan without building.
+Pass `--sysimage` to the setup launcher at the repository root. Add `--dry-run` to inspect the plan without building.
 
 PANDEATOR's launchers automatically use the standard local image only when
 its provenance receipt matches the Julia runtime, source and trained workload.

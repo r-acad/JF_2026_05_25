@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 JULIA_BIN="${JFEM_JULIA:-julia}"
 if ! command -v "$JULIA_BIN" >/dev/null 2>&1; then
   echo "Julia was not found. Install it from https://julialang.org/downloads/ then reopen this terminal." >&2

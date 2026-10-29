@@ -153,7 +153,7 @@ function euler_strip_matrix(law,width,center,tangent,normal,projection=1.)
         p^2*b*(v*transpose(n)+n*transpose(v))+p*d*(n*transpose(n)))
 end
 
-function euler_path_intersection(edges,origin,axis)
+function euler_path_intersection(edges,origin,axis;extend_ends=false)
     hits=NTuple{3,Float64}[]
     for edge in edges
         a,b=edge.a,edge.b;da=euler_dot(a.-origin,axis);db=euler_dot(b.-origin,axis)
@@ -165,13 +165,31 @@ function euler_path_intersection(edges,origin,axis)
     for point in hits
         all(other->norm3(point.-other)>1e-8,unique_hits)&&push!(unique_hits,point)
     end
+    if isempty(unique_hits)&&extend_ends&&!isempty(edges)
+        # A normal cut beside an oblique root/final rib can miss the finite
+        # spar even though its half-width tributary strip is inside the skin.
+        # Continue only the terminal spar tangent to locate that partition.
+        # This adds no material: the caller still clips actual shell faces
+        # and requires complete coverage of the resulting half-width strip.
+        lo,hi=extrema(p[2] for edge in edges for p in (edge.a,edge.b))
+        for edge in edges,(a,b) in ((edge.a,edge.b),(edge.b,edge.a))
+            terminal=a[2]<=lo+1e-10&&b[2]>a[2]+1e-10||a[2]>=hi-1e-10&&b[2]<a[2]-1e-10
+            terminal||continue
+            direction=a.-b;den=euler_dot(direction,axis)
+            abs(den)>1e-14||continue
+            distance=-euler_dot(a.-origin,axis)/den
+            distance>=0||continue
+            point=a.+distance.*direction
+            all(other->norm3(point.-other)>1e-8,unique_hits)&&push!(unique_hits,point)
+        end
+    end
     length(unique_hits)==1||throw(ArgumentError("The adjacent stringer/spar does not have one intersection inside this rib bay"))
     only(unique_hits)
 end
 
 euler_edge_index(edges)=euler_face_index([(a=edge.a,b=edge.b,points=[edge.a,edge.b]) for edge in edges])
-euler_path_intersection(index::EulerFaceIndex,origin,axis)=
-    euler_path_intersection(euler_section_candidates(index,origin,axis,axis,0.,0.),origin,axis)
+euler_path_intersection(index::EulerFaceIndex,origin,axis;extend_ends=false)=
+    euler_path_intersection(extend_ends ? index.faces : euler_section_candidates(index,origin,axis,axis,0.,0.),origin,axis;extend_ends)
 
 function euler_beam_parts(m,edge,origin,axis,y,z)
     gr=edge.group;index=edge.element;definition=section_definition(m.params,gr.pid)
@@ -350,7 +368,8 @@ function stringer_euler_payload(m::Model;layout=stiffened_panel_layout(m.grid),c
                 position=findfirst(==(panel.column),active);position===nothing&&throw(ArgumentError("Stringer adjacency is unavailable at a section"))
                 left=position==1 ? boundary_indices[(panel.upper,true)] : column_indices[(panel.upper,active[position-1])]
                 right=position==length(active) ? boundary_indices[(panel.upper,false)] : column_indices[(panel.upper,active[position+1])]
-                a=euler_path_intersection(left,origin,axis);b=euler_path_intersection(right,origin,axis)
+                a=euler_path_intersection(left,origin,axis;extend_ends=position==1)
+                b=euler_path_intersection(right,origin,axis;extend_ends=position==length(active))
                 lo,hi=minmax(euler_dot(a.-origin,y)/2,euler_dot(b.-origin,y)/2)
                 lo< -1e-10&&hi>1e-10||throw(ArgumentError("Adjacent skin boundaries do not bracket the stringer"))
                 station=Dict{String,Any}("id"=>index,"origin_m"=>collect(origin),"axis"=>collect(axis),

@@ -88,9 +88,9 @@
   }
   return svg;
  }
- function install(host,{read,onEdit,isLocked=()=>false,readValues,readGenerated,onViewChange}={}){
+ function install(host,{read,onEdit,onEditAngles,isLocked=()=>false,readValues,readGenerated,onViewChange}={}){
   const doc=host.ownerDocument,section=doc.createElement('section');section.className='stringer-segment-angles stringer-layout-editor';
-  section.innerHTML='<div class="sl-preview"><div class="sl-preview-title"><h3>Stringer plan view</h3></div><div class="sl-canvas structural-plan-canvas"><svg id="stringer-layout-svg" viewBox="0 0 800 340" role="group" aria-label="Stringer paths, ribs, spars and refined lifting-surface outline"></svg></div><p class="structural-plan-legend"><i class="surface"></i>Lifting surface <i class="base"></i>Base trapezoid <i class="front"></i>Front spar <i class="rear"></i>Rear spar <i class="rib"></i>Ribs <i class="sl-upper"></i>Upper <i class="sl-lower"></i>Lower <i class="sl-reference"></i>Reference <i class="sl-connector"></i>Run-out connector</p><p class="sl-status" role="status"></p><p class="sl-preview-error" role="alert" hidden></p></div><div class="sl-angle-editor"><h3>Spanwise stringer directions</h3><p class="pick-note">Choose the local rear spar, local front spar or Global Y as the angle reference. Zero follows the selected spar, or runs normal to the symmetry plane for Global Y; positive sweeps aft. Angle intervals are defined by the rear-spar eta points in Structure - Spars. The last angle continues to the tip. Pitch, angle and run-out edits update the reference paths immediately; Create FEM gives the actual upper and lower attachment paths.</p><div data-angles></div><p data-angle-error role="alert" hidden></p></div>';const heading=host.querySelector('.parameter-heading');if(heading)heading.after(section);else host.append(section);
+  section.innerHTML='<div class="sl-preview"><div class="sl-preview-title"><h3>Stringer plan view</h3></div><div class="sl-canvas structural-plan-canvas"><svg id="stringer-layout-svg" viewBox="0 0 800 340" role="group" aria-label="Stringer paths, ribs, spars and refined lifting-surface outline"></svg></div><p class="structural-plan-legend"><i class="surface"></i>Lifting surface <i class="base"></i>Base trapezoid <i class="front"></i>Front spar <i class="rear"></i>Rear spar <i class="rib"></i>Ribs <i class="sl-upper"></i>Upper <i class="sl-lower"></i>Lower <i class="sl-reference"></i>Reference <i class="sl-connector"></i>Run-out connector</p><p class="sl-status" role="status"></p><p class="sl-preview-error" role="alert" hidden></p></div><div class="sl-angle-editor"><h3>Spanwise stringer directions</h3><p class="pick-note">Choose the local rear spar, local front spar or Angle from Y axis. Positive sweeps aft. Angle from Y axis has one editable angle per segment between root, intermediate master ribs and final closure. Spar-relative intervals follow the rear-spar eta points. Pitch, angle and run-out edits update the reference paths immediately; Create FEM gives the actual upper and lower attachment paths.</p><div data-angles></div><p data-angle-error role="alert" hidden></p></div>';const heading=host.querySelector('.parameter-heading');if(heading)heading.after(section);else host.append(section);
   const referenceRow=doc.getElementById('row-box.stringer_angle_reference'),referenceParent=referenceRow?.parentNode,referenceNext=referenceRow?.nextSibling;if(referenceRow)section.querySelector('.sl-angle-editor h3').after(referenceRow);
   const output=section.querySelector('[data-angles]'),error=section.querySelector('[data-angle-error]'),svg=section.querySelector('svg'),status=section.querySelector('.sl-status'),previewError=section.querySelector('.sl-preview-error');
   svg.dataset.viewKey='stringer-layout';
@@ -115,10 +115,31 @@
   }
   function refresh(){
    if(destroyed)return;refreshDrawing();
-   const points=read?.()||[],legacy=doc.getElementById('row-box.stringer_angle');if(legacy)legacy.hidden=points.length>0;
+   const points=read?.()||[],params=readValues?.()||{},fromY=params['box.stringer_angle_reference']==='global_y',legacy=doc.getElementById('row-box.stringer_angle');if(legacy)legacy.hidden=fromY||points.length>0;
+   const storage=doc.getElementById('row-box.stringer_segment_angles');if(storage)storage.hidden=true;
+   const knots=[0,...(params['ribs.masters']||[]).map(row=>row.eta).sort((a,b)=>a-b),params['box.end_eta']??1];
+   const ribs=lastData?.ribs||[],ribNumbers=knots.map(eta=>ribs.find(r=>r.isMaster&&Math.abs(r.eta-eta)<1e-10)?.number);
+   const masterKey=JSON.stringify([knots,ribNumbers]);
+   // Keep sibling controls alive during blur/change. Replacing the table in
+   // that event discarded the next focused field's edit (notably negatives).
+   if(fromY&&output.dataset.masterKey===masterKey){
+    for(const input of output.querySelectorAll('[data-master-segment]')){
+     input.disabled=isLocked();
+     if(input!==doc.activeElement)input.value=String((params['box.stringer_segment_angles']||[])[Number(input.dataset.masterSegment)]??params['box.stringer_angle']??0);
+    }
+    return;
+   }
    // Preserve focused angle drafts, while always updating the drawing above.
    if(output.contains(doc.activeElement))return;
-   output.replaceChildren();error.hidden=true;
+   output.replaceChildren();delete output.dataset.masterKey;error.hidden=true;
+   if(fromY){
+    const angles=params['box.stringer_segment_angles']||[];
+    const table=doc.createElement('table');table.className='stringer-angle-table';table.innerHTML='<thead><tr><th>Master-rib segment (ribs / eta)</th><th>Angle from Y (deg)</th></tr></thead><tbody></tbody>';
+    for(let i=0;i<knots.length-1;i++){
+     const tr=doc.createElement('tr'),label=doc.createElement('th'),cell=doc.createElement('td'),input=doc.createElement('input');const ribRange=ribNumbers[i]&&ribNumbers[i+1]?`R${ribNumbers[i]} - R${ribNumbers[i+1]}`:`M${i+1} - M${i+2}`;label.textContent=ribRange+' (eta '+number(knots[i])+' - '+number(knots[i+1])+')';input.type='number';input.step='any';input.min='-88.999999';input.max='88.999999';input.value=String(angles[i]??params['box.stringer_angle']??0);input.disabled=isLocked();input.dataset.masterSegment=String(i);input.setAttribute('aria-label','Stringer angle from Y for '+ribRange);
+     input.addEventListener('change',()=>{const angle=Number(input.value);if(isLocked())return;if(!input.value.trim()||!Number.isFinite(angle)||Math.abs(angle)>=89){error.textContent='Enter an angle strictly between -89 and 89 degrees.';error.hidden=false;return;}const current=readValues?.()||{},next=Array.from({length:knots.length-1},(_,j)=>(current['box.stringer_segment_angles']||[])[j]??current['box.stringer_angle']??0);next[i]=angle;error.hidden=true;onEditAngles?.(next);refreshDrawing();});cell.append(input);tr.append(label,cell);table.tBodies[0].append(tr);
+    }output.append(table);output.dataset.masterKey=masterKey;return;
+   }
    if(!points.length){const p=doc.createElement('p');p.className='pick-note';p.textContent='No rear-spar perturbation points: the default angle applies along the full span using the selected reference.';output.append(p);return;}
    const table=doc.createElement('table');table.className='stringer-angle-table';table.innerHTML='<thead><tr><th>Span eta</th><th>Angle (deg)</th></tr></thead><tbody></tbody>';
    for(const row of segments(points)){
@@ -130,7 +151,7 @@
    }output.append(table);
   }
   function select(event){const hit=event.target.closest?.('[data-stringer]'),id=hit?.dataset.stringer||(event.type==='click'&&event.button===0&&pointerSelection&&Math.hypot(event.clientX-pointerSelection.x,event.clientY-pointerSelection.y)<5?pointerSelection.id:null);pointerSelection=null;if(!id)return;if(event.type==='keydown'&&!['Enter',' '].includes(event.key))return;if(event.type==='keydown')event.preventDefault();selected=selected===id?null:id;refreshDrawing();}
-  const onExternal=event=>{if(PARAM_KEYS.some(key=>event.target?.id==='p-'+key))refresh();},onLock=()=>{for(const input of section.querySelectorAll('[data-point-index]'))input.disabled=isLocked()||!!segments(read?.()||[]).find(r=>r.index===Number(input.dataset.pointIndex)&&!r.inherited)?.unused;refreshDrawing();};
+  const onExternal=event=>{if(PARAM_KEYS.some(key=>event.target?.id==='p-'+key))refresh();},onLock=()=>{for(const input of section.querySelectorAll('[data-master-segment]'))input.disabled=isLocked();for(const input of section.querySelectorAll('[data-point-index]'))input.disabled=isLocked()||!!segments(read?.()||[]).find(r=>r.index===Number(input.dataset.pointIndex)&&!r.inherited)?.unused;refreshDrawing();};
   doc.addEventListener('input',onExternal);doc.addEventListener('change',onExternal);host.addEventListener('parameterlockchange',onLock);svg.addEventListener('click',select);svg.addEventListener('keydown',select);
   refresh();return{refresh,refreshDrawing,section,viewport,captureView:()=>viewport?.capture(),restoreView:value=>viewport?.restore(value),data:()=>lastData,destroy(){destroyed=true;if(referenceRow&&referenceParent)referenceParent.insertBefore(referenceRow,referenceNext?.parentNode===referenceParent?referenceNext:null);viewport?.destroy();svg.removeEventListener('pointerdown',rememberSelection,true);doc.removeEventListener('input',onExternal);doc.removeEventListener('change',onExternal);host.removeEventListener('parameterlockchange',onLock);section.remove();}};
  }

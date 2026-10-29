@@ -765,3 +765,5 @@ button[id^="btn-max-"][aria-pressed="true"],button[data-toml="maximize"][aria-pr
 button[id^="btn-max-"]:hover:not(:disabled),button[data-toml="maximize"]:hover:not(:disabled) {
   background:#606060; border-color:#999;
 }
+
+#geometry-preview-status{flex:0 1 auto;min-width:0;max-width:210px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px;color:#a6dce8}

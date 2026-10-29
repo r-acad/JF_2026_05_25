@@ -1,7 +1,8 @@
 # Install and run JFEM
 
-Choose your operating system. Each folder contains its setup launcher,
-application launchers and one guide covering installation, repair and offline use.
+**Run the shared setup at the repository root first:** [`setup.cmd`](../setup.cmd) on Windows, `bash setup.sh` on Linux, or `bash setup.command` on macOS. It downloads the packages and builds the shared image under the root `sysimage/` directory. Wait for setup to finish before opening an app.
+
+Each operating-system folder contains application shortcuts and a guide covering installation, repair and offline use. There are no app-specific installers.
 
 | System | Open this guide |
 | --- | --- |

@@ -1,0 +1,17 @@
+'use strict';
+const assert=require('node:assert/strict'),R=require('../web/rib_layout.js'),P=require('../web/planform_view.js'),{base}=require('./rib_spar_snap_test.cjs');
+const snap=R.snapRibToSparPoint(base,3,0,1),linked={...base,[snap.pointKey]:snap.pointRows,'ribs.masters':snap.rows};
+assert(snap.rows[0].spar_link.point_id===snap.pointRows[1].point_id);
+const moved=JSON.parse(JSON.stringify(linked));moved[snap.pointKey][1].eta=.53;moved[snap.pointKey][1].dxc=.02;
+moved[snap.pointKey].push({eta:.2,dxc:0});moved[snap.pointKey].sort((a,b)=>a.eta-b.eta);
+assert.equal(R.resolveLinkedMasters(moved)[0].eta,.53);
+const drawing=R.drawing(R.derive(moved));assert.match(drawing,/rl-rib rl-master rl-snapped/);
+const reloaded=JSON.parse(JSON.stringify(moved));assert.equal(R.resolveLinkedMasters(reloaded)[0].spar_link.point_id,snap.rows[0].spar_link.point_id);
+reloaded[snap.pointKey]=reloaded[snap.pointKey].filter(p=>p.point_id!==snap.rows[0].spar_link.point_id);
+const unlinked=R.resolveLinkedMasters(reloaded);assert(!unlinked[0].spar_link);assert.equal(unlinked[0].eta,snap.eta);
+const oblique={...base,'ribs.masters':[{eta:.45,mode:'rear_spar_angle',angle:80,pitch:1,plane:'normal_to_midplane'}]},source=R.derive(oblique).ribs.find(r=>r.isMaster&&!r.master.fixed),s=R.snapRibToSparPoint(oblique,source.number,0,1),p={...oblique,[s.pointKey]:s.pointRows,'ribs.masters':s.rows};
+p[s.pointKey][1].dxc=.05;p[s.pointKey][1].eta=.55;
+const solved=R.resolveLinkedMasters(p),rib=R.derive(p).ribs.find(r=>r.isMaster&&!r.master.fixed);
+assert.equal(solved[0].plane,'normal_to_midplane');assert(Math.abs(rib.frontEta-.55)<1e-10);assert.equal(solved[0].angle,80);
+assert.throws(()=>P.normalizePointRows([{eta:.2,dxc:0,point_id:'x'},{eta:.3,dxc:0,point_id:'x'}],s.pointKey,p),/identities/);
+console.log('PASS Persistent rib links survive point edits, insertion, sorting and JSON reload; deletion unlinks without retargeting; oblique links retain direction and plane.');

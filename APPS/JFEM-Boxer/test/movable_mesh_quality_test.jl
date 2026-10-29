@@ -83,12 +83,14 @@ end
     p=quality_parameters(;secondary=.5)
     p["loft.twist_stations"]=[Dict("eta"=>0.,"twist"=>0.),
         Dict("eta"=>.500001,"twist"=>-1.),Dict("eta"=>1.,"twist"=>-3.)]
-    # The geometry breakpoint and the physical middle rib are distinct. The
-    # mesher must explain their conflict instead of silently moving either one
-    # or exporting a strip six orders of magnitude thinner than its neighbors.
-    error=try W.build_model(p); nothing catch exception; exception end
-    @test error isa ArgumentError
-    @test occursin(r"(?i)geometry|station|rib",sprint(showerror,error))
+    # Keep both exact stations. A valid thin strip is reported as poor quality;
+    # it must never be silently merged, or confused with an invalid/folded cell.
+    m=W.build_model(p);surface=only(m.movable_structure["surfaces"])
+    @test .5 in surface["eta_stations"]
+    @test .500001 in surface["eta_stations"]
+    @test surface["maximum_span_edge_chord_ratio"]<=1+1e-10
+    issues=filter(i->get(i,"rib_reference","")=="movable",m.mesh_quality["issues"])
+    @test any(i->i["severity"]=="warning"&&i["maximum_edge_ratio"]>1000,issues)
 end
 
 @testset "Fitting selection follows the airfoil lower contour and reaches both spars" begin

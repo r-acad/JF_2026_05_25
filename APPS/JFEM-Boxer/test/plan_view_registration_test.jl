@@ -50,3 +50,16 @@ end
         @test_throws ArgumentError F.normalize_drawings(JSON.json(Dict("planform" => bad)))
     end
 end
+
+@testset "Image visibility persists independently of opacity and alignment" begin
+    F=PlanViewRegistrationFixture
+    input=Dict("imageVisible"=>false,"opacity"=>.7,"transform"=>Dict("x"=>12.,"y"=>5.,"scale"=>2.))
+    saved=JSON.parse(F.normalize_plan_view(JSON.json(input)))
+    @test saved["imageVisible"]===false
+    @test saved["opacity"]==.7
+    @test saved["transform"]==input["transform"]
+    @test JSON.parse(F.normalize_plan_view("{}"))["imageVisible"]===true
+    drawing=JSON.parse(F.normalize_drawings(JSON.json(Dict("spars"=>input))))
+    @test drawing["spars"]["imageVisible"]===false
+    @test_throws ArgumentError F.normalize_plan_view(JSON.json(Dict("imageVisible"=>0)))
+end

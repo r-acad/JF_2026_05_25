@@ -139,7 +139,7 @@ const FUEL_PLOT_CACHE=Ref{Any}(nothing)
 
 function fuel_plot_sources(m,etas)
     state=fuel_mass_state(m);sources=NamedTuple[];p=m.params;w=m.wing
-    acceleration=ntuple(k->FUEL_MASS_GRAVITY*p["loads.load_factor"]*p["loads.fuel_accel_"*("x","y","z")[k]],3)
+    acceleration=(FUEL_MASS_GRAVITY*p["loads.load_factor"]).*inertia_acceleration_g(p)
     all(iszero,acceleration)&&return sources
     lock(FUEL_GEOMETRY_LOCK) do
         cache=FUEL_PLOT_CACHE[]
@@ -317,7 +317,7 @@ function spanwise_load_data(m::Model, loads)
         "sign_note"=>"Outboard applied-load resultant: positive shear is global +z, bending is right-hand +x, torque is right-hand +y. The balancing internal cut action has opposite sign. At a station, inboard includes its applied load and outboard excludes it.",
         "resultant_note"=>"Exact FE point loads shows the written loads: aerodynamic FORCE/MOMENT at rib references, combined fuel/structural inertia FORCE/MOMENT at bay references including moved-force lever arms, and engine inertia plus thrust directly at engine CGs. Distributed view reconstructs the physical aerodynamic strips, filled fuel volume and structural mass at their actual centroids; engines retain their concentrated CG loads. It does not add the transfer couples a second time. Both views preserve each source's complete root force and moment. No spline smoothing. Unboxed aerodynamic loading extends beyond the final rib only in the distributed source view. These are applied-load diagrams, not recovered stresses.",
         "moment_routing_note"=>APPLIED_MOMENT_ROUTING_NOTE,
-        "structure_inertia"=>get(p,"loads.structure_inertia",false),"structure_inertia_migration_note"=>get(p,"structure_inertia_migration_note",""),
+        "structure_inertia"=>structure_inertia_enabled(p),"structure_inertia_migration_note"=>get(p,"structure_inertia_migration_note",""),
         "units"=>Dict("eta"=>"1","y_m"=>"m","cl_chord_m"=>"m","shear_z_N"=>"N","bending_x_Nm"=>"N m","torque_y_Nm"=>"N m"),
         "applied_force_N"=>collect(force),"applied_moment_origin_Nm"=>collect(moment),
         "root_moment_Nm_about_reference"=>collect(moment .- cross3(reference,force)))

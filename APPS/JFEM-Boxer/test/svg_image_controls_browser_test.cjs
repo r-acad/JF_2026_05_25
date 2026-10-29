@@ -18,6 +18,11 @@ const near=(a,b)=>assert(Math.abs(a-b)<3e-5*Math.max(1,Math.abs(b)),`${a} != ${b
   const showTools=async()=>{if(kind==="shared"){const details=page.locator(".svgv-image-options").first();if(!await details.evaluate(el=>el.open))await details.locator("summary").click();}else if(await page.locator(".dpv-image-settings").isHidden())await control("image-tools").click();};
   await showTools();assert(await control("aspect").isDisabled());assert(await imageWindow.isDisabled());
   await restore({...await capture(),image,transform:{x:120,y:80,scale:180},viewport:{x:15,y:-8,scale:1.2}});await showTools();
+  const visible=await capture();await control("image-toggle").click();let hidden=await capture();assert.equal(hidden.imageVisible,false);assert.equal(await svg.locator('image').evaluate(e=>getComputedStyle(e).display),'none');
+  assert.deepEqual(hidden.transform,visible.transform);assert.deepEqual(hidden.image,visible.image);assert.equal(hidden.opacity,visible.opacity);assert.deepEqual(hidden.pin,visible.pin);
+  await restore(JSON.parse(JSON.stringify(hidden)));assert.equal((await capture()).imageVisible,false);assert.equal(await control("image-toggle").textContent(),'Show image');
+  const hiddenSVG=await svg.evaluate(el=>WingSVGViewport.serializeSVG(el));assert(/display[=:]["']?none/.test(hiddenSVG));
+  await control("image-toggle").click();assert.equal((await capture()).imageVisible,true);assert.notEqual(await svg.locator('image').evaluate(e=>getComputedStyle(e).display),'none');
   const original=await capture();await control("aspect").fill("2.5");await control("aspect").press("Tab");let changed=await capture();assert.equal(changed.imageAspectRatio,2.5);assert.deepEqual(changed.viewport,original.viewport);near(changed.transform.y,original.transform.y);near(changed.transform.x+changed.transform.scale*2.5/2,original.transform.x+original.transform.scale/2);
   const rendered=await svg.locator("image").evaluate(el=>{const m=el.getCTM();return m.a/m.d;});near(rendered,2.5);
   await control("aspect-reset").click();assert.equal((await capture()).imageAspectRatio,null);near((await capture()).transform.x,original.transform.x);
@@ -35,6 +40,6 @@ const near=(a,b)=>assert(Math.abs(a-b)<3e-5*Math.max(1,Math.abs(b)),`${a} != ${b
   await imageWindow.click();await page.mouse.move(a.x,a.y);await page.mouse.down();await page.mouse.move(b.x,b.y);await svg.press("Escape");await page.mouse.up();assert.deepEqual(await capture(),saved);assert.equal(await imageWindow.getAttribute("aria-pressed"),"false");
   const exported=await svg.evaluate(el=>WingSVGViewport.serializeSVG(el));assert(exported.includes("data:image/png;base64,"));assert(exported.includes("scale("));assert(!exported.includes('class="svgv-window-rectangle"'));
   await page.screenshot({path:path.join(out,kind+"-image-controls.png")});assert.equal(await page.evaluate(()=>JSON.stringify(parameters)),JSON.stringify(base));assert(await page.evaluate(()=>changes>0));
-  checks.push({kind,numeric_image_zoom:true,aspect_about_center:true,aspect_at_pin:true,original_ratio:true,pin_after_window:true,window_image_only:true,window_centers_unpinned:true,window_exclusive:true,escape_cancels:true,roundtrip:true,svg_embedded:true,no_model_edits:true});await page.close();
+  checks.push({kind,image_visibility_roundtrip:true,numeric_image_zoom:true,aspect_about_center:true,aspect_at_pin:true,original_ratio:true,pin_after_window:true,window_image_only:true,window_centers_unpinned:true,window_exclusive:true,escape_cancels:true,roundtrip:true,svg_embedded:true,no_model_edits:true});await page.close();
  }assert.deepEqual(errors,[]);fs.writeFileSync(path.join(out,"receipt.json"),JSON.stringify({passed:true,checks,errors},null,2));console.log(JSON.stringify({passed:true,checks},null,2));}finally{await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

@@ -102,9 +102,9 @@ end
 structural_mass_sources(m::Model)=structural_mass_data(m).sources
 
 function structure_acceleration(p)
-    get(p,"loads.structure_inertia",false)||return (0.,0.,0.)
+    structure_inertia_enabled(p)||return (0.,0.,0.)
     factor=WEIGHT_GRAVITY*Float64(p["loads.load_factor"])
-    return ntuple(k->factor*Float64(p["loads.fuel_accel_"*("x","y","z")[k]]),3)
+    return factor.*inertia_acceleration_g(p)
 end
 
 function structure_applied_loads(m::Model;params=m.params)

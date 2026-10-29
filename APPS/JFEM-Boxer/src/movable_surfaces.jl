@@ -25,6 +25,23 @@ function movable_hinge_endpoints(w,s)
     point("start"),point("end")
 end
 
+"""The authored rigid-body motion about the actual straight 3D hinge.
+
+Shared by geometry preview and aerodynamic control nodes. Includes physical
+hinge height, sweep, loft twist/camber and vertical offsets; no camber pivot
+or artificial seal is substituted.
+"""
+function movable_kinematics(w,row;angle=row["deflection"])
+    h0,h1=movable_hinge_endpoints(w,row);delta=h1.-h0
+    length=sqrt(sum(abs2,delta));length>1e-12||throw(ArgumentError("$(row["name"]): hinge axis is too short"))
+    axis=delta./length;sn,cs=sincosd(angle)
+    function transform(point)
+        v=point.-h0;cross=(axis[2]*v[3]-axis[3]*v[2],axis[3]*v[1]-axis[1]*v[3],axis[1]*v[2]-axis[2]*v[1]);projection=sum(axis.*v)
+        ntuple(k->h0[k]+cs*v[k]+sn*cross[k]+(1-cs)*projection*axis[k],3)
+    end
+    (;h0,h1,axis,angle,transform)
+end
+
 function normalize_movable_surfaces(value)
     value isa AbstractVector && length(value)<=100 ||
         throw(ArgumentError("Movable surfaces must be a table of at most 100 surfaces"))
@@ -96,14 +113,7 @@ function movable_surfaces_preview(p::AbstractDict)
         stations=sort!(unique(vcat(collect(range(a,b;length=25)),filter(eta->a<eta<b,loft_control_etas(w)))))
         hinge(eta)=row["hinge_start"]+(row["hinge_end"]-row["hinge_start"])*(eta-a)/(b-a)
         front_spar(eta)=movable_chord_coordinate(row,"front_spar",eta)
-        h0,h1=movable_hinge_endpoints(w,row); delta=h1.-h0
-        axis_length=sqrt(sum(abs2,delta));axis_length>1e-12 || throw(ArgumentError("$(row["name"]): hinge axis is too short"))
-        axis=delta./axis_length; sine,cosine=sincosd(row["deflection"])
-        function rotate(point)
-            v=point.-h0; cross=(axis[2]*v[3]-axis[3]*v[2],axis[3]*v[1]-axis[1]*v[3],axis[1]*v[2]-axis[2]*v[1])
-            projection=sum(axis.*v)
-            return ntuple(k->h0[k]+cosine*v[k]+sine*cross[k]+(1-cosine)*projection*axis[k],3)
-        end
+        motion=movable_kinematics(w,row);h0,h1=motion.h0,motion.h1;delta=h1.-h0;rotate=motion.transform
         edge=row["edge"]=="trailing" ? 1. : 0.
         # Each spanwise ring follows upper hinge -> edge -> lower hinge.
         n=9; ring=2n; xyz=Float64[]

@@ -56,7 +56,7 @@ dialog :where(input:not([type=checkbox]):not([type=radio]):not([type=range]):not
 #workspace-content :is(.layer,.ctl.check,.geometry-visibility) > :is(span,.layer-name) { min-width: 0; overflow-wrap: anywhere; }
 #workspace-content .layer .count { flex: 0 0 auto; white-space: nowrap; }
 
-#workspace-content :where(button):not(.help-icon):not(.help-button):not(.entity-list-toggle):not(.mode):not(.sensitivity-effect-row) {
+#workspace-content :where(button):not(.help-icon):not(.help-button):not(.aero-info-button):not(.aero-notice-close):not(.entity-list-toggle):not(.mode):not(.sensitivity-effect-row) {
   min-height: var(--ui-field-height);
   border-radius: var(--ui-radius);
   line-height: 1.35;
@@ -171,8 +171,9 @@ dialog :where(button,input,select,textarea,summary):focus-visible {
   margin-top: 5px; padding: 9px; box-shadow: none;
 }
 #workspace-content .svgv-image-options label { min-width: 0; flex-wrap: wrap; justify-content: flex-start; }
-#workspace-content .svgv-image-options label > :is(input:not([type=checkbox]),select) { margin-left: auto; max-width: 100%; min-width: 0; }
+#workspace-content .svgv-image-options label > :is(input:not([type=checkbox]),select) { margin-left: 0; max-width: 100%; min-width: 0; }
 #workspace-content .svgv-image-options :is(button,small) { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+#workspace-content .svgv-image-options button { justify-self: start; width: auto; flex: 0 0 auto; }
 #workspace-content .svgv-snap-controls:has(> details[open]) { flex: 1 1 100%; min-width: 0; }
 #workspace-content .svgv-tool-label { max-width: 100%; min-width: 0; flex-wrap: wrap; }
 #workspace-content .svgv-toolbar { gap: 5px; }

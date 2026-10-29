@@ -4,10 +4,15 @@
 .svgv-toolbar button:disabled { opacity:.45; cursor:default; }
 .svgv-toolbar button:focus-visible,.svgv-image-options summary:focus-visible { outline:2px solid #73c5ff; outline-offset:1px; }
 .svgv-image-options { position:relative; }
-.svgv-image-options > div { position:absolute; top:calc(100% + 4px); left:0; z-index:30; display:grid; gap:8px; min-width:220px; padding:10px; border:1px solid #426079; border-radius:5px; background:#142330; color:#dfecf5; box-shadow:0 4px 18px #0008; }
+.svgv-image-options[open] { flex:1 1 100%; min-width:0; order:10; }
+.svgv-image-options > summary { width:fit-content; }
+/* Share the available drawing width instead of stacking one control per row.
+   Keep settings in flow so wrapped rows remain reachable in a narrow dock. */
+.svgv-image-options > div { position:static; box-sizing:border-box; display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; width:100%; min-width:0; max-width:100%; margin-top:5px; padding:9px; border:1px solid #426079; border-radius:5px; background:#142330; color:#dfecf5; }
 .svgv-image-options:not([open]) > div { display:none; }
-.svgv-image-options label { display:flex; align-items:center; gap:7px; justify-content:space-between; }
-.svgv-image-options input[type=number] { width:95px; padding:4px; border:1px solid #426079; border-radius:3px; background:#0c1924; color:#dfecf5; font:inherit; }
+.svgv-image-options > div > :is(button,label,span) { flex:0 1 auto; max-width:100%; }
+.svgv-image-options label { display:inline-flex; flex-wrap:wrap; align-items:center; gap:6px; width:auto; min-width:0; margin:0; justify-content:flex-start; }
+.svgv-image-options input[type=number] { box-sizing:border-box; width:76px; min-width:0; padding:4px; border:1px solid #426079; border-radius:3px; background:#0c1924; color:#dfecf5; font:inherit; }
 .svgv-image-options input[type=range] { width:120px; }
 .svgv-help,.svgv-error { margin:4px 0; padding:8px; border:1px solid #426079; border-radius:4px; background:#162b3a; color:#c8dce9; font:12px/1.5 system-ui,sans-serif; }
 .svgv-error { border-color:#a8545b; color:#ffbec4; background:#44222a; }
@@ -53,7 +58,8 @@ svg.svgv-window-zoom:not(.svgv-panning):not(.dpv-dragging),svg.svgv-window-zoom:
 [data-svgv-theme=white] .svgv-window-rectangle,[data-theme=white] .svgv-window-rectangle { stroke:#006bb0; }
 
 .svgv-image-window-host { display:flex; justify-content:flex-start; }
-.svgv-image-options small { max-width:270px; line-height:1.4; color:#b1c9dc; }
+.svgv-image-options small { flex:1 1 100%; line-height:1.4; color:#b1c9dc; }
+.svgv-snap-controls:has(> details[open]) { flex:1 1 100%; min-width:0; }
 svg.svgv-image-window-zoom:not(.svgv-panning):not(.dpv-dragging),svg.svgv-image-window-zoom:not(.svgv-panning):not(.dpv-dragging) [role=button] { cursor:crosshair; }
 
 .svgv-image-scope-dialog { max-width:460px; padding:22px; border:1px solid #58738c; border-radius:12px; background:#142638; color:#e4eef6; font:14px/1.5 system-ui,sans-serif; }

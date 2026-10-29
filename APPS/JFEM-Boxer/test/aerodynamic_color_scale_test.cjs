@@ -1,0 +1,13 @@
+'use strict';
+const assert=require('node:assert/strict'),A=require('../web/aerodynamic_study.js'),C=require('../web/color_scales.js'),V=require('../web/aerodynamic_view_svg.js'),W=require('../web/workspace.js');
+const state=A.validateState(null),result={cases:[{panels:[{delta_cp:-2},{delta_cp:1}]},{panels:[{delta_cp:4}]}]};
+assert.equal(state.palette,'coolwarm');assert.deepEqual(state.colorLimits,{});
+assert.deepEqual(A.contourRange(result,state),{min:-4,max:4,autoMin:-4,autoMax:4,available:true,manual:false});
+state.commonScale=false;assert.equal(A.contourRange(result,state).min,-2);
+state.colorLimits.delta_cp=[-.4,1.2];state.palette='inferno';const range=A.contourRange(result,state);assert.equal(range.min,-.4);assert.equal(range.max,1.2);assert(range.manual);
+const restored=A.validateState(state);assert.deepEqual(restored,state);const workspace=W.newModelView();workspace.aerodynamics=restored;W.validateView(workspace);
+for(const colorLimits of [{mesh:[0,1]},{delta_cp:[1,1]},{delta_cp:[2,1]},{delta_cp:[0,Infinity]},{unknown:[0,1]}])assert.throws(()=>A.validateState({colorLimits}),/color scale/);
+assert.throws(()=>A.validateState({palette:'unknown'}),/color scale/);
+const before=JSON.stringify(result);for(const palette of Object.keys(C.scales)){const svg=V.svg({width:500,height:300,title:'Cp',legend:{label:'Delta Cp',min:-.4,max:1.2,stops:C.stops(palette,-.4,1.2)}});for(const stop of C.stops(palette,-.4,1.2))assert(svg.includes('stop-color="rgb('+stop.color.map(v=>Math.round(v*255)).join(',')+')"'));assert(svg.includes('>-0.4</text>'));assert(svg.includes('>1.2</text>'));}assert.equal(JSON.stringify(result),before);
+assert.equal(A.sourceSignature({wing:1},state.settings),A.sourceSignature({wing:1},restored.settings));
+console.log('PASS Shared FEM palettes, automatic/common/manual Cp limits, validated Study persistence and matching SVG color bars without numerical-data mutation.');

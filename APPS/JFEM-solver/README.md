@@ -1,3 +1,5 @@
+> **Before first launch:** run `setup.cmd` (Windows), `bash setup.sh` (Linux), or `bash setup.command` (macOS) at the repository root. This installs shared packages and creates the shared image under the root `sysimage/` directory. Wait until setup completes.
+
 # Standalone JFEM solver launchers
 
 This folder contains launchers for the shared solver in `../../src/`.

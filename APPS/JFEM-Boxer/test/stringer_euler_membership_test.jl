@@ -44,6 +44,20 @@ function check_membership(m,rows)
 end
 summary=Any[]
 checks=@testset "Euler geometry membership survives unsupported end restraints" begin
+    @testset "Terminal spar partitions at oblique end ribs" begin
+        edge=(a=(1.,0.,0.),b=(.5,1.,0.))
+        origin=(.2,.05,0.);axis=(.2,1.,0.)
+        @test_throws ArgumentError W.euler_path_intersection([edge],origin,axis)
+        point=W.euler_path_intersection([edge],origin,axis;extend_ends=true)
+        @test abs(W.euler_dot(point.-origin,axis))<1e-12
+        @test point[2]<0 # Partition reference only; never a shell extrapolation.
+        @test all(isapprox.(W.euler_path_intersection(W.euler_edge_index([edge]),origin,axis;extend_ends=true),point))
+        inside=(.2,.5,0.)
+        @test W.euler_path_intersection([edge],inside,axis)==W.euler_path_intersection([edge],inside,axis;extend_ends=true)
+        # Ambiguous physical crossings must still fail closed.
+        folded=[(a=(0.,0.,0.),b=(1.,1.,0.)),(a=(1.,1.,0.),b=(0.,2.,0.))]
+        @test_throws ArgumentError W.euler_path_intersection(folded,(.5,1.,0.),(1.,0.,0.);extend_ends=true)
+    end
     for name in ("beam_flat","beam_swept","beam_runout","shell_flat","shell_blade","shell_swept","shell_runout")
         p=membership_params()
         startswith(name,"shell")&&(p["stringers.model"]="shell")
@@ -56,7 +70,9 @@ checks=@testset "Euler geometry membership survives unsupported end restraints" 
         @test [r["member_element_ids"] for r in rows]==[r["member_element_ids"] for r in compact]
         @test [r["status"] for r in rows]==[r["status"] for r in compact]
         failed=filter(r->r["status"]!="ready",rows)
-        @test endswith(name,"runout") ? length(failed)==4 : isempty(failed)
+        # A geometric runout may now stop on a physical rib. Availability
+        # follows the actual end supports, rather than the fixture's name.
+        @test length(failed)==count(r->r["start_support"]=="runout"||r["end_support"]=="runout",rows)
         push!(summary,Dict("name"=>name,"rows"=>length(rows),"ready"=>length(rows)-length(failed),
             "complete_membership"=>count(r->r["membership_complete"],rows),"runout_end_restraint_unavailable"=>length(failed)))
         if name=="beam_flat"

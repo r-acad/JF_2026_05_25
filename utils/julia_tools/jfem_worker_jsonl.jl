@@ -37,6 +37,7 @@ manifest_apply_flags!(startup_flags)
 redirect_stdout(stderr) do
     @eval using OpenJFEM
 end
+include(joinpath(@__DIR__, "warm_model_session.jl"))
 
 const WORKER_SESSION_ID = string(Dates.format(Dates.now(Dates.UTC), dateformat"yyyymmddTHHMMSS"), "-pid", getpid())
 const REPO_ROOT = normpath(joinpath(@__DIR__, "..", ".."))
@@ -71,7 +72,23 @@ function _handle_worker_command(cmd::AbstractDict)
             "commands" => COUNTERS["commands"],
             "completed_batches" => COUNTERS["completed_batches"],
             "failed_batches" => COUNTERS["failed_batches"],
+            "loaded_models" => sort!(collect(keys(WARM_MODELS))),
         )
+    elseif command in ("load_model", "solve_model", "unload_model")
+        payload = redirect_stdout(stderr) do
+            if command == "load_model"
+                _warm_load_model(cmd)
+            elseif command == "solve_model"
+                _warm_solve_model(cmd)
+            else
+                name=string(get(cmd,"model_id","default"))
+                haskey(WARM_MODELS,name) || error("Unknown model_id: $name")
+                delete!(WARM_MODELS,name)
+                Dict("model_id"=>name)
+            end
+        end
+        return merge(payload,Dict("id"=>id_value,"status"=>"ok",
+            "worker_session_id"=>WORKER_SESSION_ID,"pid"=>getpid()))
     elseif command == "gc"
         GC.gc()
         return Dict{String,Any}("id" => id_value, "status" => "ok", "worker_session_id" => WORKER_SESSION_ID)
@@ -129,6 +146,8 @@ _json_response(Dict{String,Any}(
     "worker_session_id" => WORKER_SESSION_ID,
     "pid" => getpid(),
     "threads" => Threads.nthreads(),
+    "image_file" => unsafe_string(Base.JLOptions().image_file),
+    "protocol_version" => 2,
 ))
 
 for raw in eachline(stdin)

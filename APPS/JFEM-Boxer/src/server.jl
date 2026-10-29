@@ -869,6 +869,7 @@ function handle_jfem_probe(st::AppState, req)
 end
 
 function handle_shutdown(st::AppState, req)
+    stop_aerodynamic_jobs!(st)
     st.running = false
     @info "shutdown requested by the web app"
     return json_response(Dict{String,Any}("ok" => true, "message" => "server stopping"))
@@ -881,6 +882,11 @@ Wire the endpoints and the static file handler.
 """
 function make_router(st::AppState)
     router = HTTP.Router()
+    HTTP.register!(router,"POST","/api/aerodynamics/mesh",req->handle_aerodynamic_study(st,req;action="mesh"))
+    HTTP.register!(router,"POST","/api/aerodynamics/run",req->handle_aerodynamic_study(st,req;action="run"))
+    HTTP.register!(router,"GET","/api/aerodynamics/status",req->handle_aerodynamic_study(st,req;action="status"))
+    HTTP.register!(router,"GET","/api/aerodynamics/results",req->handle_aerodynamic_study(st,req;action="results"))
+    HTTP.register!(router,"POST","/api/aerodynamics/stop",req->handle_aerodynamic_study(st,req;action="stop"))
     # One binary decoder shared by Boxer and the stand-alone result viewers.
     HTTP.register!(router, "GET", "/shared/jfem_binary.js", req ->
         HTTP.Response(200, ["Content-Type"=>"application/javascript; charset=utf-8"],
@@ -907,12 +913,14 @@ function make_router(st::AppState)
     HTTP.register!(router, "GET", "/api/airfoils", req -> handle_airfoils(st, req))
     HTTP.register!(router, "GET", "/api/airfoils/profile", req -> handle_airfoils(st, req;profile=true))
     HTTP.register!(router, "POST", "/api/generate", req -> handle_generate(st, req))
+    HTTP.register!(router, "POST", "/api/geometry_preview", req -> handle_geometry_preview(st, req))
     HTTP.register!(router, "POST", "/api/movable_surfaces", req -> handle_movable_surfaces(st, req))
     HTTP.register!(router, "POST", "/api/validate_workspace", req -> handle_workspace(st, req))
     HTTP.register!(router, "POST", "/api/study/pick", req -> handle_study_pick(st, req))
     HTTP.register!(router, "POST", "/api/study/write", req -> handle_study_file(st, req))
     HTTP.register!(router, "POST", "/api/study/read", req -> handle_study_file(st, req;read_only=true))
     HTTP.register!(router, "POST", "/api/prepare_workspace", req -> handle_workspace(st, req; generate = true))
+    HTTP.register!(router, "POST", "/api/rf_sections", req -> handle_rf_sections(st, req))
     HTTP.register!(router, "POST", "/api/import_toml", req -> handle_import_toml(st, req))
     HTTP.register!(router, "POST", "/api/export_toml", req -> handle_export_toml(st, req))
     HTTP.register!(router, "POST", "/api/reference", req -> handle_reference(st, req))

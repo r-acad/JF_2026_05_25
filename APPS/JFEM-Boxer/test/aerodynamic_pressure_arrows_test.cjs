@@ -1,0 +1,20 @@
+'use strict';
+const assert=require('node:assert/strict'),A=require('../web/aerodynamic_study.js'),V=require('../web/aerodynamic_view_svg.js');
+const panel=(id,patch,area,force)=>({id,patch,side:patch===1?'left':'right',region:'wing / fixed wing',position:[id,2,3],area_m2:area,force_N:force});
+const c={span_m:10,panels:[panel(1,1,1,[0,0,10]),panel(2,2,4,[0,0,40]),panel(3,2,2,[-12,16,0])]},before=JSON.stringify(c);
+const force=A.panelArrowData(c,'force'),pressure=A.panelArrowData(c,'pressure');
+assert.equal(force.unit,'N');assert.equal(pressure.unit,'Pa');assert.equal(force.maximum,40);assert.equal(pressure.maximum,10);
+assert.equal(force.groups[1].arrows[0].magnitude/force.groups[0].arrows[0].magnitude,4);
+assert.equal(pressure.groups[1].arrows[0].magnitude,pressure.groups[0].arrows[0].magnitude);
+assert.equal(pressure.maximum*pressure.scale,1.2);
+for(const g of pressure.groups){const f=force.groups.find(f=>f.key===g.key);assert.deepEqual(g.color,f.color);for(const arrow of g.arrows){const p=c.panels.find(p=>p.id===arrow.id);assert.deepEqual(arrow.vector,p.force_N.map(x=>x/p.area_m2));}}
+assert.notDeepEqual(pressure.groups[0].color,pressure.groups[1].color);
+assert.deepEqual(A.panelArrowData({...c,panels:c.panels.slice().reverse()},'pressure').groups.map(g=>[g.key,g.color]).sort(),pressure.groups.map(g=>[g.key,g.color]).sort());
+assert.equal(JSON.stringify(c),before);
+for(const area of [0,-1,undefined,NaN,Infinity])assert.equal(A.panelArrowData({panels:[panel(1,1,area,[1,2,3])]},'pressure').groups.length,0);
+for(const vector of [[0,0,0],[NaN,1,0],[Infinity,0,1]])assert.equal(A.panelArrowData({panels:[panel(1,1,1,vector)]},'pressure').groups.length,0);
+assert.equal(A.panelArrowData(null,'pressure').maximum,0);assert.throws(()=>A.panelArrowData(c,'wrong'));
+assert.equal(A.validateState({vectors:true}).vectorQuantity,'force');assert.equal(A.validateState({vectorQuantity:'pressure'}).vectorQuantity,'pressure');assert.throws(()=>A.validateState({vectorQuantity:'wrong'}));
+const svg=V.svg({width:800,height:400,title:'Pressure arrows',lines:pressure.groups.map((g,i)=>({points:[{x:20+i*50,y:20,z:.5},{x:40+i*50,y:40,z:.5}],surface:g.key,quantity:'pressure',color:'#123456',label:g.label})),vectorLegend:{title:'Pressure arrows / Pa; one common scale',items:pressure.groups.map(g=>({label:g.label,color:'#123456'}))}});
+assert(svg.includes('data-arrow-quantity="pressure"'));assert(svg.includes('data-vlm-surface="vlm:1"'));assert(svg.includes('data-vlm-surface="vlm:2"'));assert(svg.includes('data-vector-legend="true"'));assert(svg.includes('Pressure arrows / Pa; one common scale'));
+console.log('PASS Area-independent pressure arrows, exact force orientation, common scaling, stable surface colors, invalid-data guards, legacy/save compatibility and SVG surface legends.');

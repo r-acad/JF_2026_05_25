@@ -133,7 +133,7 @@ function load_payload(loads; model::Union{Nothing,Model} = nothing)
     result["routing_diagnostics"]=applied===nothing ? nothing : applied.diagnostics
     result["moment_routing_note"]=APPLIED_MOMENT_ROUTING_NOTE
     result["load_application_version"]=APPLIED_LOAD_VERSION
-    result["structure_inertia"]=model!==nothing&&get(model.params,"loads.structure_inertia",false)
+    result["structure_inertia"]=model!==nothing&&structure_inertia_enabled(model.params)
     result["structure_inertia_migration_note"]=model===nothing ? "" : get(model.params,"structure_inertia_migration_note","")
     model === nothing || (result["spanwise"] = spanwise_load_data(model,loads))
     if !isempty(loads.panels)
@@ -459,7 +459,7 @@ function mesh_payload(m::Model; progress = stage -> nothing)
             "offsets_x_m"=>path.offsets,"angles_deg"=>path.angles,
             "per_rear_point"=>path.per_point,
             "angle_reference"=>get(m.params,"box.stringer_angle_reference","rear_spar"),
-            "note"=>"Each entered angle applies to the interval ending at its rear-spar point; the last continues to the tip. Directions use the selected local spar or BASIC +Y reference. Paths remain continuous at the knots."),
+            "note"=>"Angle from Y axis uses root/master/final rib intervals and box.stringer_segment_angles. Spar-relative modes use incoming rear-spar-point intervals. Paths remain continuous at the knots."),
         "fuel" => fuel,
         "weights" => weights,
         "annotations" => annotations,

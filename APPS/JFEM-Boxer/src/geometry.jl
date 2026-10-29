@@ -503,16 +503,21 @@ function stringer_path_geometry(p,cr,ct,taper,semispan,sweep,sweep_ref)
     return (;etas,slopes,offsets,kink_etas,kink_offsets,angles,directions,rear_slopes,per_point=true,semispan)
 end
 
-"""Stringer directions referenced to the local front spar or the symmetry normal.
+"""Stringer directions referenced to the local front spar or BASIC +Y.
 
-Rear-point eta stations retain the angle schedule. A front-spar reference adds
+Y-axis angles use root/master/final-rib intervals. Spar-relative angles retain
+the rear-point eta schedule. A front-spar reference adds
 its real kinks without changing those entered angles. Coordinates integrate
 the resulting slopes, so the stringer never jumps at a change of reference slope.
 """
 function referenced_stringer_path_geometry(p,cr,ct,taper,semispan,sweep,sweep_ref,reference)
     rear=normalize_planform_points(get(p,"box.rear_spar_points",Any[]),"box.rear_spar_points";nominal=p["box.rear_spar_xc"])
     spar=spar_geometry(p);end_eta=Float64(p["box.end_eta"])
-    etas=sort!(unique(vcat(0.0,1.0,[point["eta"] for point in rear],reference=="front_spar" ? spar.front_etas : Float64[])))
+    masters=sort!([Float64(row["eta"]) for row in get(p,"ribs.masters",Any[])])
+    master_knots=vcat(0.0,masters,end_eta)
+    schedule=get(p,"box.stringer_segment_angles",Float64[])
+    etas=reference=="global_y" ? sort!(unique(vcat(master_knots,1.0))) :
+        sort!(unique(vcat(0.0,1.0,[point["eta"] for point in rear],spar.front_etas)))
     angle_etas=[point["eta"] for point in rear];n=length(etas)-1
     c(eta)=cr*(1-(1-taper)*eta)
     function datum_slope(edge,a,b)
@@ -527,7 +532,9 @@ function referenced_stringer_path_geometry(p,cr,ct,taper,semispan,sweep,sweep_re
     slopes=zeros(n);angles=zeros(n);directions=zeros(n);rear_slopes=zeros(n)
     for i in 1:n
         a,b=etas[i],etas[i+1]
-        angle=isempty(rear) ? Float64(p["box.stringer_angle"]) : rear[min(searchsortedfirst(angle_etas,b),length(rear))]["stringer_angle"]
+        segment=clamp(searchsortedlast(master_knots,a),1,length(master_knots)-1)
+        angle=reference=="global_y" ? (segment<=length(schedule) ? schedule[segment] : Float64(p["box.stringer_angle"])) :
+            isempty(rear) ? Float64(p["box.stringer_angle"]) : rear[min(searchsortedfirst(angle_etas,b),length(rear))]["stringer_angle"]
         datum=reference=="global_y" ? 0.0 : atan(datum_slope(:front,a,b))
         direction=rad2deg(datum)+angle
         isfinite(direction)&&(a>=end_eta||abs(direction)<89)||throw(ArgumentError("Stringer angle from $reference on eta=$a to $b gives $direction degrees to +Y; active directions must stay within +/-89 degrees"))

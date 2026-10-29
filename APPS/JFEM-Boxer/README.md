@@ -1,3 +1,5 @@
+> **Before first launch:** run `setup.cmd` (Windows), `bash setup.sh` (Linux), or `bash setup.command` (macOS) at the repository root. This installs shared packages and creates the shared image under the root `sysimage/` directory. Wait until setup completes.
+
 # JFEM-Boxer
 
 This folder (`APPS/JFEM-Boxer`) is the authoritative application source.
@@ -10,11 +12,39 @@ with OpenJFEM. It generates shell/bar lifting surfaces, aerodynamic lattices and
 load cases, writes REFERENCE decks, launches the solver in this repository and
 displays structural results and property sensitivities.
 
+Open the public [test1 Study](examples/test1/test1.wingfem.json) or
+[calebito1 Study](examples/test1/calebito1.json) through **Project > Open**.
+These retain the authored geometry, controls and analysis settings; mesh and
+solver results are created locally. Run the repository-root setup first.
+The [Python sizing example](../../utils/python_client/README.md) demonstrates
+repeated property updates through a warm JFEM process.
+
 The 3D viewport draws crisp mesh edges with a consistent screen width in solid
 and translucent views. Antialiasing smooths their boundaries without reducing
 them to faint hairlines on high-DPI displays. Edges retain depth testing, model
 colors, picking and deformation; hidden lines do not show through solid parts.
 WebGPU remains preferred, with WebGL as fallback.
+
+The authored wing loft, airfoil sections and movable-surface preview update
+after valid geometric edits independently of FEM generation. A short geometry
+status distinguishes the current preview from retained FE geometry/results.
+Incomplete FE material, property or load fields do not block loft editing.
+Invalid geometric drafts retain the last valid preview with a message.
+
+**Live mesh** controls FEM generation only. With it off, new/opened Studies
+remain geometry-only, and edits retain the last generated nodes, elements,
+loads and results. Press **Create FEM** when ready. Turning Live mesh on
+generates the latest definition after valid edits; its saved Study preference
+is honored on loading. Explicit deck-writing/analysis actions still prepare
+the model they require. Imported decks and archived results retain their source
+geometry. The live preview adds no stiffness, masses or FE connectivity.
+
+Movable-surface meshing adds spanwise FE rows when needed so that each spanwise
+element edge is no longer than the shortest local structural control chord it
+spans (front spar to control edge). The check uses actual 3D distances, including
+sweep, twist and oblique attachment ribs. Requested refinement can make the mesh
+finer; physical ribs, attachment planes and geometry anchors stay fixed. Recreate
+existing movable FEMs to apply this limit, then rerun their analyses.
 
 Main-box and leading-edge meshing distributes optional spanwise divisions
 between physical ribs and loft stations. A local spar or stringer kink splits
@@ -23,10 +53,35 @@ Connected skins, webs and caps share the inserted nodes. The mesh retains
 physical rib and kink positions, including closely spaced ones.
 
 In **Structure / Ribs**, crosses mark the front and rear spar perturbation
-points. Select a rib and a spar point, then use **Snap rib** to align them.
+points. Every displayed rib is labeled R1, R2, etc.; masters also show their M number.
+Labels overlay the midpoint of their rib segment and follow its direction,
+remaining attached when the drawing is resized or zoomed.
+**Rib to align** lists intermediate masters only. Secondary ribs follow their
+masters, and root/final closures are fixed. Select a master and a spar point:
+**Snap rib** turns orange when ready. A successful snap turns the button and
+aligned master green. The master remains linked to that point: editing its eta
+or offset, inserting other points, or reordering the point table moves the rib
+to maintain alignment. Stable point identities and links are saved in Studies
+and TOML, and green linked ribs remain green after reloading. Deleting the
+target releases the link and retains the rib's last position. **Unlink** does
+the same explicitly; a manual rib drag also releases the link. The linked rear
+eta is read-only and calculated from the target and chosen direction.
 For an angled rib, alignment uses its intersection with the selected spar;
 the rib datum eta can therefore differ from the spar point eta. Review the
 result and regenerate the FEM after adjusting these physical boundaries.
+
+Each intermediate master has a **Plane** selector. **Vertical** contains BASIC
+Z and the selected plan-view direction. **Normal to local midplane** makes the
+rib plane perpendicular to the local chord sheet, including loft twist,
+dihedral and vertical shift. Its datum passes through the rear-spar mid-surface;
+upper and lower spar intersections can therefore have different span locations.
+Secondary plane tilt blends between adjacent masters. This formulation changes
+oblique rib intersections and matched-case body forces; older results are
+marked historical until the FEM is recreated and analysis rerun. Root and final closures
+retain their fixed vertical planes. Skin, spar and rib meshes share the actual
+intersection nodes. The 2D drawing remains a reference plan; create the FEM to
+inspect the resulting 3D planes. Excessive angles or crossed intersections are
+reported as geometry errors.
 
 New Studies use a fuel **Fill efficiency factor** of **0.9**. Existing saved
 values remain unchanged. Category fields such as critical load case, failure
@@ -128,6 +183,498 @@ to the prescribed semi-span lift before the load multiplier is applied. This is
 a preliminary load approximation for untwisted wings, not a twist-sensitive VLM
 solution. See [Schrenk, NACA-TM-948](https://ntrs.nasa.gov/citations/19930094469).
 
+**Loads > Potato** plots one point per selected case in three root-load diagrams:
+bending moment versus torque, shear force versus bending moment, and shear force
+versus torque. Bending is vertical in the first plot; shear is vertical in the
+other two. The quantities are the signed applied root resultants, including the
+load multiplier and enabled inertia/engine loads: BASIC X bending moment, BASIC Y
+torque and BASIC Z shear. They use the same root reference as Load plots; they
+are applied-load diagrams, rather than recovered support-reaction diagrams.
+All cases are initially selected. Use the colored case legend, **Select all** or
+**Clear** to choose cases, and **Point labels** to show case names or numerical
+horizontal/vertical values. Selection and labels are saved with the Study.
+Create the FEM after changing load definitions to refresh the plotted values.
+
+**Loads > Aerodynamics** is an independent full-wing VLM workspace. It opens
+maximized, with **Restore** available in the pane header. It reads Planform,
+Airfoils, Loft and geometric Movable surfaces; it requires no FE model,
+structural properties, supports, load cases or mesh generation. Both halves of
+the symmetric wing geometry are solved explicitly, allowing asymmetric flow
+and control commands. Imported FE decks do not supply a wing loft.
+
+The aerodynamic frame conventions follow De Marco and Coiro, *Elementi di
+Dinamica e simulazione di volo*, Quaderno 1, *Terne di riferimento* (2017.a),
+sections 1.7-1.13, especially Fig. 1.16, Fig. 1.22, Fig. 1.26 and Eq. (1.15).
+The source reference remains private; it is not redistributed with Boxer.
+
+| Frame | Axes and role |
+| --- | --- |
+| Construction C / BASIC | X aft, Y right, Z up; geometric coordinates, FE forces, dimensional panel/resultant forces and cross-product moments. |
+| Body B | X forward, Y right, Z down; p/q/r and signed body CX/CY/CZ. |
+| Aerodynamic A | X along the projection of aircraft velocity into the body symmetry plane; Y equals body Y; Z lies in the symmetry plane and points down. Follows current alpha. |
+| Wind W' | X along aircraft air-relative velocity, Z equals A's Z; Y completes the frame. This is the solver's `wind` result key. |
+| Stability S | A body-fixed frame aligned at the selected **Stability reference alpha0 (deg)**, held fixed through sweeps and derivative stencils. Default alpha0 is zero; set it to the desired reference/trim alpha. |
+
+The document distinguishes W-prime from its **trajectory wind W**, whose
+lateral axis is horizontal and whose vertical plane follows the Earth-relative
+trajectory. Boxer does not compute that W frame: Earth attitude/trajectory and
+ambient wind are not defined by this wing-only analysis. Its American wind
+frame is named explicitly to avoid conflating the two.
+
+The construction-to-body vector conversion is `Q = diag(-1, 1, -1)`.
+For column vectors in C, define
+
+```text
+R_alpha = [ cos(alpha)  0  sin(alpha)
+             0         1  0
+            -sin(alpha) 0  cos(alpha) ]
+R_beta  = [ cos(beta) -sin(beta) 0
+            sin(beta)  cos(beta) 0
+             0          0       1 ]
+B = Q * C
+A = Q * R_alpha * C
+W-prime = Q * R_beta * R_alpha * C
+S = Q * R_alpha0 * C
+```
+
+Forces and moments are rotated as **dimensional vectors before normalization**.
+This ordering matters at nonzero sideslip and when span and MAC differ. In
+B/A/S, `coefficients[frame].force` holds signed `[CX, CY, CZ]`. In W-prime,
+`force` retains conventional positive `[CDi_near, CY, CL]`; its actual signed
+components are `[-CDi_near, CY, -CL]`. Every frame additionally exports
+`force_components`, dimensional `force_N`, dimensional `moment_Nm` and its
+frame name. Moment coefficients always refer to the displayed frame axes and
+use `q*S*[b, MAC, b]`. Panel `force_wind_N` contains signed W-prime components;
+`wind_loads_N` separately contains positive drag/right-side/lift load entries.
+
+Incidence is referenced to **-X_C** (`mu_x = 0`), not to a twisted root chord;
+local loft twist remains geometric. Positive alpha puts aircraft velocity below
+body X; positive beta means relative wind arriving from the pilot's right.
+The upstream arrow shows incoming **-V**, opposite aircraft velocity V. Its
+angle arcs use the equally reversed reference **-X_B**, giving the same alpha
+and beta. **Reference axes frame** highlights B, C, A, Wind W' or S in the viewer.
+All five frames are drawn together. Expand **Axes: show/hide each direction**
+to independently toggle each of the 15 X/Y/Z arrows. The right and left wings
+are labelled; +Y_B points to the right wing. The aerodynamic scene uses the
+same right-handed rendering convention as the structural scene.
+Axes are parallel to the book's frames but translated to the selected
+moment/body-rate reference. Enter the actual CG to obtain moments/rates about
+G; a wing-only model cannot infer the aircraft CG. Body rates are angular
+velocity components, not Euler-angle time derivatives. Positive p rolls right
+wing down, q pitches nose up and r yaws nose right.
+
+European command signs follow Fig. 1.26 and pp. 28-29: a conventional
+horizontal elevator/flap moves trailing-edge down for a positive command;
+a positive paired aileron command moves right down/left up, normally giving a
+negative roll increment. A positive rudder command moves the trailing edge
+left on **both** physical fins, normally giving negative yaw for an aft fin.
+The aerodynamic adapter accounts for mirrored hinge orientation. Rudders
+require a hinge with a vertical component; use Other for nonconventional
+surfaces. Aerodynamic commands are distinct from authored geometric hinge
+rotation angles. Review old rudder studies and rerun after this correction.
+
+1. Set alpha, beta, true airspeed in m/s, and roll/pitch/yaw rates in deg/s.
+   Choose ISA 1976 with geometric altitude, or manual density and sound speed.
+   Positive beta has freestream velocity towards BASIC -Y. Rate signs are
+   positive roll right wing down, pitch nose up and yaw nose right. This is a
+   quasi-steady snapshot, rather than an unsteady maneuver or wake simulation.
+2. Review the moment/body-rate reference in BASIC metres. Blank coordinates
+   follow the root quarter-chord point; actual coordinates appear with results.
+3. Set base chord and semispan counts, uniform/cosine spacing, and minimum
+   control chord resolution. Geometry and control boundaries are retained.
+   Control zones receive 25% more chordwise cells than the base zoning,
+   rounded up with at least one extra cell. Span rows still refine as needed
+   to preserve the panel aspect limit; the selected panel budget is enforced.
+   **Geometry refinement limits** set maximum strip twist, panel warp, normal
+   error and full-wing panel count. Requested counts are minima, because
+   geometric refinement can add panels. The hard limit is 4,096 full-wing panels.
+   Chordwise **Cosine** uses the exact distribution
+   `x/c = (1 - cos(pi*t))/2` in each fixed/control chord zone. Span rows follow
+   3D arc length, retain exact loft slope breaks and grade near tips/bends.
+   Cosine span spacing also concentrates rows at both ends of each geometric
+   patch, including control ends and winglet transitions. This uses bounded
+   cosine grading to retain finite edge cells; uniform chord grids use gentler
+   grading so their lower aspect limit remains achievable. With uniform chord
+   spacing, extra control cells also refine adjacent chord zones so incompatible
+   cell widths cannot cause repeated span subdivision.
+   Every panel must satisfy physical **3D span/chord <= 1.5**, checked using
+   the longest span edge and shortest chord edge. Uniform chord spacing also
+   enforces the lower bound **0.7** using the shortest span/longest chord edge.
+   With true cosine spacing, **0.7 is advisory**: its very small edge cells and
+   wide central cells cannot both meet that lower bound in a tensor lattice.
+   Local span patches permit chord counts to vary through taper and controls.
+   Physical gaps use separate fixed/control sheets; a continuous sealed hinge
+   remains one sheet. If refinement exceeds the selected panel budget, increase
+   **Maximum full-wing panels** or reduce base/control resolution. Actual ratio
+   extrema appear in the summary and per-panel bounds in JSON/panel CSV.
+4. Geometric controls appear automatically with **Geometry kinematics** selected.
+   This uses the geometry's authored deflection, full 3D hinge endpoints and
+   height offsets, plus airfoil camber, twist and loft; both halves match the
+   geometry preview. Change geometry parameters to edit that motion. Choose
+   **Analysis override** to enter European aerodynamic commands with symmetric,
+   antisymmetric or independent pairing (ailerons default to antisymmetric).
+   Turning a control off analyzes zero motion without editing geometry/FE inputs.
+   Sweeping a control explicitly uses the analysis override convention.
+5. **Compute derivatives** is enabled initially. Turn it off for quicker
+   coefficient-only runs. It adds finite-difference solves for each condition;
+   mesh previews always skip derivatives.
+6. **Preview VLM mesh** builds only the full-wing camber lattice. **Run
+   aerodynamics** solves a single condition, or a Cartesian sweep of up to three
+   variables: alpha, beta, rates, speed, altitude or control commands. Sweep
+   bounds include both endpoints. The limit is 101 conditions and 120,000 total
+   retained panel records; reduce cases or density if these limits are exceeded.
+
+**Wake calculation** adds a computed **Relaxed free wake** option alongside
+**Straight wake**. Selecting it selects and locks **Incompressible** flow.
+**Run aerodynamics** alternates a circulation-coupled boundary solve and
+under-relaxed wake-shape updates until the residual reaches the requested
+**Wake convergence tolerance**. Each wake strip carries the current trailing
+edge circulation; the curved wake changes the loads, rather than being a
+display-only sketch. **Wake iteration method** defaults to safeguarded Anderson
+acceleration; **Plain under-relaxation** remains available for comparison.
+Acceleration uses recent shape residuals, bounds each update and restarts its
+history with reduced damping if the residual grows sharply. It changes the
+iteration, not the wake equations or the convergence tolerance. The method
+follows the fixed-point approach of
+[Walker and Ni (2011)](https://doi.org/10.1137/10078356X).
+Each sweep condition converges independently. Preview
+shows the initial straight wake and explicitly labels it as unsolved.
+
+Set **Computed wake length (spans)**, **Wake rows**, **Maximum wake iterations**,
+**Wake relaxation factor** and **Vortex core radius / MAC**. These affect the
+calculation; the display-length control only clips visible curves. Defaults
+are 3 spans, 16 rows, 100 iterations, relaxation 0.25, core 0.02 MAC and residual
+tolerance 0.002. **Use smoother starting wake** selects 0.5 span, 16 rows,
+300 iterations, relaxation 0.1, core 0.12 MAC and Anderson acceleration at
+tolerance 0.002. These are
+starting settings, not a conservative-load estimate or a convergence guarantee.
+The saved `examples/test1/calebito1.json` uses its original 0.75-span wake,
+16 rows and 0.08-MAC core with Anderson acceleration and a 300-iteration cap.
+Its 1,856-panel case converged in 222 iterations at residual 0.000914 against
+tolerance 0.002, including the authored 30-degree control deflection. All eight
+derivative groups were evaluated with the saved frozen-wake policy. This is
+a numerical convergence check; wake/core and mesh refinement remain necessary
+to assess load and drag accuracy.
+Refine wing mesh, wake length, rows, core and tolerance before using results.
+A case is limited to 12,000 wake vertices, and a sweep to 120,000 retained
+wake vertices; reduce density/rows/cases if those limits are exceeded.
+
+The progress overlay reports iteration/residual; a green wake summary reports
+convergence and actual settings. Failed convergence is an error that retains
+previous completed results. Its residual is the maximum of segment/velocity
+direction mismatch (sine), displacement scaled by computed wake length, and
+relative circulation change. Shared trailing-edge streamlines remain joined.
+Convection uses a Rosenhead finite vortex core; the distant continuation is
+straight and semi-infinite. This is a **steady relaxed wake**, with no
+transient history, wake shedding in time or unsteady circulation-force terms.
+The bound system and near-field recovery use the existing
+[VortexLattice routines](https://flow.byu.edu/VortexLattice.jl/dev/library/).
+
+Relaxed wakes report **Trefftz induced drag** and **inviscid span efficiency**
+using the computed terminal cross-section where the wake joins its straight
+semi-infinite continuation. The discrete wake-sheet integral uses current
+trailing-edge circulation, crossflow induced by all projected wake filaments,
+and both spanwise/vertical strip geometry. Its normalization is the same `q S`
+as the other coefficients; efficiency is `CL^2 / (pi AR CDi_Trefftz)`, with
+full reference area and projected span. Values above one are retained for
+nonplanar configurations or finite-resolution results; this is not a viscous
+Oswald factor or a total-drag efficiency.
+
+This **terminal-wake estimate** follows computational approach 5 in
+[Kroo and Smith, The Computation of Induced Drag with Nonplanar and Deformed
+Wakes](https://ntrs.nasa.gov/api/citations/19910014792/downloads/19910014792.pdf),
+contained in the 1991 NASA/Stanford report (PDF pp. 7 and 10). It evaluates the
+modelled straight far continuation after finite initial roll-up. It does not
+claim that the free wake has been resolved to infinity. The Trefftz midpoint
+kernel is the classical zero-core sheet kernel; the convection-core setting
+influences drag through the computed shape and circulation. Refining wake
+length, spacing and core dependence remains necessary.
+
+Tables, coefficient/derivative sweep plots and CSV/HTML/Markdown exports now
+include these values. Coefficient reports add a **Trefftz evaluation** table;
+JSON includes validity, evaluation method, terminal/earlier-cut geometry
+summaries and sensitivity measures. The **terminal-shape relative change**
+compares the terminal estimate to a hypothetical straight continuation from
+an earlier section, retaining the same circulation. It is a cutoff-shape
+sensitivity diagnostic, not an independent wake-length/grid-convergence test
+or an accuracy bound. A change above 5% produces a refinement notice. A
+near-field/far-field relative difference above 20% is also reported. Both
+measures normalize by the larger magnitude of the compared drag estimates.
+
+Collapsed projected loaded strips, coincident midpoint/filament singularities,
+and nonpositive/nonfinite loaded-cut estimates leave Trefftz drag/efficiency
+unavailable with an explicit reason; solved aerodynamic loads are retained.
+Zero loading gives zero induced drag and undefined efficiency. The near-field
+induced drag remains a separate value. Wake convergence alone establishes
+neither drag accuracy nor independence of its terminal cutoff.
+
+Flight, control, density and geometry input edits **do not regenerate** the
+retained aerodynamic model or rerun the solver. The displayed mesh and
+loads stay on the completed result snapshot until **Preview VLM mesh**
+or **Run aerodynamics** is pressed. The **Alpha/Beta** sliders and number fields
+update only the axes, wind vector and angle sectors immediately; the view labels
+this as a pending-input preview while retaining the completed contours. Edits
+and form layout changes also preserve the camera. Each action has an independent synchronization indicator:
+
+- **Orange**: missing or out of date for the current analysis/geometry inputs.
+- **Blue**: that action is running.
+- **Green**: its completed output matches the current inputs.
+
+A completed analysis also validates its mesh, making both buttons green. A
+mesh preview does not calculate coefficients, so it leaves Run orange.
+Display changes such as axes, background, contours or camera do not dirty the
+analysis. Cancellation retains earlier completed results. The angle glyphs
+use the selected case until alpha/beta are edited; selecting another completed
+case or finishing a job returns the glyphs to that case.
+
+The VLM and geometry preview share one rigid control-motion transform about the
+actual swept 3D hinge line. The moving camber sheet starts at the control's
+front boundary, which may differ from the hinge x/c. Hinge-height offsets and
+boundary/hinge differences can produce physical gaps or overlaps, represented
+by separate fixed/control sheets with distinct finite-core interaction groups.
+It remains a thin-sheet inviscid model: no viscous slot flow, gap sealing or
+hinge-leakage correction is computed. Deflections are limited to ±45°; large
+incidence, deflection or rates produce validity warnings. Prandtl–Glauert
+applies through Mach 0.5; incompressible analysis is also available. The model
+assumes attached flow and a rigid loft. Wakes are straight or steadily relaxed
+as selected in Wake calculation. It does not calculate
+stall, viscous/profile drag, shocks or aeroelastic feedback.
+
+The **i** button beside **Aerodynamics** contains the analysis conventions,
+navigation help and detached-tab instructions. Progress, completion, error and
+stale-result notices float over the upper-right corner of the 3D render without
+moving the compact header or form. Each notice has an **×** close button. Closing progress does
+not cancel the job; use **Cancel** to stop it. Dismissing an out-of-sync notice
+keeps the orange action buttons and stale warnings in exports. Expand the
+floating **Analysis details** card for the selected condition's summary and
+wake diagnostics. In Flight condition, true airspeed is below Analysis and
+beta is below alpha. The axis visibility menu is beside **Alpha / beta angles**.
+
+**Open aerodynamics tab** moves this live workspace into a dedicated browser
+tab with a purple wing-and-wind icon, distinct from the main Boxer icon.
+The original form becomes gray and inactive. Settings,
+visibility, selected results and camera state stay shared; close the detached
+tab or click **Return to main tab** to continue in the original form. Keep the
+main Boxer tab open while using it. There is no second independent analysis.
+
+The viewer provides mesh/control coloring, **ΔCp (lower minus upper)**, pressure
+difference in Pa, panel force magnitude and BASIC components, circulation and
+local speed ratio. These are panel-average pressure jumps across the thin
+camber sheet; separate upper/lower absolute pressures are unavailable. Signed
+contours use zero-centered automatic limits. Below the color bar, set the
+minimum and maximum with sliders or numeric inputs, or choose **Automatic
+limits** to restore the data range. Choose the same palettes as the FEM viewer:
+Spectrum, Viridis, Inferno, Coolwarm, Grayscale or Signed. Values outside the
+chosen limits use the end colors. Each field retains its own manual limits;
+the palette and limits are saved with the Study and survive tab transfers.
+Color changes update the existing mesh immediately, without remeshing or
+running the analysis. SVG exports use the displayed limits and palette;
+numerical values and CSV results are unchanged. Enable **Load arrows** and choose
+**Arrow magnitude**: **Panel force (N)** shows integrated panel loads;
+**Pressure (F/A, Pa)** divides each force vector by that panel's physical area.
+Pressure arrows retain exactly the force direction and avoid the dependence of
+force-arrow length on panel area. Each condition uses one common length scale
+across all VLM surfaces; the longest arrow represents the maximum magnitude
+shown in the expandable arrow legend. Every native VLM surface has a distinct,
+stable color, independent of the contour palette. The legend identifies its
+surface number, side and geometric region. Zero loads and invalid pressure
+areas have no arrows. Arrow mode/show-hide changes retain the mesh, camera and
+solved data, require no analysis, and save with the Study. SVG exports include
+the same arrows, surface colors, units and legend.
+
+Enable a common automatic contour color scale across the sweep. Click a panel to center on its picked surface point and
+inspect its values. Centering preserves camera orientation and zoom. Left-drag
+rotates both over the model and on the background, including when Ctrl is held.
+Only right-drag pans, following the cursor at full speed. Choose **Window zoom**, then drag a
+rectangle over the area to enlarge.
+The rectangle uses a crosshair and returns to orbit mode after release. Press
+**Esc** to cancel. Double-click the empty canvas background to fit the complete
+wing, or use **Fit wing**. A double-click starting on the wing centers without
+fitting the whole model.
+Hold **Ctrl** while using the wheel to zoom around the current view center:
+wheel up zooms in and wheel down zooms out. Release Ctrl to disable wheel zoom.
+Canvas wheel events leave the page stationary and do not trigger browser page
+zoom. Pinch zoom remains disabled. Top, Side and Isometric views operate
+independently of the FE viewer.
+
+**Reference axes** draws the selected frame (Body B by default), with X red,
+Y green and Z blue, at the displayed moment/body-rate reference. **Alpha / beta angles** places
+the wind vector and angular dimensions upstream of that origin. The wind
+arrow approaches the reference point; the angle glyph has its own upstream
+vertex. It shows the freestream direction and angular dimensions with extension rays and arrowed
+arcs. Alpha is defined from body X to aircraft velocity projected into the body XZ plane; the incoming-wind glyph reverses both vectors. The incoming-wind beta arc runs from the projected -V to full -V, toward
+-Y_C for positive beta; aircraft V has positive +Y_B sideslip.
+Translucent sectors fill both angular planes. Each label leader terminates
+exactly at its arc midpoint, including after label collision adjustment.
+Signed labels update with the selected result case or live alpha/beta input. Zero angles retain their
+labels without a fabricated arc. The helpers follow the camera projection,
+remain readable over the model and can be hidden independently. Their display
+does not alter the solved flow. The initial Isometric view exposes both planes.
+
+**Show VLM wakes** displays actual solved curved streamlines for relaxed
+wakes, or finite straight rays along freestream for straight wakes and mesh
+previews. **Wake length (spans)** controls only display extent, 0.1 to 10 spans;
+curved lines stop at their computed length and are never extended artificially.
+**Fit wing + wake** fits the wing and the displayed wake together. Visibility,
+fit and display length do not rerun the analysis. The current curves and wake
+convergence context are retained in **Export view SVG**. Complete JSON includes
+all wake sheets and iteration history; coefficient reports/CSV identify wake
+model and convergence, and derivative CSV identifies the wake policy.
+The top-bar **Background** color selector applies to both structural and
+aerodynamic 3D views, including the aerodynamic SVG background. Axes/angle
+labels adapt their contrast for light backgrounds.
+
+The **Coefficients** result tab has one row per condition, including rates and actual
+control commands. Select a row to inspect its mesh and results. Choose Body B, Aerodynamic A, Wind W' or fixed Stability S. Expand **Show all coefficients - all cases and frames**
+to see all 24 frame components, Trefftz drag and span efficiency in one table.
+The selected-condition table also compares all frames and full-wing
+dimensional forces and moments. Force coefficients use
+`q S`; moment coefficients use `q S b`, `q S MAC`, `q S b`. Cl/Cm/Cn follow
+standard dynamics signs, while dimensional moment components use the geometric
+BASIC cross-product convention. Near-field and Trefftz-plane induced drag are
+reported separately; neither includes profile drag. Span efficiency is
+`CL² / (π AR CDi_Trefftz)` when positive induced drag is available.
+Frame/rate conventions follow the pinned VortexLattice engine's
+[reference documentation](https://flow.byu.edu/VortexLattice.jl/dev/library/).
+
+Spanwise plots show lift, induced drag and side force per projected span,
+local force coefficients, mean ΔCp, mean ring circulation and moments about the
+common reference per span. **Export spanwise SVG** saves all eleven
+selected-condition spanwise plots in one standalone vector sheet, alongside
+individual SVG/CSV buttons. Chordwise ΔCp profiles can be selected by strip.
+For sweeps, choose **Sweep plot horizontal variable** from the completed
+analysis and **Sweep coefficient frame** (Body, Wind, Stability or All). Each
+frame has six force/moment components; All shows all 24 components, plus
+Trefftz drag and span efficiency. Near-field induced drag is the W-prime
+CDi entry; B/A/S retain signed CX/CY/CZ components. The induced-drag polar is also retained.
+Each curve fixes the other sweep variables, so a Cartesian sweep is displayed
+as distinct, labeled slices. Plots always use the completed result's variables,
+including retained controls that have since been edited or removed.
+
+All aerodynamic 2D charts include emphasized **x=0** and **y=0** reference
+lines; their ranges expand to include zero. Hover a curve or data point to
+see the curve/case, an actual sample's **(x, y)** pair and labelled quantities.
+The nearest sample is highlighted even when the pointer is between samples;
+no interpolated value is presented as a computed result. Points can also be
+focused by keyboard. Standalone SVG/HTML charts retain point-value titles.
+
+Every plot has **Export SVG** and **Export CSV**. SVG is a standalone vector
+graphic with title, axes, units, legends, result context and any stale warning.
+CSV retains raw plotted values, curve identity and case IDs when available.
+**Export all sweep plots HTML** contains every coefficient against every sweep
+variable, regardless of the current frame/variable selection, with analysis
+settings and a printable layout. **Export all sweep data CSV** provides those
+same curves and the polar in one table. Both exports work independently of
+Boxer; missing values are omitted rather than replaced by zero. Sweep display
+choices and reference-helper visibility are saved with the Study.
+
+The aerodynamic 3D toolbar also provides **Export view SVG** for mesh previews
+and solved contours. It exports projected vector panels, visible mesh edges,
+panel-force arrows, displayed wake lines, the current reference axes/angle dimensions and the contour
+legend, using the current camera and selected condition. Case/reference context
+is embedded, and retained results carry a stale warning. Faces outside the
+camera clipping range are omitted; depth sorting approximates occlusion for
+the vector projection. The SVG contains vector geometry, not a screenshot.
+
+Export complete geometry, settings and all case results as JSON, coefficient
+tables as CSV, or the selected case's panel data as CSV. **Export coefficients
+HTML** and **Export coefficients MD** produce complete reports covering every
+case and all four coefficient frames, regardless of the frame selected on
+screen. The reports include flight conditions, applied control commands,
+references, dimensional resultants and assumptions. HTML opens and prints
+independently of Boxer or a network connection; Markdown works in text and
+documentation tools. Retained out-of-date results carry an explicit warning in
+both report formats. **Open coefficients tab** displays these complete tables
+in a separate browser tab titled **JFEM Aero | Coefficients**, identified by an
+amber table icon. Boxer itself uses a cyan wing icon. The report tab retains a
+snapshot of the results at opening; open a new report after rerunning the
+analysis. Its icon is embedded, as it is in HTML exports. Study files retain
+analysis/display settings; large result arrays are exported separately.
+Changing relevant geometry or analysis settings retains the old result with a
+visible out-of-date notice. FE property changes do not invalidate this separate
+analysis. Restoring another Study clears its old aerodynamic mesh/results.
+
+The **Derivatives** result tab shows the selected condition's derivative table
+in American wind, Body, Aerodynamic A, Stability or All frames. Choose a condition in **Coefficients**
+to update it. For every frame, the app differentiates all six force/moment
+coefficients, near-field induced drag where applicable, Trefftz drag and span
+efficiency when defined. It calculates derivatives with respect to:
+
+- alpha and beta, per **radian**;
+- nondimensional body rates `p_hat = p*b/(2V)`, `q_hat = q*MAC/(2V)` and
+  `r_hat = r*b/(2V)` (p/q/r in these expressions are rad/s);
+- true speed, per m/s, and geometric altitude, per metre;
+- each **enabled** control command, per radian, following its symmetric,
+  antisymmetric or independent pairing. Independent controls also have a
+  separate left-command derivative.
+
+Rate derivative inputs remain Body B p/q/r even when the output frame is S
+or W-prime; selecting an output frame does not rotate the rate input basis.
+For example, an S-table p derivative is d(Cl_S)/d(p_B*b/(2V)).
+
+The method uses central two-point finite differences on the base panel
+**topology**, recomputing physical flow/PG force recovery. For controls, nodes
+follow the shared 3D geometry hinges while retaining that topology. Geometry-source
+control derivatives perturb the common authored angle on both halves; override
+derivatives follow the selected command/pairing convention. Nominal angular
+and normalized-rate steps are 0.001 rad / 0.001; speed step is 0.1% (at least
+0.001 m/s) and altitude step 1 m. The table/report includes the actual stencil
+width. At angle/rate/control/altitude or Mach bounds a valid one-sided stencil
+is labelled. Other dimensional inputs and the moment/rate reference remain
+fixed; for example, a speed derivative at nonzero dimensional rates also
+changes their normalized rate. Manual-atmosphere altitude derivatives are zero.
+These numerical slopes are local, mesh-dependent **quasi-steady** derivatives;
+alpha-dot, beta-dot, acceleration/frequency and unsteady-wake derivatives are
+outside this model. Check mesh/step convergence for design decisions.
+
+For relaxed wakes, **Wake derivatives** selects **Freeze converged wake
+geometry** (default) or **Re-relax each perturbation**. Frozen derivatives hold
+the finite wake coordinates in construction C, move attachment with a perturbed
+control and keep the infinite continuation aligned with freestream; circulation
+is still solved for the perturbation. Re-relaxed derivatives independently
+converge each perturbation at `min(user tolerance, 1e-5)` to keep the residual
+below the angular stencil scale, using the user iteration cap. Increase that
+cap if needed. Trefftz drag and efficiency derivatives use that same selected
+policy and terminal-cut geometry; their reliability also depends on the cutoff
+sensitivity. These are different sensitivities; reports explicitly identify
+the choice. Fully relaxed derivatives cost substantially more. Neither option
+computes time-dependent wake derivatives or unsteady flight dynamics.
+
+**Derivative sweeps** plots every derivative against any completed sweep
+variable, with separate curves fixing the remaining sweep variables. Select
+the derivative variable and coefficient frame; every plot has SVG/CSV export.
+**Open derivatives tab** opens a separate browser report with its own icon,
+all cases/frames and all derivative sweep plots. **Export derivatives HTML**
+saves that complete portable report, **Export derivatives MD** saves the full
+tables and analysis context, and **Export derivatives CSV** retains numeric
+values and stencil details. **Export all derivative sweep data CSV** includes
+every plotted variable/frame/derivative combination. Missing values are
+omitted from plots and labelled in tables; stale snapshots are identified in
+all SVG/HTML/MD exports. Complete JSON also contains derivative arrays.
+
+Each job runs in its own Julia process with a floating progress message over
+the 3D canvas, current mesh/solve/derivative stage, elapsed time and **Cancel**.
+The overlay does not push the form down or change the canvas position. Progress is
+visible during Julia startup as well as meshing and dense solves. Earlier
+completed results remain usable while work continues. No guessed percentage
+is shown during the dense solve. Cancellation
+retains earlier completed results. These aerodynamic forces are unscaled
+full-wing results, independent of structural maneuver multipliers and inertia.
+The existing **Cases** VLM route continues its conservative half-wing FE load
+transfer and lift matching; this workspace does not silently replace those loads.
+
+With **Match lift to aircraft mass and load factor** enabled, angle of attack
+is gray and read-only. Create FEM solves it and displays the resulting angle
+for that case; the original entered angle remains the initial guess. The target
+is `mass * 9.80665 * maneuver factor / 2` for the modeled half wing, followed by
+the separate Load multiplier. An unreachable target produces an explicit error
+within the aerodynamic model's supported angle and attached-flow limits.
+
+Creating a deck keeps the current workspace tab in focus. The **Deck** tab is
+green when its recorded model parameters match the form and gray when absent,
+out of date, or lacking a verifiable parameter signature. Open it explicitly
+to inspect the deck; regenerate it after edits to restore its current status.
+
 **Project > Read Nastran** opens BDF/DAT/NAS inputs and resolves their INCLUDE
 files. The Windows Open dialog appears in front of other windows while parser
 preparation continues in the background. Cancel closes only the picker. You can
@@ -177,6 +724,10 @@ thickness minimum apply. Zero-width shell stringers omit the flange when the
 minimum flange width is zero. Disabled stiffeners do not impose dormant bounds.
 Movable-surface structures likewise define four minimum skin/web/rib thicknesses;
 their current bay properties directly inherit the corresponding surface minimum.
+
+New Studies start with **0.8 mm** upper and lower main-box skins and **1.5 mm**
+spar webs (the global inputs use metres: `0.0008` and `0.0015`). Explicit gauges
+saved in an existing Study or TOML remain in effect when it is opened.
 
 **Materials → Material library** groups each material definition with its
 optional allowables. Select a material once to edit both its properties and limits.
@@ -289,9 +840,15 @@ checks offer the properties they involve. A shell stringer's web and flange
 remain one physical section and update together. Values below an enforced
 minimum gauge turn the input and source cell red and cannot be applied. Cancel
 leaves the Study unchanged. Apply marks the model and previous results out of
-date. Boxer rebuilds the affected property and assessment metadata, then updates
-the RF tables and active RF field using a **fixed-load sizing estimate**. This
-works with Live mesh off and does not run another equilibrium solution. Element
+date. Boxer refreshes section metadata on the retained FEM, then updates the
+RF tables and active RF field using a **fixed-load sizing estimate**. Only checks
+affected by the edited property are recalculated, including any shared physical
+skin/column checks; unrelated assessment rows are reused. Numeric assessment
+runs in a background worker. The model and previous field remain visible while
+an inline status reports the update, without the full-assessment progress card.
+This works with Live mesh off. Property edits do not regenerate the FEM or run
+another equilibrium solution, even when Live mesh is on. Continue editing, then
+explicitly create the FEM and rerun analysis to synchronize it. Element
 forces and shell membrane/bending resultants stay at their last solved values;
 stress is recovered for the edited sections, and buckling capacity is recomputed
 from the edited section or plate properties. Successive edits always use the
@@ -307,7 +864,7 @@ forces in the real structure, and changing mass can change inertia loads. Rerun
 the FE analysis to confirm the design. Changed geometry, loads or constraints
 cannot produce a trustworthy estimate; the previous report stays available with
 its mismatch notice instead. Unsupported recovery and missing applicable failure
-checks remain unassessed. A new Study clears the retained assessment, and matching
+checks remain unassessed. A visible calculation message appears before the first RF assessment, while internal loads are recovered and the applicable failure checks are evaluated. A new Study clears the retained assessment, and matching
 new analysis results replace both the baseline and the sizing estimate.
 
 Cell and 3D colors update with the estimated RF. With **Only RF < 1** enabled,
@@ -419,6 +976,22 @@ Its shear-flow and open-section torsion assumptions follow the
 [Mississippi State structural-analysis notes](https://www.ae.msstate.edu/tupas/SA2/chA14.7_text.html)
 and [open-section torsion notes](https://www.ae.msstate.edu/tupas/SA2/chA6.6_text.html).
 
+Constant isotropic **PBARL BAR** sections, including generated square spar caps
+and runout connectors, also receive a material-stress RF from complete beam
+resultants. The **solid rectangular-section envelope** takes the largest
+axial-plus-bending normal stress at both ends and all four corners. Its shear
+bound adds `1.5 * (abs(V1) + abs(V2)) / A` to `5 * abs(T) / (a * b^2)`, with
+`a >= b` the rectangle sides, and combines the bounds as
+`sqrt(normal^2 + 3 * shear^2)`. The torsion coefficient 0.20 is conservative
+against the rectangular Saint-Venant coefficients (approximately 0.208 to 1/3)
+in the [Mississippi State rectangular-torsion reference](https://www.ae.msstate.edu/tupas/SA2/chA6.4_text.html).
+This is an envelope, not a pointwise 3D stress solution; it excludes restrained
+warping and local concentrations. Actual dimensions, consistent area/inertias,
+complete forces, a constant MAT1 section and no distributed/interior element
+loading are required. Unsupported or incomplete records stay unassessed.
+Generated spar caps additionally retain the existing physical rib-to-rib Euler
+column check in Minimum RF; no empirical crippling strength is assumed.
+
 Laminate principal-strain checks are available in FE Results and in the combined
 Minimum RF assessment, and as a separate 3D RF field; percentile trimming applies only to the material-stress
 criterion. For SOL106 this ratio
@@ -436,6 +1009,13 @@ stringer sections, plus half the physical skin width to the neighboring
 stringer or spar on each side, including local skin thickness and section
 offsets. A combined skin-and-flange shell contributes once. The report and
 separate table identify each physical stringer/rib bay and the governing case.
+
+Near a swept root or final rib, a normal section can miss the finite spar path.
+Its terminal tangent may continue solely to locate the half-width skin partition.
+Only actual FE shell intersections contribute stiffness and recovered loads;
+the complete tributary strip must still be covered by the physical mesh. No
+skin, cap stiffness or load is extrapolated beyond the model. Genuine missing
+membership and undefined runout end restraints remain unassessed.
 
 In **Properties → Stringers**, set **Euler fixity coefficient** `c`:
 
@@ -756,7 +1336,8 @@ range, the nearest value is held constant; one station defines a constant
 schedule. Airfoil shape interpolation remains a separate choice in Airfoils.
 The same interpolation and endpoint rules apply to vertical shift. Newly added
 Loft stations use four significant figures and appear immediately in eta order;
-existing and manually entered values retain their precision.
+eta values are limited to five significant figures on load or committed edits.
+Other schedule values retain their entered precision.
 
 In **Movable surfaces**, use **Add movable surface** to define a flap, aileron,
 slat, elevator, rudder, tab or other named surface. Set its leading/trailing
@@ -908,7 +1489,7 @@ meshing a leading-edge movable surface. VLM panel forces are assigned to the
 main box or modeled control according to their span and chord positions, with
 force-arm moments retained. A panel crossing a component boundary belongs to
 the component at its force application point; refine the VLM mesh where this
-boundary resolution matters. VLM still solves the original common camber loft;
+boundary resolution matters. The FE load-case VLM still solves the original common camber loft;
 this transfer does not recompute pressure for control deflection or perform an
 aeroelastic iteration. Prescribed spanwise lift has no chordwise pressure data
 and remains applied to the main box rather than inventing a control load split.
@@ -966,10 +1547,22 @@ available, it shows the actual upper/lower attachment paths and connectors;
 after geometry edits it returns to the labeled reference preview until the FEM
 is rebuilt. Large layouts sample only the drawing, preserving the complete
 model. Right-button pan, exact zoom, window zoom, grid, dimensions and SVG
-export work in all three views.
+export work in all three views. Rib-station labels are 1.5 times the preceding size,
+with each rib label still centered and aligned on its rib segment.
 
-In **Image settings** (or **Image tools** in the dimensioned plan), **Image
-zoom (%)** changes only the reference image; 100% fits it to the initial drawing
+Image settings use compact horizontal rows across the 2D editors and dimensioned
+plan. Controls wrap to the available pane width; buttons keep their content width
+so opening settings leaves more room for the drawing. Grid and snap settings use
+the same layout.
+
+In **Image settings** (or **Image tools** in the dimensioned plan), **Hide image** /
+**Show image** toggles the reference without removing it or changing its opacity,
+scale, alignment or pin. Visibility is saved in Studies and TOML; shared plan
+images follow the selected image scope. A hidden image stays hidden in SVG export.
+During left-button window zoom, the cursor changes to a crosshair; releasing or
+cancelling the drag restores the normal cursor.
+
+**Image zoom (%)** changes only the reference image; 100% fits it to the initial drawing
 area. **Window zoom image** enlarges the selected image region while keeping
 geometry fixed. An unpinned selection is centered; a pinned image scales about
 its registered point to retain the match. **Width / height** sets the displayed
@@ -980,8 +1573,13 @@ Studies, TOML and SVG exports.
 
 In the Planform and Spars point editors, **Add point** rounds the generated
 values to four significant figures and immediately orders the rows by eta.
-Changing eta also reorders rows. Existing and manually entered values retain
-their precision.
+Changing eta also reorders rows. All definition values for **eta**, **x/c** and
+**z/c** are limited to at most **five significant figures**, including typed,
+dragged and loaded values. Inputs are rounded when a change is committed and
+normalized consistently for generation, Study/TOML and deck signatures.
+Derived Cartesian FE coordinates, loads and material constants retain their
+calculation precision. Recreate the FEM and rerun old results when this input
+rounding changes a loaded model definition.
 
 The Planform and Spars point tables show explicit root and tip rows. Their eta
 values stay locked at **0** and **1** during numeric, keyboard and mouse edits;
@@ -1002,11 +1600,21 @@ parameter pane, the compact **Fix angle** checkbox and degree input appear below
 the eta and offset fields; wider forms keep them in a separate table column.
 
 In **Structure / Stringers**, **Stringer angle reference** selects the local
-**rear spar** (default), local **front spar**, or **global +Y**. Zero follows the
-selected spar, or runs normal to the symmetry plane for global +Y. Positive
-angles turn aft. Changing the reference retains the entered angles and therefore
-changes the paths; front-spar kinks are included when that spar is selected.
-Rear-spar point rows still specify the piecewise angle stations.
+**rear spar** (default), local **front spar**, or **Angle from Y axis**. In the
+Y-axis mode, enter one independent angle for every box segment between the root,
+intermediate master ribs and final closure. Zero is parallel to BASIC +Y;
+positive angles sweep aft toward +X. The table follows the root-to-tip master
+order and identifies each segment by its physical rib numbers and eta values.
+Rib numbers update when the rib pitch changes. Paths remain continuous across
+boundaries. Missing angle entries use
+**Default stringer angle**. Changing master positions moves the corresponding
+boundaries. Spar-relative modes retain the rear-spar point angle intervals and
+include front-spar kinks when that spar is selected.
+
+The serialized reference name `global_y` remains supported. In that mode,
+rear-spar point angles no longer define the schedule; review the master-segment
+angle table when opening an older study that used nonuniform rear-point angles.
+Creating the FEM and rerunning analysis is required after direction changes.
 
 Rib and stringer pitch spinners advance by **0.1 m**; smaller exact values may
 still be typed. **Add master rib** appends a station halfway between the last
@@ -1051,9 +1659,9 @@ section area and moments of area. It does not invent a flange. Positive-width
 flanged sections use **PBARL T** and require a positive flange thickness. This
 also applies to local panel overrides. The centroid remains inside the skin;
 switching representation requires a new FEM and analysis. Rectangular BAR
-sections retain axial-stress, Euler-column and blade-instability assessment;
-the current equivalent-stress recovery is T-specific, so BAR von Mises RF is
-explicitly unavailable unless suitable recovered equivalent stress is supplied.
+sections retain axial-stress, Euler-column and blade-instability assessment,
+and receive the solid rectangular-section equivalent-stress envelope described
+above when complete, supported force recovery is available.
 
 In **Properties / Stringers**, the added-flange material initially follows the
 stringer material, including panel overrides. Clear **Use stringer material**
@@ -1317,12 +1925,12 @@ Install **Julia 1.13.1**, then clone the repository:
 ```sh
 git clone https://github.com/r-acad/JF_2026_05_25.git
 cd JF_2026_05_25
-julia APPS/JFEM-Boxer/setup.jl
+julia --project=. utils/julia_tools/install_julia_packages.jl
 julia --project=. APPS/JFEM-Boxer/JFEM-Boxer.jl
 ```
 
-`APPS/JFEM-Boxer/setup.jl` delegates to the same unified installer as the setup
-launchers under `__Start here!__/Windows`, `Linux` and `Mac`. The installer prepares
+The single shared setup is at the repository root (`setup.cmd`, `setup.sh`, `setup.command`).
+The installer prepares
 one root environment and verifies JFEM, JFEM-Boxer, PANDEATOR and the static viewer.
 The shared sysimage is built automatically as part of setup. The first setup can
 take several minutes while Julia downloads and compiles packages. All apps use
@@ -1332,11 +1940,11 @@ The app opens a browser at `http://127.0.0.1:8080`. If the browser does not open
 visit that address manually. It is a local desktop web app, not a hosted service.
 Keep its terminal open while using it. Stop the server with Ctrl+C in that terminal.
 
-Alternatively, use this app's operating-system folders:
+After central setup, use this app's operating-system folders:
 
-- Windows: `Windows/setup.cmd`, then `Windows/JFEM-Boxer.cmd`.
-- Linux: `sh Linux/setup.sh`, then `sh Linux/JFEM-Boxer.sh`.
-- macOS: `Mac/setup.command`, then `Mac/JFEM-Boxer.command`.
+- Windows: `Windows/JFEM-Boxer.cmd`.
+- Linux: `sh Linux/JFEM-Boxer.sh`.
+- macOS: `Mac/JFEM-Boxer.command`.
 
 The repository may be cloned to a different folder name, including a path with
 spaces. JFEM-Boxer uses the enclosing OpenJFEM source and the repository root
@@ -1377,9 +1985,10 @@ optional external-resource details.
    define the structural spar paths independently.
    **Structure / Stringers** contains default pitch, global or rear-spar-segment
    angles, and the normalized **Run-out threshold**.
-3. Use **Model / Structural Mesh** to create or refine the FEM. Live mesh
-   rebuilds it after valid edits. Geometry and mesh locks help retain the layout
-   while assigning properties.
+3. Use **Model / Structural Mesh** to create or refine the FEM. Geometry previews
+   update with Live mesh either on or off. Live mesh rebuilds the FEM after valid
+   edits; with it off, press **Create FEM** explicitly. Geometry and mesh locks
+   help retain the layout while assigning properties.
    **Vertical elements: spars, ribs and leading edge** is a shared positive
    integer (default 3). Refinement retains common nodes at the front-spar and
    leading-edge interfaces; it does not create disconnected coincident meshes.
@@ -1397,7 +2006,7 @@ optional external-resource details.
    a perturbation point moves its eta onto the nearest available rib datum while
    preserving delta x/c; it also handles oblique rib datums. This is a one-time
    edit, not a persistent geometric constraint. Eta and x/c field arrows use 0.1
-   increments; typed values retain their full precision.
+   increments; eta/x/c definitions are limited to five significant figures.
 4. Define materials, skins, stringers, ribs, spars and leading-edge properties
    under **Model / Properties**. Detached panel tables assign local overrides;
    blank entries inherit the shared values. Rows are stringers, columns are rib
@@ -1766,9 +2375,22 @@ off retains the original prescribed lift or VLM angle of attack.
 The existing **Load multiplier** is a separate final factor (for example, 1.5
 for ultimate loading); the form shows both the matched target and final load.
 This assumes symmetric flight with the main wing carrying all aircraft lift.
-Fuel fill and inertia accelerations remain separately specified. VLM searches
+Matched cases automatically enable dry structural and engine inertia and set
+the shared BASIC-Z structural/engine/fuel inertia acceleration to **-n g**.
+Those two controls are read-only while matching is active; switching matching
+off restores their manual values. The entered BASIC-X/Y components remain active,
+and fuel fill still determines the actual fuel mass. The aircraft mass already
+includes wing, engines and fuel: their inertia is applied as relief body forces,
+without adding their mass again to the aerodynamic target. Thus, for a vertical
+lift-only case, net half-wing root force is
+`n g (aircraft mass / 2 - modeled dry mass - modeled engine mass - fuel mass)`,
+before the common load multiplier. Prescribed torque, thrust and entered
+nonvertical loads remain separate contributions. VLM searches
 between −30° and +30° and reports failure if it cannot reach the target; existing
 high-incidence warnings still apply because VLM does not predict stall.
+
+**Display > Marker radius (m)** uses 0.1 m spinner increments; smaller
+nonnegative marker sizes can still be typed.
 
 **Materials / Material library** provides **Predefined alloy**
 choices **Al7075-T6 DTD5014** and **Al2024-T3 DTD5070B** from the wingbox report.
@@ -1843,7 +2465,7 @@ to a spar falls below that fraction of its nominal pitch. The normal stringer
 ends at the preceding physical rib datum of the bay containing the trigger;
 its connector starts at that datum and joins the spar immediately outboard.
 Both upper and lower stringers terminate together. Mesh rows and geometry
-kinks are not extra rib supports.
+kinks are not extra rib supports. At a spar corner, each connector stays inside the strip between its destination spar and the nearest surviving stringer. Opposite-spar corners do not bend that connector; adjacent shells share its boundary nodes.
 
 The ratio must be greater than zero and at most one. Legacy studies and TOML
 definitions without this setting retain a clearance ratio of 1.0; they use
@@ -2387,7 +3009,40 @@ outside the repository.
 The solver's separate curated validation suite is described in the repository
 [validation guide](../../validation/README.md).
 
+The root-load plots, coordinate policy and incremental RF path have focused
+checks runnable from the repository root:
+
+```text
+node APPS/JFEM-Boxer/test/potato_plots_test.cjs
+node APPS/JFEM-Boxer/test/coordinate_inputs_test.cjs
+node APPS/JFEM-Boxer/test/rf_incremental_test.cjs
+node APPS/JFEM-Boxer/test/rf_sizing_estimate_test.cjs
+julia --project=. APPS/JFEM-Boxer/test/rectangular_beam_rf_test.jl
+node APPS/JFEM-Boxer/test/rf_compute_worker_browser_test.cjs <evidence-dir> <playwright-module>
+```
+
+The worker browser check uses explicit synthetic recovery to verify transport,
+full/scoped numerical agreement, freshness and cancellation. It needs Playwright
+and Chrome (`CHROME_PATH` can select the executable), but no running Boxer server
+or solver. Native solver recovery remains a separate validation step.
+
 ## Source layout
+
+The independent aerodynamic regression checks run from the repository root:
+
+```text
+julia --startup-file=no --project=. APPS/JFEM-Boxer/test/aerodynamic_study_test.jl
+node APPS/JFEM-Boxer/test/aerodynamic_study_data_test.cjs
+node APPS/JFEM-Boxer/test/aerodynamic_reference_plots_test.cjs
+```
+
+The browser acceptance test needs a dedicated Boxer server, Chrome and a
+Playwright module. It changes the test browser's definition, runs actual VLM
+jobs and writes screenshots and exports to the chosen private output folder:
+
+```text
+node APPS/JFEM-Boxer/test/aerodynamic_study_browser_test.cjs http://127.0.0.1:PORT PRIVATE_OUTPUT_FOLDER PLAYWRIGHT_MODULE
+```
 
 | Path | Purpose |
 | --- | --- |
@@ -2396,7 +3051,7 @@ The solver's separate curated validation suite is described in the repository
 | `web/vendor/` | Bundled browser dependencies and their license notices |
 | `examples/wing_default.toml` | Portable factory model definition |
 | `test/` | Selected self-contained checks |
-| `setup.jl`, platform launchers | Dependency setup and local startup |
+| Root `setup.cmd` / `setup.sh` / `setup.command`; app OS launchers | Shared dependency/image setup, then local startup |
 | Root `Project.toml`, `Manifest.toml` | Shared solver/app dependency environment |
 
 Original application source is covered by the repository [LICENSE](../../LICENSE).

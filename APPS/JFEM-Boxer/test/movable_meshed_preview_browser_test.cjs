@@ -47,13 +47,13 @@ if(!url||!out)throw Error('Expected URL and output folder');fs.mkdirSync(out,{re
    await page.locator('#show-movable-preview').uncheck();assert(await page.evaluate(()=>state.movablePreview.surfaceMeshes.every(m=>!m.isEnabled())&&state.movablePreview.hingeMeshes.every(m=>m.isEnabled())));
    await page.locator('#show-movable-preview').check();assert(await page.evaluate(()=>state.movablePreview.meshes.every(m=>m.isEnabled())));
   }
-  await page.evaluate(()=>{setLayerVisible('MOVABLE_PREVIEW',false);setLayerVisible('MOVABLE_HINGES',false);});
+  await page.evaluate(()=>{setLayerVisible('MOVABLE_PREVIEW',false);setLayerVisible('MOVABLE_PREVIEW_HINGES',false);});
   assert(await page.evaluate(()=>!document.getElementById('show-movable-preview').checked&&!document.getElementById('show-movable-hinges').checked&&state.movablePreview.meshes.every(m=>!m.isEnabled())));
-  await page.evaluate(()=>{setLayerVisible('MOVABLE_HINGES',true);});
+  await page.evaluate(()=>{setLayerVisible('MOVABLE_PREVIEW_HINGES',true);});
   assert(await page.evaluate(()=>state.movablePreview.surfaceMeshes.every(m=>!m.isEnabled())&&state.movablePreview.hingeMeshes.every(m=>m.isEnabled())));
   await page.evaluate(()=>{setLayerVisible('MOVABLE_PREVIEW',true);});
   assert.equal(await page.locator('#entity-group-aerodynamics [data-component="MOVABLE_PREVIEW"]').count(),1);
-  assert.equal(await page.locator('#entity-group-aerodynamics [data-component="MOVABLE_HINGES"]').count(),1);
+  assert.equal(await page.locator('#entity-group-aerodynamics [data-component="MOVABLE_PREVIEW_HINGES"]').count(),1);
   checks.push('Aerodynamic geometry independently controls movable previews and hinge lines, synchronized with Geometry controls');
   await page.waitForTimeout(1000);
   assert.equal(generated,requestBaseline,'Preview-only angles must not regenerate a neutral structural mesh, even with Live mesh on');

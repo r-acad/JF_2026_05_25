@@ -22,7 +22,7 @@ let i = 1
         a = ARGS[i]
         if a in ("--help", "-h")
             println("Usage: julia --startup-file=no --project=. APPS/PANDEATOR_APP/panel_launch.jl [--port 8088] [--no-open]")
-            println("Missing dependencies install automatically. For explicit setup, use the setup launcher for your OS in __Start here!__.")
+            println("Run setup.cmd, bash setup.sh or bash setup.command at the repository root first to install shared packages and build the sysimage.")
             exit(0)
         elseif a == "--port" && i < length(ARGS)
             port = parse(Int, ARGS[i+1]); i += 2

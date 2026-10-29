@@ -5,14 +5,259 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Pressure arrows and public examples
+
+- Add pressure arrows (force divided by physical panel area, Pa) with the same
+  direction as panel forces and one common magnitude scale across the wing.
+  Give each VLM surface a stable color and an identifying legend; retain these
+  colors, units and scale in SVG exports and save the display mode in Studies.
+  Change arrow mode/show-hide without replacing the mesh or running analysis.
+- Publish the test1 and calebito1 Boxer Studies and Python sizing example.
+  Keep local generated mesh/solver products outside publication.
+
+### Aerodynamic edge refinement, wake convergence and contour limits
+
+- Concentrate spanwise rows near patch edges, control ends, tips and loft
+  breaks with bounded cosine grading while retaining true cosine chord
+  spacing, panel-budget limits and the maximum aspect-ratio check.
+  Balance uniform chord zones after control refinement to meet both aspect
+  bounds without excessive span subdivision.
+- Add safeguarded Anderson wake iteration, retaining plain relaxation and
+  the existing physical residual/tolerance. The calebito1 example converges
+  with its original wake length, rows and core using acceleration and a
+  300-iteration cap; include the selected iteration method in reports.
+- Compact the Aerodynamics header and toolbar spacing; place dismissible
+  progress, completion, error and stale notices over the 3D render.
+- Add min/max contour sliders and numeric limits, automatic reset and all
+  six FEM palettes. Recolor the retained mesh immediately, persist preferences
+  per field and match SVG colors without changing numerical results.
+
+### Header notices, live geometry clipping and control mesh refinement
+
+- Move aerodynamic progress, completion, error and stale notices beside the
+  heading's information button in both documents. Add close controls without
+  cancelling jobs or clearing the stale state of results/exports.
+- Compute camera clipping from the visible live geometry and retained FEM
+  bounds, including offset from the camera target, before FEM generation.
+- Add 25% extra chordwise cells (at least one) in aerodynamic control zones,
+  retaining cosine spacing, 3D aspect checks and the selected panel budget.
+- Avoid rewriting the axes SVG while camera projection and flight/display
+  settings remain unchanged; keep live angle and camera updates.
+- Apply loaded styles immediately in detached Aerodynamics tabs and create a
+  fresh canvas on each transfer so closed tabs cannot invalidate the viewer.
+
+### Aerodynamics form layout and navigation
+
+- Put analysis conventions and detached-tab guidance behind an information
+  button beside the heading; float status notices and expandable analysis
+  details over the 3D canvas without shifting the form.
+- Use left dragging to rotate everywhere and reserve panning for right
+  dragging. Retain click centering, window zoom and Ctrl-wheel zoom.
+- Give the detached workspace a distinct purple wing-and-wind tab icon.
+  Place axis visibility beside the angle toggle, airspeed below Analysis
+  and beta below alpha.
+
+### Relaxed-wake Trefftz drag and inviscid efficiency
+
+- Evaluate the discrete Trefftz wake-sheet integral on the computed terminal
+  cross-section with current circulation and the model's straight continuation.
+  Add inviscid span efficiency and derivatives for both wake policies.
+- Populate tables, coefficient/derivative sweeps and JSON/CSV/HTML/MD exports;
+  record the evaluation method, terminal-shape sensitivity and near/far gap.
+- Detect singular/collapsed/unphysical discrete cuts without replacing valid
+  aerodynamic loads. Retain zero-loading efficiency as undefined.
+- Document the approximate terminal-cut formulation, its primary reference and
+  refinement requirements; wake convergence alone does not certify drag.
+
+
+### Steady non-rigid aerodynamic wakes
+
+- Add a circulation-coupled relaxed free wake in incompressible flow, with
+  finite-core convection, shared TE streamlines, a straight far continuation,
+  independent sweep convergence and explicit failure without replacing results.
+- Expose wake length, rows, core, relaxation, iteration cap and tolerance, plus
+  smoother starting settings. Report iteration/residual over the 3D render.
+- Display computed curved wake polylines, clipping and Fit wing + wake; export
+  them in 3D SVG and retain sheets/convergence history in complete JSON.
+- Support frozen-wake and independently re-relaxed derivatives, labelled in
+  reports/CSV. Keep near-field drag and evaluate relaxed-wake Trefftz drag/efficiency
+  from the computed terminal cross-section and straight far continuation. Document steady, incompressible and convergence limits.
+- Reuse atomic sharing-safe progress/result publication in aerodynamic workers
+  so Windows status polling cannot abort a calculation with a locked JSON file.
+
+
+### Live aerodynamic workspace and geometry-driven controls
+
+- Open the live Aerodynamics form in its own browser tab, gray the original
+  while detached, and retain settings/results/camera through repeated returns.
+- Add live alpha/beta sliders, filled angular sectors and leaders terminating
+  at each exact arc midpoint without remeshing or rerunning the analysis.
+- Center on clicked model points, rotate with left dragging and pan with
+  right dragging at full cursor speed.
+- Float aerodynamic progress over the 3D canvas without changing form layout.
+- Share actual 3D hinge kinematics between geometry and aerodynamic controls,
+  including offsets and fixed/control gaps, with explicit analysis overrides.
+- Use exact cosine chord spacing. Keep the physical aspect upper bound 1.5;
+  the 0.7 lower bound is advisory for cosine and enforced for uniform spacing.
+
+
+### Aerodynamic sideslip display and explicit refresh workflow
+
+- Match the aerodynamic viewer to structural right-handed rendering; retain
+  positive beta as incoming wind from the right, label both wing halves and
+  show +Y_B toward the right wing. Name the wind frame simply Wind W'.
+- Draw C/B/A/W'/S axes together with independent visibility for all 15 directions.
+- Retain the completed mesh/results and camera during input edits; use explicit
+  preview/run actions with independent orange/blue/green synchronization states.
+- Emphasize x=0/y=0 on every aerodynamic chart and add real-sample curve-hover
+  x/y readouts and keyboard focus, retaining point titles in portable exports.
+
+### Aerodynamic axes and signs aligned with Quaderno 1
+
+- Separate construction C (aft/right/up) geometry vectors from Body B
+  (forward/right/down) force/moment coefficients; add instantaneous Aerodynamic
+  A and fixed-alpha0 Stability S frames and label American wind W-prime clearly.
+- Rotate dimensional moments before sign/frame conversion and normalization,
+  correcting nonzero-sideslip roll/pitch moments and their derivatives.
+- Export signed force components alongside positive W-prime drag/lift entries,
+  carry the fixed stability reference into sweeps/derivatives, and update tables,
+  plots, SVG/CSV/HTML/MD reports and selectable reference-axis glyphs.
+- Label incoming flow as -V and retain structural construction coordinates.
+  Apply European positive-rudder trailing-edge-left signs to both mirrored fins.
+
+### Aerodynamic mesh quality, wakes and derivative studies
+
+- Enforce physical 3D span/chord panel upper edge ratio 1.5, retain loft
+  corners and grade near tips/bends. Uniform spacing also enforces 0.7; true
+  cosine uses that lower value as advisory. Reject over-budget meshes.
+- Show floating mesh/analysis/derivative progress with elapsed time, steady VLM
+  wake lines and display length, upstream wind/alpha/beta glyphs, and the shared
+  Background color in the aerodynamic canvas and vector view export.
+- Export every selected-condition spanwise distribution in one vector SVG sheet.
+- Compute fixed-topology finite-difference derivatives of all coefficient
+  frames, Trefftz drag and span efficiency versus alpha/beta, normalized body
+  rates, speed, altitude and enabled control commands for every sweep case.
+  Add separate derivative result/browser tabs, derivative sweep SVG/CSV plots,
+  complete portable HTML/MD/CSV reports, explicit units and stencil metadata.
+
+### Independent geometry preview and explicit FEM generation
+
+- Update the authored loft, airfoil sections and control geometry independently
+  of FEM generation, retaining the existing FE model/results while Auto is off.
+- Honor the saved Auto preference on Study loading, and start new Studies with
+  geometry only until Auto or an explicit model-generation action is selected.
+- Add aerodynamic 3D SVG export with vector contours, force arrows, reference
+  axes/angle dimensions, legend and stale metadata; retain SVG on every plot.
+
+### Independent full-wing aerodynamic studies
+
+- Center the aerodynamic camera on a clicked surface point while preserving
+  orientation/zoom; retain orbit drags and true background double-click fitting.
+- Draw BASIC reference axes and signed alpha/beta angular dimensions with
+  arrows, camera-projected labels and independent visibility controls.
+- Plot all force/moment coefficient frames, Trefftz drag and span efficiency
+  against every sweep variable, with Cartesian slices and individual SVG/CSV
+  or complete standalone HTML/CSV plot exports.
+- Support Ctrl+wheel and rectangle window zoom in the aerodynamic canvas,
+  prevent plain-wheel zoom/page scrolling and fit on background double-click.
+- Add an expandable all-case/all-frame coefficient table and standalone HTML
+  and Markdown reports with conditions, controls, references and stale notices.
+- Open complete coefficient tables in a separate browser tab with an embedded
+  amber table favicon; identify Boxer itself with a cyan wing favicon.
+- Add Loads > Aerodynamics with an independent VLM process, full-wing lattice,
+  geometry-aware density controls, alpha/beta/body rates, atmosphere/reference
+  inputs and single-condition or multidimensional sweeps.
+- Apply geometric control definitions through the shared 3D hinge motion, with
+  symmetric, antisymmetric and independent analysis overrides.
+- Add pressure-jump, force, circulation and velocity contours, panel inspection,
+  span/chord distributions, sweep plots, all coefficient frames and data exports.
+  Retain Study settings and identify stale results without changing the FE model.
+- Enlarge rib-station labels by 1.5 while retaining the spar-point label size.
+
+### Persistent rib links, loft-normal rib planes and maneuver inertia
+
+- Persist master-rib links to stable spar-point identities. Keep linked ribs
+  green, follow point edits and reordering, and unlink when the target is deleted.
+- Add per-intermediate-master vertical or local-midplane-normal rib planes,
+  with interpolated secondary tilt and conforming skin/spar intersections.
+- Couple matched-lift cases to -n g wing/engine/fuel Z inertia and enable
+  structural inertia. Apply relief forces without double-counting wing mass in
+  the complete-aircraft aerodynamic target; retain manual settings for matching off.
+- Set the marker-radius spinner increment to 0.1 m.
+
+### Boxer load envelopes and responsive property sizing
+
+- Add Loads > Potato with three signed root-load scatter plots, persistent case
+  selection, consistent case colors and optional name/value labels.
+- Keep focus when creating a deck; show a green Deck tab for a verified current
+  definition and gray for an absent or stale deck.
+- Recover a conservative rectangular-section equivalent-stress envelope for
+  supported solid BAR beams, including generated spar caps. Combine material
+  strength with their existing physical-column buckling check.
+- Recompute only affected RF checks after fixed-load property edits, using a
+  background worker and retaining the visible mesh and field. Reuse unchanged
+  rows and preserve the original solved loads through successive edits.
+- Halve rib-plot text, normalize eta/x/c/z/c definitions to five significant
+  figures, and make matched-lift angle of attack read-only while showing its
+  calculated value after generation.
+
+### Rib labels, defaults and swept-root RF assessment
+
+- Centre 2D rib labels on their rib segments, aligned with each segment. Show
+  physical rib numbers beside eta ranges in the Angle from Y axis table.
+- Start new Studies with 0.8 mm upper/lower main-box skins and 1.5 mm spar webs;
+  initialize the movable preview finish explicitly to Translucent.
+- Repair Euler skin-partition construction when a section near an oblique end
+  rib misses the finite spar. Retain physical-shell coverage checks so valid
+  RFs are not suppressed by incomplete generated membership.
+
+### Compact 2D drawing settings
+
+- Arrange image, grid and snap settings in horizontal rows that wrap to the pane
+  width across 2D editors and the dimensioned plan, preserving canvas space.
+
+### Rib plot interaction and movable mesh sizing
+
+- Label every displayed rib and restrict alignment to movable master ribs.
+  Show an orange ready-to-snap button and green confirmation on the button
+  and aligned master; invalidate confirmation when the alignment changes.
+- Use a crosshair during left-button window zoom. Add persistent image Hide/Show
+  controls in shared 2D drawings and the dimensioned plan without losing alignment.
+- Refine movable FE rows against the shortest local structural control chord,
+  measuring actual 3D edges while retaining physical ribs and attachment planes.
+
+### Boxer study, mesh and sizing workflow
+
+- Put the shared package/sysimage setup at the repository root. Remove the
+  onboarding-folder installers and require setup before app startup.
+- Separate movable preview hinge layers from FE hinge/actuator layers and clean
+  all renderer-owned geometry when starting another Study.
+- Rename the Y reference to Angle from Y axis and add independent angles for
+  root/master/final-rib intervals, with continuous paths and TOML persistence.
+- Keep spar-corner runouts inside their local stringer strip instead of coupling
+  them to opposite-spar corners. Preserve shared boundary nodes.
+- Keep spar image action buttons at content width in maximized forms.
+- Update fixed-load RF estimates through section-only metadata requests after
+  property edits; retain the displayed FEM and original recovery with a visible
+  out-of-sync warning. Show calculation progress before RF assessment.
+
+### Warm Python wing-box sizing
+
+- Add parse-once, in-memory SOL105 sessions to the Python worker, transactional
+  thickness updates, compact spectra and critical-mode property strain energy.
+- Add a Boxer-generated wing-box sizing example that increases the controlling
+  shell thickness by 10% until every requested positive factor exceeds one.
+- Verify sysimage provenance before starting the persistent Python worker.
+
 ### Application launchers
 
+- Consolidate setup at the repository root; remove equivalent app-specific
+  and onboarding-folder installers.
 - Move application launchers into Windows, Linux and Mac folders within each
   app, including a launcher-only JFEM-solver folder. Remove repository-root
-  launchers and keep the onboarding shortcuts pointed at the app folders.
-- Keep setup in the operating-system folders under `__Start here!__`, update
-  launch instructions and preserve Boxer solver discovery for saved Studies
-  that refer to the retired root command.
+  app launchers and keep the onboarding shortcuts pointed at the app folders.
+- Keep application shortcuts and guides under `__Start here!__`; preserve Boxer
+  solver discovery for saved Studies that refer to the retired root command.
 
 ### Eigenvalue extraction and comparison
 

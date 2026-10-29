@@ -1,3 +1,7 @@
+**Run the root `setup.cmd`, `bash setup.sh` or `bash setup.command` first.** Setup downloads packages and builds one image for all apps under the root `sysimage/` folder. App folders contain launchers, not installers.
+
+**Run the root `setup.cmd`, `bash setup.sh` or `bash setup.command` first.** Setup downloads packages and builds one image for all apps under the root `sysimage/` folder. App folders contain launchers, not installers.
+
 # JFEM applications
 
 Install once with the setup launcher for your operating system in
@@ -5,7 +9,7 @@ Install once with the setup launcher for your operating system in
 repository root Project/Manifest and the compiled solver image.
 
 Each application keeps its launchers in `Windows/`, `Linux/` and `Mac/`.
-The shortcuts in `__Start here!__` forward here; there are no root launchers.
+The shortcuts in `__Start here!__` forward here; only the shared setup launchers live at the repository root.
 
 | Application | Windows | Linux | macOS |
 | --- | --- | --- | --- |

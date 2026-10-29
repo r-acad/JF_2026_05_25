@@ -12,3 +12,7 @@ let rows=[master(.9998)],last=.9998;for(let i=0;i<24;i++){const next=R.nextMaste
 assert.equal(R.nextMasterEta([master(1-1.1e-10)],1),null);
 assert.throws(()=>R.nextMasterEta([master(.5),master(.5)],1));
 console.log('Stringer direction previews and appended master-rib positions passed');
+
+const byMaster=S.derive({...p,'box.stringer_angle_reference':'global_y','ribs.masters':[master(.3),master(.6)],'box.stringer_segment_angles':[3,-2,5]});
+assert(byMaster.valid,byMaster.error);assert.deepEqual(byMaster.stringerSegments.map(s=>[s.startEta,s.endEta,s.absoluteAngle]),[[0,.3,3],[.3,.6,-2],[.6,1,5]]);
+console.log('Independent angles from Y follow master-rib intervals');

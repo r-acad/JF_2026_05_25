@@ -59,7 +59,7 @@ end
         @test abs(W.stringer_offset(path,eta+1e-8)-W.stringer_offset(path,eta-1e-8))<1e-6
     end
     p["box.stringer_angle_reference"]="global_y";path=W.stringer_path(p)
-    @test path.directions==[4.,-3.,-3.]
+    @test path.directions==[7.]
     normalized,_=W.normalize_params(p);@test normalized["box.stringer_angle_reference"]=="global_y"
     p["box.stringer_angle_reference"]="invalid";@test_throws ArgumentError W.stringer_path(p)
 end
@@ -82,4 +82,18 @@ end
     @test W.all_checks_pass(model)
     @test only(model.params["properties.panels"])["skin"]["thickness"]==.004
     @test W.panel_layout_token(model.grid,W.stiffened_panel_layout(model.grid))==token
+end
+
+@testset "Y-axis angles between master ribs" begin
+    p=fixture();p["box.stringer_angle_reference"]="global_y";p["box.end_eta"]=.9
+    p["ribs.masters"]=[Dict("eta"=>e,"mode"=>"flight_direction","angle"=>90.,"pitch"=>.5) for e in (.3,.6)]
+    p["box.stringer_segment_angles"]=[3.,-2.,5.]
+    p=first(W.normalize_params(p));path=W.stringer_path(p)
+    @test path.etas==[0.,.3,.6,.9,1.]
+    @test path.directions==[3.,-2.,5.,5.]
+    for eta in (.3,.6);@test isapprox(W.stringer_offset(path,eta-1e-10),W.stringer_offset(path,eta+1e-10);atol=1e-7);end
+    @test first(W.normalize_params(W.flatten_toml(TOML.parse(W.params_to_toml(p)))))["box.stringer_segment_angles"]==[3.,-2.,5.]
+    for angle in (-90.,90.,NaN,Inf)
+        p["box.stringer_segment_angles"]=[angle];@test_throws ArgumentError W.normalize_params(p)
+    end
 end

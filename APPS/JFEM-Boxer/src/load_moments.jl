@@ -6,7 +6,9 @@
 # scopes cannot be shown as current against the newly split property cards.
 # Rib-datum runouts change the generated mesh, stiffness and structural mass.
 # Historical studies must not reuse their solved fields as current results.
-const APPLIED_LOAD_VERSION = "rib_aero_bay_mass_wrenches_pg_runout5mm2_ribdatum_combinedflanges_tiprbe3_controlpaths_axialactuators_engineflexible_movablequality_adjacentribmounts_localwingkinks_subsparfittings_thrust_qualityguard_bladebeam_teribs_v17"
+# Master-plane intersections and matched-case body forces changed in v18.
+# Prior recovery must be rerun even if the editable scalar values are identical.
+const APPLIED_LOAD_VERSION = "rib_aero_bay_mass_wrenches_pg_runout5mm2_ribdatum_combinedflanges_tiprbe3_controlpaths_axialactuators_engineflexible_movablequality_adjacentribmounts_localwingkinks_subsparfittings_thrust_qualityguard_bladebeam_teribs_masterplanes_matchedinertia_v18"
 const APPLIED_MOMENT_ROUTING_NOTE = "Aerodynamic forces and moments retain their assigned main-box or movable-surface RBE3 centers, including massless references beyond each structural tip. Fuel and structural shell/bar inertia forces and moments act at fuel/mass bay RBE3 centers. Engine inertia and thrust act directly at each engine CG and pass through its own attachments; they are never transferred to wing mass bays. Positive thrust is forward, BASIC -X, independent of the structural-inertia switch and scaled once by the load multiplier. Bracketing span weights preserve force and global moment; moved forces add (source position - target position) cross force. Massless bay references add no fuel capacity or CONM2 mass. Inertia loads, engine thrust and all applied couples remain fixed in global axes."
 
 """Engine dead inertia and thrust loads at their actual CGs, preserving the mount load path.

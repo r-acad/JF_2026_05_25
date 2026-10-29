@@ -1,3 +1,5 @@
+> **Setup must run first.** From the repository root, run `bash setup.command`. All applications share these packages and the root `sysimage/`; this folder contains application shortcuts only.
+
 # JFEM on macOS
 
 ## Install once
@@ -6,7 +8,7 @@
    [Julia downloads](https://julialang.org/downloads/manual-downloads/). Make
    `julia` available on PATH and confirm `julia --version` in a new Terminal.
 2. Download and extract the complete repository to a writable directory.
-3. Open `__Start here!__/Mac` and double-click **setup.command**. If the ZIP
+3. Open the repository root and double-click **setup.command**. If the ZIP
    did not retain executable permissions, open Terminal in that folder and run:
 
    ```bash

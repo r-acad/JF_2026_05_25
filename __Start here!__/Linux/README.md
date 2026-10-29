@@ -1,3 +1,5 @@
+> **Setup must run first.** From the repository root, run `bash setup.sh`. All applications share these packages and the root `sysimage/`; this folder contains application shortcuts only.
+
 # JFEM on Linux
 
 ## Install once
@@ -6,7 +8,7 @@
    [Julia downloads](https://julialang.org/downloads/manual-downloads/) and make
    `julia` available on PATH. Check with `julia --version` in a new terminal.
 2. Download and extract the complete repository to a writable directory.
-3. Open a terminal in `__Start here!__/Linux` and run:
+3. Open a terminal at the repository root and run:
 
    ```bash
    bash setup.sh

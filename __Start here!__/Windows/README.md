@@ -1,3 +1,5 @@
+> **Setup must run first.** From the repository root, run `setup.cmd`. All applications share these packages and the root `sysimage/`; this folder contains application shortcuts only.
+
 # JFEM on Windows
 
 ## Install once
@@ -6,7 +8,7 @@
    **Tick Add Julia to PATH**, then reopen any terminal/File Explorer window.
 2. Download the complete JFEM ZIP from GitHub and choose **Extract All**. Keep
    the entire extracted folder together in a writable location.
-3. Open `__Start here!__/Windows` and double-click **setup.cmd**.
+3. Open the repository root and double-click **setup.cmd**.
    Stay connected to the internet. It installs the shared packages and builds
    one shared image for JFEM, Boxer, PANDEATOR and their workers.
 4. Wait for successful completion. The first image build can take an hour or

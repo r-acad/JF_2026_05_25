@@ -345,6 +345,8 @@ function aircraft_lift_summary(p)
         "gravity_m_s2" => AIRCRAFT_LIFT_GRAVITY,
         "target_unscaled_half_lift_N" => target,
         "target_scaled_half_lift_N" => target * Float64(p["loads.load_factor"]),
+        "structure_inertia_enabled" => structure_inertia_enabled(p),
+        "inertia_acceleration_g" => collect(inertia_acceleration_g(p)),
         "note" => AIRCRAFT_LIFT_NOTE)
 end
 

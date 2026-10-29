@@ -9,7 +9,7 @@ operating-system setup folders easy to navigate.
 | [examples](examples/precompile/README.md) | Small bundled decks for trying the solver and compiling the shared Julia image; batch manifests are under `examples/manifests/`. |
 | [images](images/README.md) | Screenshots and illustrations used by the guides. |
 | [julia_tools](julia_tools/README.md) | Shared installation, launch, batch, worker and image-build helpers used by all applications. |
-| `python_client` | Optional standard-library-only Python interface for batch jobs and a persistent Julia worker. |
+| [python_client](python_client/README.md) | Standard-library Python interface, persistent model sessions and a Boxer wing-box thickness-sizing demonstration. |
 | [test](test/README.md) | Maintained solver and installation regression checks. |
 
 All applications and helpers use the repository-root `Project.toml` and

@@ -1279,9 +1279,9 @@ function complete_stringer_stresses!(m::Model, records::AbstractDict)
         if is_imported_model(m)
             gr.kind===:bar||continue
             section=imported_properties(imported_native(m),gr)["section"]
-            get(section,"shape","")=="T"&&haskey(section,"polygon_yz_m")||continue
+            get(section,"shape","") in ("T","BAR")&&haskey(section,"polygon_yz_m")||continue
         else
-            component_base_pid(gr.pid) in (PID_STRINGER,PID_RIB_STIFFENER) || continue
+            component_base_pid(gr.pid) in (PID_STRINGER,PID_RIB_STIFFENER,PID_SPAR_CAP,PID_STRINGER_RUNOUT) || continue
             section = section_definition(m.params, gr.pid)
         end
         points = section["polygon_yz_m"]
@@ -1307,7 +1307,10 @@ function complete_stringer_stresses!(m::Model, records::AbstractDict)
             # distributed-load/taper scope. Older generated results can be
             # reprocessed from complete force rows: generated loading is
             # nodal, and the current section carries all physical dimensions.
-            if !haskey(stress,"von_mises_recovery")
+            previous=get(stress,"von_mises_recovery",Dict())
+            legacy_rectangle=!is_imported_model(m)&&section["shape"]=="BAR"&&
+                startswith(get(previous,"reason",""),"Equivalent-stress recovery is not defined for this beam section")
+            if !haskey(stress,"von_mises_recovery")||legacy_rectangle
                 if is_imported_model(m)
                     stress["von_mises_recovery"]=Dict("status"=>"unavailable",
                         "method"=>"thin_walled_t_section_envelope",

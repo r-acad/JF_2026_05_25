@@ -27,9 +27,9 @@ const InstallationEnvironment=InstallationSetup.JFEMEnvironmentSetup
         @test occursin("using WingFEGen",string(InstallationSetup.verification_command("FGen",root)))
         @test !occursin("using OpenJFEM",string(InstallationSetup.verification_command("FGen",root)))
     end
-    @test isfile(joinpath(InstallationSetup.repo_root(),"__Start here!__","Windows","setup.cmd"))
-    @test isfile(joinpath(InstallationSetup.repo_root(),"__Start here!__","Linux","setup.sh"))
-    @test isfile(joinpath(InstallationSetup.repo_root(),"__Start here!__","Mac","setup.command"))
+    @test isfile(joinpath(InstallationSetup.repo_root(),"setup.cmd"))
+    @test isfile(joinpath(InstallationSetup.repo_root(),"setup.sh"))
+    @test isfile(joinpath(InstallationSetup.repo_root(),"setup.command"))
 end
 
 @testset "Unified application setup and automatic image contract" begin

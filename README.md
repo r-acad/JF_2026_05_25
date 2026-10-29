@@ -7,20 +7,20 @@ browser **results viewer**.
 ## Install and launch
 
 Download the complete repository with **Code / Download ZIP** and extract it.
-Open `__Start here!__`, then choose your operating system:
+**Run setup at the repository root before launching any app.** Choose your operating system:
 
 | Operating system | Instructions and launchers |
 | --- | --- |
-| Windows | [Windows](<__Start here!__/Windows/README.md>) |
-| Linux | [Linux](<__Start here!__/Linux/README.md>) |
-| macOS | [Mac](<__Start here!__/Mac/README.md>) |
+| Windows | Run [`setup.cmd`](setup.cmd), then see [Windows](<__Start here!__/Windows/README.md>) |
+| Linux | Run `bash setup.sh`, then see [Linux](<__Start here!__/Linux/README.md>) |
+| macOS | Run `bash setup.command`, then see [Mac](<__Start here!__/Mac/README.md>) |
 
-Each folder has one setup launcher and the application launchers. Setup installs
+The single root setup installs
 the packages and automatically builds one shared Julia image for the solver,
 apps and workers. The first build can take an hour or longer. Keep its console
 open until it finishes; native code generation can have long quiet periods.
 Each app also has its own `Windows/`, `Linux/` and `Mac/` launcher folders
-under [`APPS/`](APPS/README.md). The repository root contains no launchers.
+under [`APPS/`](APPS/README.md). Only the shared setup launchers live at the repository root. Run setup again after a Julia or dependency update; it rebuilds an outdated shared image under `sysimage/`.
 
 | Application | Purpose |
 | --- | --- |

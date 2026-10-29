@@ -1,0 +1,12 @@
+'use strict';
+const assert=require('node:assert/strict'),P=require('../web/potato_plots.js'),W=require('../web/workspace.js');
+const c={id:2,label:'Negative g',loads:{spanwise:{applied_force_N:[7,8,-123],root_moment_Nm_about_reference:[-456,78,9]}}};
+assert.deepEqual(P.rootPoint(c),{id:2,name:'Negative g',shear:-123,bending:-456,torque:78});
+assert.equal(P.rootPoint({id:1,loads:{spanwise:{resultants:{shear_z_N:[999]}}}}),null);
+assert.deepEqual(P.SPECS.map(s=>[s.x,s.y]),[['torque','bending'],['bending','shear'],['torque','shear']]);
+assert.notEqual(P.color(1),P.color(2));assert.equal(P.color(2),P.color(2));
+assert.deepEqual(P.validateState(null),{selected:null,labels:'none'});assert.deepEqual(P.validateState({selected:[],labels:'values'}),{selected:[],labels:'values'});
+assert.throws(()=>P.validateState({selected:[1,1],labels:'none'}));assert.throws(()=>P.validateState({selected:null,labels:'bad'}));
+const saved=W.newModelView();saved.potato={selected:[2],labels:'names'};const view=W.completeView(saved);assert.deepEqual(view.potato,{selected:[2],labels:'names'});
+const [a,b]=P.range([-100,-50]);assert(a< -100&&b>0);
+console.log('PASS Potato root totals, signed axes, stable colors, empty selection and Study persistence.');

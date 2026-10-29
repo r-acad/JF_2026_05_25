@@ -36,10 +36,12 @@ const LOAD_MULTIPLIER_NOTE = "Dimensionless multiplier applied once to prescribe
 
 # Aircraft lift matching is independent of the final design/safety multiplier.
 const AIRCRAFT_LIFT_GRAVITY = 9.80665
-const AIRCRAFT_LIFT_NOTE = "Symmetric full-aircraft equilibrium: each half lifting surface carries n*m*g/2, with g = 9.80665 m/s2. Assumes this lifting surface carries all aircraft lift; tail lift, asymmetric loading and thrust components are not subtracted. The separate Load multiplier is applied once afterwards. This option does not change fuel fill or the explicitly entered structural/fuel inertia accelerations."
+const AIRCRAFT_LIFT_NOTE = "Symmetric full-aircraft equilibrium: aerodynamic half-wing lift is n*m*g/2, with g = 9.80665 m/s2 and total aircraft mass already including the wing, engines and fuel. Matched cases automatically include dry structural and engine inertia and use BASIC Z inertia acceleration -n g for structure and actual fuel mass; entered X/Y inertia components remain active. Wing inertia is subtracted through these body forces, not added a second time to the aerodynamic lift target. The separate Load multiplier scales all contributions once. Fuel fill is unchanged; tail lift, asymmetric loading and thrust components are not subtracted."
 aircraft_lift_matching(p::AbstractDict) = get(p, "loads.match_aircraft_lift", false)
 aircraft_half_lift(p::AbstractDict) = 0.5 * Float64(p["loads.aircraft_mass"]) * AIRCRAFT_LIFT_GRAVITY * Float64(p["loads.maneuver_factor"])
 effective_prescribed_lift(p::AbstractDict) = aircraft_lift_matching(p) ? aircraft_half_lift(p) : Float64(p["loads.lift_total"])
+structure_inertia_enabled(p::AbstractDict)=aircraft_lift_matching(p)||get(p,"loads.structure_inertia",false)
+inertia_acceleration_g(p::AbstractDict)=ntuple(k->k==3&&aircraft_lift_matching(p) ? -Float64(p["loads.maneuver_factor"]) : Float64(get(p,"loads.fuel_accel_"*("x","y","z")[k],k==3 ? -1. : 0.)),3)
 
 const SCHEMA = ParamSpec[
     ParamSpec("mass.structural_representation", "Structural mass representation", :choice, "distributed", "Mass";
@@ -83,7 +85,7 @@ const SCHEMA = ParamSpec[
               choices=["linear","cosine"], help="Interpolate vertical shift independently of thickness and twist. With t=(eta-eta_i)/(eta_j-eta_i), linear uses weight t; cosine uses (1-cos(pi*t))/2 and has zero shift slope at each station. The same translation applies to structural and aerodynamic geometry, fuel and mass locations"),
 
     ParamSpec("movable_surfaces.items", "Movable surfaces", :movablesurfaces, Any[], "Movable surfaces";
-        help="Named leading- or trailing-edge regions defined by span eta, independent control front-spar and true hinge x/c at each end, and preview deflection. Saved with the Study and TOML. Optional FE shells and hinge attachments are defined in Structure / Movable surfaces. Geometry without an enabled structure remains a preview; VLM uses the original common loft."),
+        help="Named leading- or trailing-edge regions defined by span eta, independent control front-spar and true hinge x/c at each end, and preview deflection. Saved with the Study and TOML. Optional FE shells and hinge attachments are defined in Structure / Movable surfaces. Geometry without an enabled structure remains a preview; The FE load-case VLM uses the original common loft. Loads / Aerodynamics independently analyzes sealed camber controls."),
 
     ParamSpec("movable_structure.surfaces", "Surface structures", :movablestructure, Any[], "Movable structures";
         help="Optional load-carrying shells for each defined movable surface: upper/lower skins, control front spar, optional secondary spar and ribs. Structural end eta can stop the box inboard of its aerodynamic tip. Independent properties per movable rib bay. Monolithic materials are selected from the material library. Distributed structural mass is required."),
@@ -161,13 +163,16 @@ const SCHEMA = ParamSpec[
               unit = "m",
               help = "Exact chordwise x-spacing between adjacent physical stringers at the root, in metres; 0.150 means 150 mm. Reducing it usually adds stringers. Paths follow the selected stringer direction reference and can run out into a spar. Elements between stringers refines shells without changing this physical pitch"),
     ParamSpec("box.stringer_angle_reference", "Stringer angle reference", :choice, "rear_spar", "Stringer layout";
-              choices=["rear_spar","front_spar","global_y"], help="Measure all stringer angles from the local rear spar, local front spar, or BASIC +Y (normal to the symmetry plane). Zero follows the chosen spar, or runs normal to the symmetry plane with Global Y. Positive rotates aft toward +X. Segment positions remain those of the rear-spar points; front-spar kinks are included when it is the reference. Changing the reference preserves the entered angle values."),
+              choices=["rear_spar","front_spar","global_y"], help="Measure stringer angles from the local rear spar, local front spar, or BASIC +Y (Angle from Y axis). Positive rotates aft toward +X. Angle from Y axis uses one angle per box segment between root, intermediate master ribs and final closure. Spar-relative angles retain their rear-spar point intervals."),
     ParamSpec("box.stringer_angle", "Default stringer angle", :float, 0.0,
               "Stringer layout"; unit = "deg",
               help = "Used when there are no rear-spar perturbation points: angle in degrees from the selected Stringer angle reference, positive aft. With rear-spar points, their individual angle values define continuous piecewise paths and replace this fallback."),
 
+    ParamSpec("box.stringer_segment_angles", "Angles between master ribs", :stringerangles, Float64[], "Stringer layout";
+              help="Angles in degrees from BASIC +Y, ordered root to tip, one per segment between master ribs. Used with Angle from Y axis. Missing entries use Default stringer angle; zero is parallel to Y and positive sweeps aft. Paths remain continuous across segment boundaries."),
+
     ParamSpec("ribs.masters", "Intermediate master ribs", :masterribs, Any[], "Ribs";
-              help = "Intermediate masters: ETA at the rear spar, orientation, angle in degrees from the immediately inboard rear-spar segment's outboard tangent toward the nose (90 is perpendicular), and outgoing pitch in metres. Root/final closures are fixed line of flight. Secondary positions and absolute directions interpolate between masters; pitch follows the 3D rear-spar reference path"),
+              help = "Intermediate masters: ETA at the rear spar, orientation, angle in degrees from the immediately inboard rear-spar segment's outboard tangent toward the nose (90 is perpendicular), and outgoing pitch in metres. Root/final closures are fixed line of flight. Each master plane is Vertical or Normal to local midplane (including loft Z shift, twist and dihedral). Secondary positions, directions and plane tilt interpolate between masters; root/final planes stay vertical. Snap rib stores a persistent spar-point link; Unlink or deleting the point releases it. Pitch follows the 3D rear-spar reference path"),
 
     # --- optional leading-edge structure ----------------------------------
     ParamSpec("leading_edge.enabled", "Create leading-edge structure", :bool, false, "Leading edge";
@@ -250,7 +255,7 @@ const SCHEMA = ParamSpec[
     ParamSpec("loads.aircraft_mass", "Complete aircraft mass", :float, 1000.0, "Loads";
               unit = "kg", help = "Total aircraft mass at this load case's mass status, including structure, payload and fuel. Enter mass, not weight, and not half-wing mass. Used only when Match lift is enabled. " * AIRCRAFT_LIFT_NOTE),
     ParamSpec("loads.maneuver_factor", "Aircraft load factor n", :float, 1.0, "Loads";
-              unit = "g", help = "Lift divided by complete-aircraft weight: 1 is level-flight lift, 3 requests three times weight, and negative values request downward lift. Distinct from the final Load multiplier (for example 1.5 for ultimate loads). Used only when Match lift is enabled; inertia acceleration remains an explicit case input."),
+              unit = "g", help = "Lift divided by complete-aircraft weight: 1 is level-flight lift, 3 requests three times weight, and negative values request downward lift. Distinct from the final Load multiplier. When matching lift, also sets BASIC Z wing/engine/fuel inertia acceleration to -n g and enables structural inertia."),
     ParamSpec("loads.load_factor", "Load multiplier", :float, 1.5, "Loads";
               unit = "dimensionless", help = LOAD_MULTIPLIER_NOTE * " Negative values reverse forces and moments."),
     ParamSpec("loads.distribution", "Spanwise distribution", :choice, "elliptical",
@@ -265,7 +270,7 @@ const SCHEMA = ParamSpec[
     ParamSpec("loads.fuel_percent", "Fuel status", :float, 100.0, "Loads"; unit = "%",
               help = "Percentage of each wet bay's usable capacity: 0 empty to 100 full. The bay fills upward at this percentage of its gross geometry, while the tank's Fill efficiency factor scales volume, mass and inertia uniformly without changing fill height or CG. Enable, bound and set the tank efficiency in Fuel tank"),
     ParamSpec("loads.structure_inertia", "Include structural inertia", :bool, true, "Loads";
-              help = "Apply the same signed global acceleration and load multiplier to dry structural shell/bar mass and defined engine masses as to fuel. Includes bar centroid offsets; excludes separate aerodynamic display/export shells. Existing definitions without this setting retain fuel-only acceleration until enabled"),
+              help = "Apply the same signed global acceleration and load multiplier to dry structural shell/bar mass and defined engine masses as to fuel. Includes bar centroid offsets; excludes separate aerodynamic display/export shells. Matched-lift cases enable this automatically and use -n g in BASIC Z. Otherwise existing definitions without this setting retain fuel-only acceleration until enabled"),
     ParamSpec("loads.engine_thrust", "Engine thrust", :enginethrust, Any[], "Loads";
               unit = "N", help = "Signed thrust for each defined engine at its center of gravity. Positive thrust points forward along BASIC -X; negative values reverse it. The load multiplier scales thrust once. Thrust is independent of Include structural inertia and remains fixed in BASIC axes, including SOL106. Disabled engines retain their values but apply no thrust. An additional case without a thrust schedule inherits the complete schedule from case 1. Engines omitted from an explicit schedule have zero thrust; an explicit empty table means all engines are off."),
     ParamSpec("loads.fuel_accel_x", "Inertia acceleration x", :float, 0.0, "Loads"; unit = "g",
@@ -273,7 +278,7 @@ const SCHEMA = ParamSpec[
     ParamSpec("loads.fuel_accel_y", "Inertia acceleration y", :float, 0.0, "Loads"; unit = "g",
               help = "Signed global y acceleration shared by fuel and enabled structural/engine inertia; scaled once by the load multiplier"),
     ParamSpec("loads.fuel_accel_z", "Inertia acceleration z", :float, -1.0, "Loads"; unit = "g",
-              help = "Signed global z acceleration shared by fuel and enabled structural/engine inertia. Default -1 applies downward weight; scaled once by the load multiplier. Fixed global directions, including in SOL106; no inferred reversal for aircraft acceleration"),
+              help = "Signed global z acceleration shared by fuel and enabled structural/engine inertia. Default -1 applies downward weight. In matched-lift cases this manual Z value is retained but overridden by -maneuver_factor; X/Y remain explicit. Scaled once by the load multiplier; fixed global directions, including SOL106"),
 
     # --- aerodynamics ------------------------------------------------------
     ParamSpec("aero.atmosphere", "Atmosphere", :choice, "isa1976", "Aerodynamics";
@@ -316,15 +321,15 @@ const SCHEMA = ParamSpec[
               help = "Select an isotropic material for stringers, spar caps, rib stiffeners and fixed-area runout connectors"),
 
     # --- properties --------------------------------------------------------
-    ParamSpec("properties.t_skin_upper", "Minimum upper skin thickness", :float, 0.0025,
+    ParamSpec("properties.t_skin_upper", "Minimum upper skin thickness", :float, 0.0008,
               "Properties"; unit = "m", help = "Default monolithic thickness of the upper main-box skin in metres. It changes shell stiffness and mass; panel overrides can set local values. Sandwich skins use their assigned face/core thicknesses. Leading-edge skins have separate properties"),
-    ParamSpec("properties.t_skin_lower", "Minimum lower skin thickness", :float, 0.0022,
+    ParamSpec("properties.t_skin_lower", "Minimum lower skin thickness", :float, 0.0008,
               "Properties"; unit = "m", help = "Default monolithic thickness of the lower main-box skin in metres. It changes shell stiffness and mass; panel overrides can set local values. Sandwich skins use their assigned face/core thicknesses. Leading-edge skins have separate properties"),
     ParamSpec("properties.panels", "Individual stiffened-panel properties", :panelproperties, Any[], "Properties";
               help = "Physical panel key and layout token, with sparse skin and stringer properties. Blank values inherit shared defaults. Geometry and mesh-density edits retain overrides while physical rib/stringer/runout membership is unchanged. Changed membership requires reviewing or resetting the affected overrides"),
     ParamSpec("properties.components", "Physical component table overrides", :componentproperties, Any[], "Properties";
               help = "Sparse rib, spar, cap and leading-edge table overrides; blank cells inherit shared defaults"),
-    ParamSpec("properties.t_spar_web", "Minimum spar web thickness", :float, 0.0030,
+    ParamSpec("properties.t_spar_web", "Minimum spar web thickness", :float, 0.0015,
               "Spar properties"; unit = "m", help = "Default for both spars. Individual physical rib bays can override either web thickness below"),
     ParamSpec("properties.t_rib_web", "Minimum rib web thickness", :float, 0.0020,
               "Rib properties"; unit = "m", help = "Default main-box rib thickness; override individual physical ribs below"),
@@ -462,7 +467,7 @@ function normalize_planform_points(value, key::AbstractString = "planform points
                                    nominal::Real = point_nominal(Dict(), key))
     value isa AbstractVector || throw(ArgumentError("$key must be an array of eta/dxc tables"))
     length(value) <= 100 || throw(ArgumentError("$key supports at most 100 points"))
-    out = Dict{String,Float64}[]
+    out = Dict{String,Any}[]
     used = Set{Float64}()
     rear = key == "box.rear_spar_points"
     for (i, raw) in enumerate(value)
@@ -471,7 +476,7 @@ function normalize_planform_points(value, key::AbstractString = "planform points
             throw(ArgumentError("$key point $i has invalid field names"))
         fields = Set(String(k) for k in keys(raw))
         coordinate = "dxc" in fields ? "dxc" : "xc"
-        required=Set(["eta",coordinate]);allowed=union(required,Set(["incoming_angle_deg"]),rear ? Set(["stringer_angle"]) : Set{String}())
+        required=Set(["eta",coordinate]);allowed=union(required,Set(["incoming_angle_deg","point_id"]),rear ? Set(["stringer_angle"]) : Set{String}())
         issubset(required,fields)&&issubset(fields,allowed) ||
             throw(ArgumentError("$key point $i must contain eta and dxc (or legacy xc, never both), optionally incoming_angle_deg" * (rear ? " and stringer_angle" : "")))
         row = Dict(String(k) => v for (k, v) in raw)
@@ -488,7 +493,13 @@ function normalize_planform_points(value, key::AbstractString = "planform points
         eta == 0.0 && (eta = 0.0) # canonicalize -0.0 before Set/Dict endpoint handling
         eta in used && throw(ArgumentError("$key has duplicate eta $eta"))
         push!(used, eta)
-        normalized = Dict("eta" => eta, "dxc" => dxc)
+        normalized = Dict{String,Any}("eta" => eta, "dxc" => dxc)
+        if haskey(row,"point_id")
+            id=row["point_id"]
+            id isa AbstractString&&occursin(r"^[A-Za-z0-9_-]{1,80}$",id)&&!any(r->get(r,"point_id",nothing)==id,out)||
+                throw(ArgumentError("$key point identities must be unique portable identifiers"))
+            normalized["point_id"]=String(id)
+        end
         rear && (normalized["stringer_angle"] = Float64(row["stringer_angle"]))
         if haskey(row,"incoming_angle_deg")
             angle=Float64(row["incoming_angle_deg"])
@@ -576,7 +587,7 @@ function normalize_rib_tables(value, key::AbstractString; end_eta::Real=1.0)
         raw isa AbstractDict || throw(ArgumentError("$key row $index must be a table"))
         all(k->k isa AbstractString||k isa Symbol,keys(raw))||throw(ArgumentError("$key row $index has invalid field names"))
         row=Dict(String(k)=>v for (k,v) in raw)
-        allowed=master ? Set(["eta","mode","angle","pitch"]) : Set(["rib","mode","angle","kink_side"])
+        allowed=master ? Set(["eta","mode","angle","pitch","plane","spar_link"]) : Set(["rib","mode","angle","kink_side"])
         all(k->k in allowed,keys(row)) || throw(ArgumentError("$key row $index has unsupported fields"))
         field=master ? "eta" : "rib"
         for required in (master ? (field,"mode","pitch") : (field,"mode"))
@@ -585,6 +596,14 @@ function normalize_rib_tables(value, key::AbstractString; end_eta::Real=1.0)
         !master && haskey(row,"kink_side") && !(row["kink_side"] in ("inboard","outboard")) &&
             throw(ArgumentError("$key row $index kink_side must be inboard or outboard"))
         get!(row,"angle",90.0)
+        if master
+            get(row,"plane","vertical") in ("vertical","normal_to_midplane")||throw(ArgumentError("$key plane must be vertical or normal_to_midplane"))
+            if haskey(row,"spar_link")
+                link=row["spar_link"]
+                link isa AbstractDict&&Set(String.(keys(link)))==Set(["edge","point_id"])&&get(link,"edge",nothing) in ("front","rear")&&get(link,"point_id",nothing) isa AbstractString&&occursin(r"^[A-Za-z0-9_-]{1,80}$",link["point_id"])||throw(ArgumentError("$key spar_link needs front/rear edge and a valid point_id"))
+                row["spar_link"]=Dict{String,Any}(String(k)=>v for (k,v) in link)
+            end
+        end
         modes=master ? ("flight_direction","rear_spar_angle") : ("flight_direction","front_spar_angle")
         row["mode"] in modes || throw(ArgumentError("$key row $index mode must be $(join(modes," or "))"))
         for number in (master ? (field,"angle","pitch") : (field,"angle"))
@@ -665,6 +684,12 @@ function coerce_value(spec::ParamSpec, v)
         v isa Bool&&throw(ArgumentError("$(spec.key) must be a finite positive coefficient"))
     end
     # Preserve useful row-specific diagnostics for interactive point editing.
+    if spec.kind === :stringerangles
+        v isa AbstractVector || throw(ArgumentError("$(spec.key) must be an array of angles"))
+        all(x->x isa Real && !(x isa Bool) && isfinite(x) && abs(x)<89,v) ||
+            throw(ArgumentError("Angles from Y must be finite and strictly between -89 and 89 degrees"))
+        return Float64.(v)
+    end
     spec.kind === :planformpoints && return normalize_planform_points(v, spec.key)
     spec.kind in (:masterribs,:riborientations) && return normalize_rib_tables(v,spec.key)
     spec.kind === :airfoilstations && return normalize_airfoil_stations(v)
@@ -718,7 +743,16 @@ end
 Merge a flat dictionary of user values over the schema defaults, coercing each
 value to its declared type, then validate the result.
 """
+coordinate_input_key(key)=occursin(r"(?:^|[._-])(?:eta|d?x_?c|z_?c|[xz]_over_c)(?:$|[._-])",key)||
+    key in ("front_spar_start","front_spar_end","hinge_start","hinge_end")
+function round_coordinate_inputs(value,key="")
+    value isa AbstractDict && return Dict{String,Any}(String(k)=>round_coordinate_inputs(v,String(k)) for (k,v) in value)
+    value isa AbstractVector && return [round_coordinate_inputs(v,key) for v in value]
+    value isa Real&&!(value isa Bool)&&isfinite(value)&&coordinate_input_key(key) ? round(Float64(value);sigdigits=5) : value
+end
+
 function normalize_params(flat::AbstractDict)
+    flat=round_coordinate_inputs(flat)
     if haskey(flat,"jfem.path")
         flat=Dict{String,Any}(String(k)=>v for (k,v) in flat)
         haskey(flat,"jfem.repo")&&!isempty(strip(String(flat["jfem.repo"])))&&flat["jfem.repo"]!=flat["jfem.path"]&&
@@ -773,7 +807,7 @@ function normalize_params(flat::AbstractDict)
         # dictionary iteration order. Normalize these arrays after the merge.
         p[key] = spec.kind in (:planformpoints,:masterribs,:riborientations) ? v : coerce_value(spec, v)
     end
-    p["loads.structure_inertia"] && pop!(p,"structure_inertia_migration_note",nothing)
+    structure_inertia_enabled(p) && pop!(p,"structure_inertia_migration_note",nothing)
     p["output.buckling_deformation_energy"] |= p["output.buckling_energy_density"]
     p["output.buckling_energy_density"] = false
     for spec in SCHEMA
@@ -781,6 +815,7 @@ function normalize_params(flat::AbstractDict)
         p[spec.key] = normalize_planform_points(p[spec.key], spec.key; nominal=point_nominal(p, spec.key))
     end
     p["ribs.masters"]=normalize_rib_tables(p["ribs.masters"],"ribs.masters";end_eta=p["box.end_eta"])
+    p["ribs.masters"]=resolve_master_spar_links(p)
     p["leading_edge.rib_orientations"]=normalize_rib_tables(p["leading_edge.rib_orientations"],"leading_edge.rib_orientations")
     migrate_legacy_sections!(p, flat)
     apply_material_allowable_defaults!(p)
@@ -971,9 +1006,8 @@ function validate_params(p::AbstractDict; check_cases::Bool = true)
     # Aerodynamic loads use station spiders; fuel has separate bay spiders.
     if sol in ("101", "105", "106")
         aero_loading=p["loads.method"]=="vortex_lattice" || abs(effective_prescribed_lift(p))+abs(p["loads.torque_y"])>0
-        fuel_loading=p["fuel.enabled"] && fuel_fill_efficiency(p)>0 && p["loads.fuel_percent"]>0 &&
-            any(p["loads.fuel_accel_"*axis]!=0 for axis in ("x","y","z"))
-        structure_loading=p["loads.structure_inertia"] && any(p["loads.fuel_accel_"*axis]!=0 for axis in ("x","y","z"))
+        fuel_loading=p["fuel.enabled"] && fuel_fill_efficiency(p)>0 && p["loads.fuel_percent"]>0 && any(!iszero,inertia_acceleration_g(p))
+        structure_loading=structure_inertia_enabled(p) && any(!iszero,inertia_acceleration_g(p))
         thrust_loading=any(!iszero,values(thrusts))
         (!aero_loading || p["rbe3.enabled"]) || throw(ArgumentError(
             "SOL $sol applies the lift at the RBE3 reference nodes, so " *
@@ -1051,6 +1085,8 @@ function toml_value(spec::ParamSpec, v)
         panel_literal(x) = x isa AbstractString ? toml_string_literal(x) : x isa AbstractDict ?
             "{"*join((string(k," = ",panel_literal(value)) for (k,value) in sort!(collect(x);by=first)),", ")*"}" : string(x)
         return "["*join(panel_literal.(normalize_panel_properties(v)),", ")*"]"
+    elseif spec.kind === :stringerangles
+        return "[" * join(string.(Float64.(v)), ", ") * "]"
     elseif spec.kind in (:engines, :enginethrust, :movablestructure, :movableattachments, :movablesurfaces, :loftstations, :loadcases, :planformpoints, :masterribs, :riborientations, :supportsets, :ribproperties, :sparproperties, :componentproperties, :materials, :materialallowables, :shellmaterials, :barmaterials)
         literal(x) = x isa AbstractString ? toml_string_literal(x) :
             x isa AbstractDict ? "{" * join((string(toml_string_literal(String(k)), " = ", literal(value)) for (k, value) in sort!(collect(x); by=first)), ", ") * "}" :

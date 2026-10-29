@@ -68,7 +68,7 @@ try
     solver_root===nothing&&error("Keep APPS/JFEM-Boxer inside the complete JFEM repository.")
     wingfegen_startup_progress("Activating the shared JFEM and applications environment")
     Pkg.activate(solver_root;io=devnull)
-    wingfegen_startup_progress("Checking recorded shared dependencies; missing packages install automatically")
+    wingfegen_startup_progress("Checking shared dependencies installed by the root setup")
     include(joinpath(solver_root,"utils","julia_tools","environment_setup.jl"))
     JFEMEnvironmentSetup.ensure_environment(solver_root)
     using WingFEGen

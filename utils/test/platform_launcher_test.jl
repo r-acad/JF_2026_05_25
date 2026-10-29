@@ -6,11 +6,14 @@ using Test
               "Results-viewer"=>"JFEM_results_viewer","JFEM-solver"=>"JFEM-solver")
     shell=get(ENV,"JFEM_TEST_BASH",Sys.iswindows() ? "" : something(Sys.which("bash"),""))
     julia=joinpath(Sys.BINDIR,Sys.iswindows() ? "julia.exe" : "julia")
-    @test !any(name->any(ext->endswith(name,ext),(".cmd",".sh",".command")),readdir(repo))
+    @test sort(filter(name->any(ext->endswith(name,ext),(".cmd",".sh",".command")),readdir(repo))) == ["setup.cmd","setup.command","setup.sh"]
     @test !isfile(joinpath(repo,"jfem"))
     mktempdir() do temp
         root=joinpath(temp,"Checkout with spaces ! (fixture)");mkpath(root)
         away=joinpath(temp,"unrelated working directory");mkpath(away)
+        for name in ("setup.cmd","setup.sh","setup.command")
+            cp(joinpath(repo,name),joinpath(root,name))
+        end
         # Copy only entry scripts and the real image-aware launcher, never the
         # applications. Tiny Julia targets stop before any installation or solve.
         for app in values(apps), system in ("Windows","Linux","Mac")
@@ -42,7 +45,6 @@ using Test
         capture(joinpath(target,"jfem.jl"),"JFEM-solver")
         capture(joinpath(target,"serve_results_viewer.jl"),"Results-viewer")
         capture(joinpath(root,"APPS","JFEM-Boxer","JFEM-Boxer.jl"),"JFEM-Boxer")
-        capture(joinpath(root,"APPS","JFEM-Boxer","setup.jl"),"boxer-setup";check_project=false)
         capture(joinpath(root,"APPS","PANDEATOR_APP","panel_launch.jl"),"PANDEATOR")
         arguments=["model with spaces !.bdf","output with spaces !","--fixture=value"]
         function exercise(script,system,target;check_project=true)
@@ -72,8 +74,7 @@ using Test
                 exercise(joinpath(root,"APPS",app,system,name*suffix),system,name)
                 exercise(joinpath(root,"__Start here!__",system,name*suffix),system,name)
             end
-            exercise(joinpath(root,"__Start here!__",system,"setup"*suffix),system,"setup")
-            exercise(joinpath(root,"APPS","JFEM-Boxer",system,"setup"*suffix),system,"boxer-setup";check_project=false)
+            exercise(joinpath(root,"setup"*suffix),system,"setup")
             cli=system=="Windows" ? "jfem.cmd" : "jfem"
             exercise(joinpath(root,"APPS","JFEM-solver",system,cli),system,"JFEM-solver")
         end

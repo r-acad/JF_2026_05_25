@@ -98,4 +98,14 @@ test('Laminate principal-strain RF uses updated recovered strains and retains he
  const bad=plyRecord(old,[.004,0,0],[0,0,0]);bad.strain.ply_faces[0].top.e1+=.1;assert.match(E.shellRecovery(old,next,bad).reason,/compatible linear/);
 });
 test('Unsupported monolithic-to-laminate conversion remains explicitly unassessed',()=>assert.match(E.shellRecovery(shell(.002),laminateProperty(),shellRecord()).reason,/complete original ply-frame/));
+test('Section-only sizing keeps the actual FEM dirty and binds each estimate to the exact edited sections',()=>{
+ const b=base(),c={...current(b,.006),meshIdentity:b.meshIdentity,modelDirty:true,sectionBaselineSignature:b.signature};
+ assert(!E.project(b,c).estimated);c.sectionUpdateCertificate=E.certifySections(c);
+ const p=estimate(b,c);near(S.build(p.context).rows[0].reserveFactor,1.5);assert(c.modelDirty);assert(!p.context.modelDirty);
+ assert.equal(b.cases.get(1).signature,b.signature);assert.equal(b.elements.get(1).group.properties.thickness_m,.002);
+ assert(!E.project(b,{...c,definitionSignature:signature(.008)}).estimated);
+ assert(!E.project(b,{...c,elements:new Map(c.elements)}).estimated);
+ assert(!E.project(b,{...c,studyEpoch:2}).estimated);
+ assert(!E.project(b,{...c,sectionUpdateCertificate:{}}).estimated);
+});
 console.log(JSON.stringify({passed,failed:0}));

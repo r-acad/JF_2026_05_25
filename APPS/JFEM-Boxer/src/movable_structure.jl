@@ -277,11 +277,9 @@ function add_movable_structure!(reg,g,p,groups,eid)
         us=movable_chord_stations(row)
         nh=row["height_elements"];edge=s["edge"]=="trailing" ? 1. : 0.
         rib_node_etas=movable_rib_eta_grid(w,s,row,rot,rib_layout,aa,us,nh)
-        actual_eta(i,j,k)=begin
-            eta=etas[j+1];bay=clamp(searchsortedlast(rib_etas,eta),1,length(rib_etas)-1)
-            t=(eta-rib_etas[bay])/(rib_etas[bay+1]-rib_etas[bay])
-            (1-t)*rib_node_etas[i+1,bay,k+1]+t*rib_node_etas[i+1,bay+1,k+1]
-        end
+        refinement=refine_movable_span_chord(w,s,row,rot,rib_etas,rib_node_etas,us,nh,etas)
+        etas=refinement.etas
+        actual_eta(i,j,k)=movable_grid_eta(etas[j+1],i,k,rib_etas,rib_node_etas)
         for eta in unique(vcat(etas,[actual_eta(i,j,k) for i in 0:length(us)-1 for j in 0:length(etas)-1 for k in 0:nh]))
             main=spar_surface_xc(w,spar_geometry(p),eta,s["edge"]=="trailing" ? :rear : :front)
             h=rot.front_spar(eta)
@@ -351,6 +349,7 @@ function add_movable_structure!(reg,g,p,groups,eid)
         for ((i,j,k),n) in localnodes;metadata["node_etas"][n]=actual_eta(i,j,k);end
         push!(metadata["surfaces"],Dict("name"=>s["name"],"nodes"=>sort!(collect(values(points))),
             "eta_stations"=>etas,"rib_etas"=>rib_etas,"rib_sections"=>rib_sections,"rib_layout"=>rib_layout,"nominal_rib_pitch_eta"=>(b-a)/row["span_bays"],"max_rib_pitch_ratio"=>row["max_rib_pitch_ratio"],"mesh_deflected"=>row["mesh_deflected"],
+            "maximum_span_edge_chord_ratio"=>refinement.maximum_ratio,
             "structural_eta_start"=>a,"structural_eta_end"=>b,
             "aerodynamic_eta_start"=>s["eta_start"],"aerodynamic_eta_end"=>s["eta_end"]))
         for (ai,attachment) in enumerate(aa)

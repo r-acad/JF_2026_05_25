@@ -67,6 +67,61 @@ function movable_span_stations(w,row,rib_etas)
     result
 end
 
+"""Interpolate the actual (possibly oblique) control rib surfaces at a mesh row."""
+function movable_grid_eta(eta,i,k,rib_etas,rib_node_etas)
+    bay=clamp(searchsortedlast(rib_etas,eta),1,length(rib_etas)-1)
+    t=(eta-rib_etas[bay])/(rib_etas[bay+1]-rib_etas[bay])
+    (1-t)*rib_node_etas[i+1,bay,k+1]+t*rib_node_etas[i+1,bay+1,k+1]
+end
+
+"""Limit every spanwise control edge to the shortest chord it spans.
+
+Refine FE rows only: physical ribs, attachment planes and geometry anchors stay
+fixed. Use 3D node distances after the oblique-rib mapping, including both skins
+and the webs. The structural chord is the front-spar-to-control-edge distance;
+using it also satisfies the less restrictive full aerodynamic control chord.
+"""
+function refine_movable_span_chord(w,s,row,rot,rib_etas,rib_node_etas,us,nh,stations)
+    edge=s["edge"]=="trailing" ? 1. : 0.
+    breaks=planform_breakpoints(w)
+    cache=Dict{Float64,Tuple{Vector{NTuple{3,Float64}},Vector{Float64}}}()
+    function meshrow(eta)
+        get!(cache,eta) do
+            points=NTuple{3,Float64}[];actual=Float64[]
+            for i in 0:length(us)-1,k in 0:nh
+                e=movable_grid_eta(eta,i,k,rib_etas,rib_node_etas)
+                xc=rot.front_spar(e)+(edge-rot.front_spar(e))*us[i+1]
+                lo,up=lower_point(w,e,xc),upper_point(w,e,xc)
+                push!(points,Tuple(rot.rotate(lo.+(k/nh).*(up.-lo))));push!(actual,e)
+            end
+            (points,actual)
+        end
+    end
+    result=Float64[];maximum_ratio=Ref(0.)
+    function refine(a,b,depth=0)
+        pa,ea=meshrow(a);pb,eb=meshrow(b)
+        lo,hi=extrema(vcat(ea,eb))
+        # Between planform corners, the chord and control fraction are linear.
+        # Their positive product attains its minimum at an interval endpoint.
+        probes=vcat(lo,filter(e->lo<e<hi,breaks),hi)
+        width=minimum(abs(edge-rot.front_spar(e))*chord(w,e) for e in probes)
+        isfinite(width)&&width>1e-12*max(w.mac,1.) ||
+            throw(ArgumentError("$(s["name"]): control chord vanishes; adjust its spar or span limits"))
+        length_max=maximum(norm3(q.-p) for (p,q) in zip(pa,pb))
+        if length_max<=width*(1+1e-10)
+            length(result)<100000 || throw(ArgumentError("$(s["name"]): chord-limited mesh exceeds 100000 span rows; widen the control or shorten its span"))
+            push!(result,a);maximum_ratio[]=max(maximum_ratio[],length_max/width)
+        else
+            depth<40 || throw(ArgumentError("$(s["name"]): cannot resolve the control chord limit; check its geometry"))
+            mid=(a+b)/2
+            refine(a,mid,depth+1);refine(mid,b,depth+1)
+        end
+    end
+    for (a,b) in zip(stations[1:end-1],stations[2:end]);refine(a,b);end
+    push!(result,last(stations))
+    (;etas=result,maximum_ratio=maximum_ratio[])
+end
+
 """Reject invalid control skins; valid poor proportions are reported as warnings."""
 function validate_movable_skin_cell(reg,nodes,label)
     main_shell_quality(reg,nodes).valid||throw(ArgumentError("$label: the control skin is collapsed, folded or inverted. Correct the rib, hinge and spar geometry; this invalid cell has not been exported."))
