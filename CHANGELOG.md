@@ -7,6 +7,10 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ### Offline sysimages with prepared package environments
 
+- Fix prepared projects that omit direct standard-library entries: expose the
+  local applications' dependencies, including `Pkg`, in the derived build
+  project without changing their locked versions. Check PackageCompiler's
+  actual shared-image package requirements during `--check-only` as well.
 - Add a build-only shared-image command for already hydrated depots and
   separate prepared Project/Manifest records. Check cached package sources,
   platform artifacts and compiler availability before compilation; derive

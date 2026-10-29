@@ -141,6 +141,14 @@ function prepare_environment(root,prepared,destination;preferences=Dict(),prefer
     # except for bundled standard libraries which come with this Julia runtime.
     for (_,project) in locals, (name,uuid) in get(project,"deps",Dict())
         _require_entry!(entries,name,uuid)
+        expected=_uuid(uuid)
+        haskey(deps,name) && deps[name]!=expected &&
+            error("Prepared project has an incompatible UUID for dependency $name")
+        # PackageCompiler requires each explicitly included package in the
+        # build Project, even when it is already a transitive/stdlib dependency.
+        # Expose local application dependencies (notably Pkg) using their same
+        # recorded UUIDs. This changes only the derived project's visibility.
+        deps[name]=expected
     end
     for (name,uuid) in deps; _require_entry!(entries,name,uuid); end
     for (name,uuid) in preference_packages

@@ -50,7 +50,11 @@ julia --startup-file=no --threads=2 --project="$JFEM_PACKAGE_ENV" \
 
 `--check-only` checks prerequisites without compiling an image. The builder
 checks cached package sources and platform artifacts, including lazy artifacts,
-and compiler availability. Missing inputs cause a diagnostic failure without
+compiler availability, and PackageCompiler's required direct package entries
+for the complete shared image. A prepared dependency-only project can omit
+standard libraries such as `Pkg`: the derived build project exposes the local
+applications' dependencies using their existing recorded identities.
+Missing inputs cause a diagnostic failure without
 starting downloads. It constructs separate build metadata under
 `sysimage/builds/` that combines the prepared dependency graph with the local
 OpenJFEM and Boxer packages. Both original Project/Manifest pairs stay intact.

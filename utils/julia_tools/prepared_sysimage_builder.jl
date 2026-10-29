@@ -158,6 +158,15 @@ function build(root, args=String[])
         ENV["JULIA_LOAD_PATH"]=join(LOAD_PATH,Sys.iswindows() ? ';' : ':')
         compiler=Base.require(Base.PkgId(Base.UUID("9b87118b-4619-50d2-8e1e-99f35a4d4d9d"),"PackageCompiler"))
         println("Compiler: ",join(compiler_check(compiler).exec," "))
+        # Validate the exact production image package list even in --check-only.
+        # Finding a transitive package is insufficient for create_sysimage:
+        # PackageCompiler also requires it in the build project's direct deps.
+        deployment=Module(:PreparedImageWorkloads)
+        Core.eval(deployment,:(include(path)=Base.include(@__MODULE__,path)))
+        Base.include(deployment,joinpath(@__DIR__,"deploy_fast.jl"))
+        packages=Base.invokelatest(()->deployment.JFEMSharedPrecompileWorkloads.required_packages())
+        Base.invokelatest(()->compiler.check_packages_in_project(compiler.create_pkg_context(derived),packages))
+        println("Shared image package contract verified: ",join(string.(packages),", "))
         # Recheck before building in case selectors or imports changed inputs.
         before==Provenance.environment_identity(root;environment)||error("Prepared environment changed during prerequisite checks")
         inputs==Provenance.input_hashes(root)||error("Repository inputs changed during prerequisite checks")
@@ -165,16 +174,11 @@ function build(root, args=String[])
             println("Prerequisite checks passed. No sysimage was built.")
             return nothing
         end
-        # Include the existing workload library without invoking its setup/deployment main.
-        deployment=Module(:PreparedImageWorkloads)
-        Core.eval(deployment,:(include(path)=Base.include(@__MODULE__,path)))
-        Base.include(deployment,joinpath(@__DIR__,"deploy_fast.jl"))
         decks,flags,_,_=Base.invokelatest(()->deployment._parse_args(opts.workload))
         isempty(decks)&&error("No representative workload decks found")
         script=joinpath(work,"precompile_execution.jl")
         Base.invokelatest(()->deployment._write_sysimage_precompile_script(script,decks,flags))
         workloads=Provenance.workload_hashes(decks,flags)
-        packages=Base.invokelatest(()->deployment.JFEMSharedPrecompileWorkloads.required_packages())
         candidate=joinpath(work,"OpenJFEM_candidate."*Libdl.dlext)
         println("Compiling shared solver/application image; this can take several minutes...");flush(stdout)
         Base.invokelatest(()->compiler.create_sysimage(packages;
