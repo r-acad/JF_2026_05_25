@@ -10,6 +10,13 @@ image_path(repo,kind="solver")=joinpath(repo,"sysimage","OpenJFEM_sysimage."*(Sy
 function selected_image(repo;kind="solver",executable=bare_julia(),external=false)
     kind in ("solver","boxer","shared")||error("Unknown image environment: $kind")
     get(ENV,"JFEM_NO_SYSIMAGE","")=="1"&&return (nothing,"disabled")
+    configured=strip(get(ENV,"JFEM_PACKAGE_ENV",""))
+    if !isempty(configured)
+        selected=abspath(expanduser(configured))
+        isfile(selected)&&(selected=dirname(selected))
+        same=isdir(selected)&&isdir(repo)&&realpath(selected)==realpath(repo)
+        same||return (nothing,"external_package_environment")
+    end
     path=image_path(repo,kind)
     isfile(path)||return (nothing,"image_missing")
     if external

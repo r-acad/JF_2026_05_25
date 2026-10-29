@@ -5,6 +5,13 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Existing package environments
+
+- Add explicit `JFEM_PACKAGE_ENV` selection for already prepared package
+  records and matching cached depots, independently of the solver source
+  checkout. Preserve the selected dependency graph without installation,
+  resolution or metadata changes, and disable a mismatched repository image.
+
 ### Pressure arrows and public examples
 
 - Add pressure arrows (force divided by physical panel area, Pa) with the same

@@ -128,7 +128,7 @@ function restart_with_image(root,entry,args)
     baked=Base.PkgId(Base.UUID("88b3fba0-1c22-4de6-bb97-e868cbde42d1"),"WingFEGen") in keys(Base.loaded_modules)
     selected!==nothing&&abspath(loaded)==abspath(selected)&&return nothing
     if selected===nothing&&!baked
-        reason in ("image_missing","disabled")||println("JFEM-Boxer: local image skipped ($reason); run setup to refresh it.")
+        reason in ("image_missing","disabled","external_package_environment")||println("JFEM-Boxer: local image skipped ($reason); run setup to refresh it.")
         return nothing
     end
     println(selected===nothing ? "JFEM-Boxer: restarting without stale application image ($reason)." : "JFEM-Boxer: using verified shared sysimage.")

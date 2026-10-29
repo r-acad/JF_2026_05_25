@@ -5,6 +5,24 @@ and result interpretation. Run its commands from the **repository root** after
 following your [operating-system installation guide](../README.md).
 The helper files in this directory share that root Project/Manifest and sysimage.
 
+For an existing deployment prepared with different package versions, keep the
+solver checkout and package records separate. Set `JFEM_PACKAGE_ENV` to the
+directory containing the prepared `Project.toml` and `Manifest.toml`, and
+`JULIA_DEPOT_PATH` to its matching depot before launching the normal runner.
+The prepared environment is first on Julia's load path, followed by the source
+checkout and standard library. Its recorded dependency versions are used;
+the repository's package records are not rewritten. This opt-in mode checks
+existing sources and never installs, resolves or updates packages, even if
+automatic installation was enabled in another configuration. A different
+environment also disables the repository sysimage, whose compiled dependency
+versions may differ. Normal code loading/compilation still occurs.
+
+Having a package-name folder in a depot is insufficient: Julia selects the
+source tree recorded by the active manifest. Missing exact trees in the
+prepared environment produce an error listing the environment and depots.
+The prepared versions must support the current solver/application code;
+validate analyses when choosing a different dependency environment.
+
 ## Comparing eigenvalues and modes
 
 Use the same model, constraints, physical matrices and extraction request on
