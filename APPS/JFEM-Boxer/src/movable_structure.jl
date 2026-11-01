@@ -1,7 +1,7 @@
 # Optional load-carrying shells and fittings for the defined movable surfaces.
 const MOVABLE_STRUCTURE_DEFAULTS=Dict{String,Any}("surface"=>"","enabled"=>true,
     "skin_material"=>1,"web_material"=>1,"rib_material"=>1,
-    "upper_thickness"=>.0015,"lower_thickness"=>.0015,"web_thickness"=>.002,"rib_thickness"=>.0015,
+    "upper_thickness"=>.001,"lower_thickness"=>.001,"web_thickness"=>.002,"rib_thickness"=>.0015,
     "span_bays"=>4,"span_elements"=>2,"chord_elements"=>4,"height_elements"=>2,
     "secondary_spar"=>.5,"mesh_deflected"=>false,"end_eta"=>0.,"max_rib_pitch_ratio"=>1.5)
 const MOVABLE_ATTACHMENT_DEFAULTS=Dict{String,Any}("surface"=>"","eta"=>.5,"rib"=>1,"spar"=>"rear",
@@ -10,6 +10,7 @@ const MOVABLE_ATTACHMENT_DEFAULTS=Dict{String,Any}("surface"=>"","eta"=>.5,"rib"
     "box_lateral_stay"=>true,"movable_lateral_stay"=>false)
 is_movable_pid(pid)=31<=pid÷1_000_000<=35 || pid÷1_000_000==37
 movable_structural_end(row,s)=get(row,"end_eta",0.)==0 ? s["eta_end"] : row["end_eta"]
+movable_structural_end(row,s,w)=min(movable_structural_end(row,s),last(movable_material_interval(w,s)))
 movable_structure_rows(p)=get(p,"movable_structure.surfaces",Any[])
 # Older Studies may contain the retired stay flag. Ignore it on input, without
 # carrying it into generated attachments, exports or newly saved parameters.
@@ -18,7 +19,8 @@ movable_attachments(p)=[haskey(a,"lateral_stay") ? Dict(k=>v for (k,v) in a if k
 movable_enabled(p)=any(r->get(r,"enabled",false),movable_structure_rows(p))
 
 """Resolve eta against physical main-box ribs; legacy rib numbers are advisory only."""
-function snapped_movable_attachments(p,s,row,rib_etas)
+function snapped_movable_attachments(p,s,row,rib_etas;w=make_wing(p))
+    material_start,_=movable_material_interval(w,s)
     eligible=findall(eta->s["eta_start"]-1e-12<=eta<=movable_structural_end(row,s)+1e-12,rib_etas)
     aa=filter(a->a["surface"]==s["name"],movable_attachments(p))
     isempty(aa)&&return Dict{String,Any}[]
@@ -26,6 +28,8 @@ function snapped_movable_attachments(p,s,row,rib_etas)
     seen=Set{Int}();out=Dict{String,Any}[]
     for a in aa
         ri=eligible[argmin([abs(rib_etas[i]-a["eta"]) for i in eligible])]
+        material_start-1e-12<=rib_etas[ri]<=movable_structural_end(row,s,w)+1e-12 ||
+            throw(ArgumentError("$(s["name"]): attachment at main-box rib $ri lies in a material end-clearance gap. Its authored hinge station has not been moved; an attachment fitting spanning that gap is required"))
         ri in seen&&throw(ArgumentError("$(s["name"]): multiple attachments snap to main-box rib $ri at eta $(rib_etas[ri]); choose a different rib for each attachment"))
         push!(seen,ri)
         push!(out,merge(copy(a),Dict{String,Any}("requested_eta"=>a["eta"],"eta"=>rib_etas[ri],"rib"=>ri)))
@@ -84,23 +88,26 @@ end
 
 function validate_movable_structure(p)
     surfaces=Dict(s["name"]=>s for s in normalize_movable_surfaces(get(p,"movable_surfaces.items",Any[])))
+    w=isempty(surfaces) ? nothing : make_wing(p)
+    for s in values(surfaces);movable_material_interval(w,s);end
     rows=normalize_movable_structure(movable_structure_rows(p),"movable_structure.surfaces")
     attachments=normalize_movable_structure(movable_attachments(p),"movable_structure.attachments")
     for a in attachments
         any(r->r["surface"]==a["surface"],rows)||throw(ArgumentError("Attachment refers to missing structure $(a["surface"])"))
     end
     enabled=filter(r->r["enabled"],rows);isempty(enabled)&&return nothing
+    w===nothing&&(w=make_wing(p))
     get(p,"mass.structural_representation","distributed")=="distributed"||throw(ArgumentError("Movable-surface structures require Distributed structural mass to retain their own mass and hinge dynamics"))
-    stations,ribs,_=span_stations(make_wing(p),p);rib_etas=stations[ribs.+1]
+    stations,ribs,_=span_stations(w,p);rib_etas=stations[ribs.+1]
     for r in enabled
         name=r["surface"];haskey(surfaces,name)||throw(ArgumentError("Structure refers to missing movable surface $name; reselect its geometry"))
         for k in ("skin_material","web_material","rib_material");material_definition(p,r[k]);end
-        s=surfaces[name];aa=snapped_movable_attachments(p,s,r,rib_etas)
-        structural_end=movable_structural_end(r,s)
-        s["eta_start"]<structural_end<=s["eta_end"]||throw(ArgumentError("$name: structural end eta must be beyond the surface start and no farther than its aerodynamic end"))
+        s=surfaces[name];aa=snapped_movable_attachments(p,s,r,rib_etas;w)
+        material_start,material_end=movable_material_interval(w,s);structural_end=movable_structural_end(r,s,w)
+        material_start<structural_end<=material_end&&movable_structural_end(r,s)<=s["eta_end"]||throw(ArgumentError("$name: structural end eta must lie beyond the remaining material start and within the authored surface"))
         isempty(aa)&&throw(ArgumentError("$name needs at least one attachment to the main box"))
         for a in aa
-            s["eta_start"]<=a["eta"]<=structural_end||throw(ArgumentError("$name: attachment eta is outside the movable structure"))
+            material_start<=a["eta"]<=structural_end||throw(ArgumentError("$name: attachment eta is outside the movable material structure"))
             a["rib"]<=length(ribs)||throw(ArgumentError("$name: main-box rib $(a["rib"]) does not exist"))
             a["fitting"]=="shell_lugs"&&material_definition(p,a["lug_material"])
         end
@@ -135,9 +142,9 @@ on one surface/rib are rejected; different surfaces retain independent inputs.
 """
 function movable_rib_attachment(p,row,station)
     s=only(filter(s->s["name"]==row["surface"],get(p,"movable_surfaces.items",Any[])))
-    etas,ribs,_=span_stations(make_wing(p),p)
-    aa=snapped_movable_attachments(p,s,row,etas[ribs.+1])
-    layout=movable_master_rib_layout(s["eta_start"],movable_structural_end(row,s),row,aa)
+    w=make_wing(p);etas,ribs,_=span_stations(w,p)
+    aa=snapped_movable_attachments(p,s,row,etas[ribs.+1];w)
+    layout=movable_master_rib_layout(first(movable_material_interval(w,s)),movable_structural_end(row,s,w),row,aa)
     1<=station<=length(layout)||throw(ArgumentError("$(row["surface"]): unknown movable rib $station"))
     ai=layout[station]["attachment"];ai==0&&return nothing
     attachment=aa[ai]
@@ -147,12 +154,13 @@ end
 
 function movable_shell_property(p,pid)
     family,index=divrem(pid,1_000_000);surface_index,station=divrem(index,1000)
+    nsm=nonstructural_mass_density(p,pid)
     if family==37
         attachments=movable_attachments(p);1<=index<=length(attachments)||throw(ArgumentError("Unknown movable lug property $pid"))
         row=attachments[index];surface=row["surface"];thickness=row["lug_thickness"];material=material_definition(p,row["lug_material"])
         return Dict{String,Any}("type"=>"PSHELL","construction"=>"monolithic","thickness_m"=>thickness,
-            "material_id"=>material["id"],"material"=>material_payload(material),"nonstructural_mass_kg_m2"=>0.,
-            "areal_mass_kg_m2"=>thickness*material["rho"],"movable_surface"=>surface,"movable_part"=>"hinge lugs",
+            "material_id"=>material["id"],"material"=>material_payload(material),"nonstructural_mass_kg_m2"=>nsm,
+            "areal_mass_kg_m2"=>thickness*material["rho"]+nsm,"movable_surface"=>surface,"movable_part"=>"hinge lugs",
             "display_label"=>surface*" - attachment triangles - attachment "*string(index),
             "attachment_eta"=>row["eta"],"attachment_index"=>index,"thickness_source"=>"TE rib thickness")
     end
@@ -163,8 +171,8 @@ function movable_shell_property(p,pid)
     owner===nothing||(thickness=owner.attachment["lug_thickness"])
     material=material_definition(p,row[family<=32 ? "skin_material" : family<=34 ? "web_material" : "rib_material"])
     property=Dict{String,Any}("type"=>"PSHELL","construction"=>"monolithic","thickness_m"=>thickness,
-        "material_id"=>material["id"],"material"=>material_payload(material),"nonstructural_mass_kg_m2"=>0.,
-        "areal_mass_kg_m2"=>thickness*material["rho"],"movable_surface"=>row["surface"],"movable_part"=>part,
+        "material_id"=>material["id"],"material"=>material_payload(material),"nonstructural_mass_kg_m2"=>nsm,
+        "areal_mass_kg_m2"=>thickness*material["rho"]+nsm,"movable_surface"=>row["surface"],"movable_part"=>part,
         "display_label"=>row["surface"]*" · "*part*" · "*(family==35 ? "rib " : "bay ")*string(station))
     owner===nothing||merge!(property,Dict("attachment_index"=>owner.index,
         "attachment_eta"=>owner.attachment["eta"],"attachment_rib"=>true,"thickness_source"=>"TE rib thickness"))
@@ -265,8 +273,8 @@ function add_movable_structure!(reg,g,p,groups,eid)
     surfaces=Dict(s["name"]=>s for s in get(p,"movable_surfaces.items",Any[]));w=g.wing
     for (si,row) in enumerate(movable_structure_rows(p))
         row["enabled"]||continue
-        s=surfaces[row["surface"]];a,b=s["eta_start"],movable_structural_end(row,s)
-        rot=movable_rotation(w,s,row["mesh_deflected"]);aa=snapped_movable_attachments(p,s,row,g.etas[g.ribs.+1])
+        s=surfaces[row["surface"]];material_start,material_end=movable_material_interval(w,s);a,b=material_start,movable_structural_end(row,s,w)
+        rot=movable_rotation(w,s,row["mesh_deflected"]);aa=snapped_movable_attachments(p,s,row,g.etas[g.ribs.+1];w)
         aa=movable_attachment_planes(g,s,row,rot,aa)
         rib_layout=movable_master_rib_layout(a,b,row,aa);rib_etas=[r["eta"] for r in rib_layout]
         # The control has its own conforming rib mesh. Main-box element rows
@@ -351,7 +359,9 @@ function add_movable_structure!(reg,g,p,groups,eid)
             "eta_stations"=>etas,"rib_etas"=>rib_etas,"rib_sections"=>rib_sections,"rib_layout"=>rib_layout,"nominal_rib_pitch_eta"=>(b-a)/row["span_bays"],"max_rib_pitch_ratio"=>row["max_rib_pitch_ratio"],"mesh_deflected"=>row["mesh_deflected"],
             "maximum_span_edge_chord_ratio"=>refinement.maximum_ratio,
             "structural_eta_start"=>a,"structural_eta_end"=>b,
-            "aerodynamic_eta_start"=>s["eta_start"],"aerodynamic_eta_end"=>s["eta_end"]))
+            "aerodynamic_eta_start"=>material_start,"aerodynamic_eta_end"=>material_end,
+            "cutout_eta_start"=>s["eta_start"],"cutout_eta_end"=>s["eta_end"],
+            "clearance_inboard_m"=>get(s,"clearance_inboard_m",0.),"clearance_outboard_m"=>get(s,"clearance_outboard_m",0.)))
         for (ai,attachment) in enumerate(aa)
             eta=attachment["eta"];j=argmin(abs.(etas.-eta))-1
             fitting_nodes=unique([node(0,j,k) for k in 0:nh])

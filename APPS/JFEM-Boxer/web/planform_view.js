@@ -9,7 +9,7 @@
  const RAD=Math.PI/180,instances=new WeakMap();
  function nominalPointXc(key,params={}){return key==="planform.trailing_edge_points"?1:key==="box.front_spar_points"?(params["box.front_spar_xc"]??.2):key==="box.rear_spar_points"?(params["box.rear_spar_xc"]??.55):0;}
  function normalizePointRows(raw,key,params={}){
-  if(!Array.isArray(raw)||raw.length>100)throw new Error(key+" must contain an array of at most 100 points.");
+  if(!Array.isArray(raw))throw new Error(key+" must contain an array of points.");
   const rear=key==="box.rear_spar_points",nominal=nominalPointXc(key,params),rows=[];
    for(const p of raw){const coordinate=p&&Object.hasOwn(p,"dxc")?"dxc":"xc",allowed=["eta",coordinate,"incoming_angle_deg","point_id",...(rear?["stringer_angle"]:[])];
    if(!p||Object.keys(p).some(field=>!allowed.includes(field))||typeof p.eta!=="number"||!Number.isFinite(p.eta)||p.eta<0||p.eta>1||typeof p[coordinate]!=="number"||!Number.isFinite(p[coordinate]))throw new Error(key+": use eta between 0 and 1 and a finite dxc offset (or legacy xc, never both).");
@@ -70,7 +70,7 @@
   const surfaceError=actualChords.some(c=>!Number.isFinite(c)||c<=0)?"Leading and trailing edges must not cross or touch: the refined chord must stay positive at every station.":"";
   let actualHalfArea=0,chordSquaredIntegral=0;for(let i=1;i<breaks.length;i++){const dy=(breaks[i]-breaks[i-1])*semispan,a=actualChords[i-1],b=actualChords[i];actualHalfArea+=dy*(a+b)/2;chordSquaredIntegral+=dy*(a*a+a*b+b*b)/3;}
   const baseRight=[points.rootLE,points.tipLE,points.tipTE,points.rootTE],right=[...edgeVertices[POINT_KEYS[0]].map(p=>p.position),...edgeVertices[POINT_KEYS[1]].slice().reverse().map(p=>p.position)],left=right.map(p=>[p[0],2*rootReference[1]-p[1],p[2]]),endEta=values["box.end_eta"],boxEnd=endEta===undefined?null:{eta:endEta,leading:at(endEta,0),trailing:at(endEta,1),reference:reference(endEta),chord:chord(endEta)};
-  const all=right.concat(left,baseRight),xmin=Math.min(...all.map(p=>p[0])),xmax=Math.max(...all.map(p=>p[0])),ymin=Math.min(...all.map(p=>p[1])),ymax=Math.max(...all.map(p=>p[1]));
+  const all=right.concat(left,baseRight),xmin=all.reduce((a,p)=>Math.min(a,p[0]),Infinity),xmax=all.reduce((a,p)=>Math.max(a,p[0]),-Infinity),ymin=all.reduce((a,p)=>Math.min(a,p[1]),Infinity),ymax=all.reduce((a,p)=>Math.max(a,p[1]),-Infinity);
   if(![span,semispan,rootChord,tipChord,mac,actualHalfArea,chordSquaredIntegral,...all.flat(),...points.tipReference,...(boxEnd?.leading||[]),...(boxEnd?.trailing||[])].every(Number.isFinite)||![span,rootChord,tipChord,xmax-xmin,ymax-ymin].every(v=>v>0))return{valid:false,error:"The dimensions cannot be resolved at these input magnitudes or root offsets.",invalid:PARAM_KEYS.slice()};
   return{valid:!surfaceError,drawable:true,error:surfaceError,invalid:surfaceError?POINT_KEYS.slice():[],version:2,coordinateSystem:"FE basic axes: x aft, y toward the modeled tip, z up; metres",basis:"Untwisted projected planform",area:S,halfArea:S/2,aspectRatio:AR,taper,span,semispan,rootChord,tipChord,mac,sweepDeg:sweep,sweepRef,dihedralDeg:dihedral,twistTipDeg:values["planform.twist_tip"],twistAxis:values["planform.twist_axis_xc"],points,right,left,baseRight,boxEnd,controls,edgeVertices,actualArea:actualHalfArea*2,actualHalfArea,actualAspectRatio:span*span/(2*actualHalfArea),actualTaper:actualChords.at(-1)/actualChords[0],actualRootChord:actualChords[0],actualTipChord:actualChords.at(-1),actualMAC:chordSquaredIntegral/actualHalfArea,bounds:{xmin,xmax,ymin,ymax}};
  }
@@ -157,7 +157,7 @@
    const drafts=readDrafts();
    for(const control of tables.querySelectorAll("input,button")){const group=control.closest(".planform-edge-table"),edge=Number(group.dataset.edge),row=control.closest("tr"),index=row?Array.from(row.parentElement.children).indexOf(row):-1,point=drafts[keys[edge]][index],ordered=drafts[keys[edge]].slice().sort((a,b)=>a.eta-b.eta),next=ordered[ordered.indexOf(point)+1],field=control.dataset.field,angleOn=row?.querySelector('[data-field="fix_incoming_angle"]')?.checked,reason=config.fieldDisabled?.(edge,field,point,drafts[keys[edge]])||"";
     const fixedSpan=row?.dataset.fixedEta!==undefined&&(field==="eta"||control.matches(".planform-point-remove,.planform-point-snap")),noAngle=point?.eta===0&&(field==="fix_incoming_angle"||field==="incoming_angle_deg"),derivedOffset=field==="dxc"&&next?.incoming_angle_deg!==undefined;
-    control.disabled=locked()||!!reason||fixedSpan||noAngle||derivedOffset||(field==="incoming_angle_deg"&&!angleOn)||(control.matches(".planform-point-add")&&group.querySelectorAll("tbody tr").length>=100);
+    control.disabled=locked()||!!reason||fixedSpan||noAngle||derivedOffset||(field==="incoming_angle_deg"&&!angleOn);
     if(derivedOffset&&data.valid&&!drag){const corrected=data.controls[keys[edge]].find(p=>p.eta===point.eta);if(corrected)control.value=String(corrected.dxc);}
     if(fixedSpan)control.title="Root and tip remain at eta 0 and 1. Their chordwise offsets can be edited.";else if(derivedOffset)control.title="Computed from the next point's fixed incoming angle. Release that angle to edit this offset independently.";
     if(field&&extraFields[edge].some(f=>f.key===field))control.title=reason||extraFields[edge].find(f=>f.key===field).help||"";

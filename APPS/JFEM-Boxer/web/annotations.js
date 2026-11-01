@@ -37,6 +37,7 @@
   }
   function labelCandidates(state, positions, showNodes, showElements) {
     const candidates = [], visibleNodes = new Set(), nodeStyles = new Map();
+    const bayNodes=state.ribBayFilter?.active&&!state.rfField?.request?.onlyBelowOne?state.ribBayFilter.nodes:null;
     for (const [id, element] of state.elements) {
       if (!visibleElement(state, element)) continue;
       if (showNodes) for (const node of element.nodes) visibleNodes.add(node);
@@ -48,7 +49,7 @@
     }
     if (showNodes) {
       for (const marker of state.markers) {
-        if(state.rfVisibleElementIds&&!visibleNodes.has(marker.node))continue;
+        if(state.rfVisibleElementIds&&!visibleNodes.has(marker.node)&&!bayNodes?.has(marker.node))continue;
         const layer = state.layers.get(marker.kind);
         if (layer && layer.visible) {
           visibleNodes.add(marker.node);
@@ -57,8 +58,8 @@
           else if (marker.kind === "FUEL_RBE3_NODES") nodeStyles.set(marker.node, layer.color || COLORS.fuel);
         }
       }
-      if(state.layers.get("SPC")?.visible)for(const node of state.supportGlyphs?.nodes || [])if(!state.rfVisibleElementIds||visibleNodes.has(node)){visibleNodes.add(node);nodeStyles.set(node,COLORS.support);}
-      if (!state.rfVisibleElementIds&&state.layers.get("NODES")?.visible) for (let i = 0; i < state.data.nodes.n_structural; i++) visibleNodes.add(i);
+      if(state.layers.get("SPC")?.visible)for(const node of state.supportGlyphs?.nodes || [])if(!state.rfVisibleElementIds||visibleNodes.has(node)||bayNodes?.has(node)){visibleNodes.add(node);nodeStyles.set(node,COLORS.support);}
+      if ((!state.rfVisibleElementIds||bayNodes)&&state.layers.get("NODES")?.visible) for (let i = 0; i < state.data.nodes.n_structural; i++) if(!bayNodes||bayNodes.has(i))visibleNodes.add(i);
       for (const node of visibleNodes) candidates.push({ text: "N " + state.nodeIds[node], id: state.nodeIds[node], kind: "node",
         color: nodeStyles.get(node) || COLORS.node, point: Array.from(positions.subarray(3 * node, 3 * node + 3)) });
     }
@@ -174,10 +175,16 @@
       const point = [0, 0, 0];
       for (let i = 0; i < nodes.length; i++) for (let a = 0; a < 3; a++)
         point[a] += positions[3 * nodes[i] + a] * (weights[i] === undefined ? 1 / nodes.length : weights[i]);
+      if(state.ribBayFilter?.active&&kind==='stringer'){
+        const members=[...(entry.eids||[]),...(entry.runout_eids||[])].map(id=>state.elements.get(id)).filter(e=>e&&visibleElement(state,e));
+        if(!members.length)return;
+        point.splice(0,3,...centroid(positions,members[Math.floor(members.length/2)].nodes));
+      }
       if (point.every(Number.isFinite)) candidates.push({ text: kind === "rib" ? "R " + entry.index : entry.label, id: entry.index, kind, color, point,
         ownEids: [...(entry.eids || []), ...(entry.runout_eids || [])] });
     };
     if (showRibs) for (const rib of annotations.ribs || []) {
+      if(state.ribBayFilter?.active&&!state.ribBayFilter.includesRib(rib.index))continue;
       const generated = generatedRibs.get(rib.index);
       const ribVisible = generated?.eids?.length ? generated.eids.some(id => {const element=state.elements.get(id);return element && visibleElement(state,element);}) : layerVisible("RIB_WEBS");
       if(ribVisible)add({...rib,eids:generated?.eids || rib.eids},"rib",COLORS.tria);
@@ -216,6 +223,7 @@
       const vertices=mesh.getVerticesData?.("position"),matrix=mesh.computeWorldMatrix?.(true)?.m;
       if(!vertices)continue;
       for(const glyph of mesh.metadata?.glyphs||[]){
+        if(state.ribBayFilter?.active&&!state.ribBayFilter.nodes?.has(glyph.node_index))continue;
         if(glyph.kind==="moment"?!showMoments:!showForces)continue;
         const offset=glyph.label_vertex??glyph.first_vertex+(glyph.kind==="moment"?glyph.vertex_count-4:1),local=Array.from(vertices.slice(3*offset,3*offset+3));
         if(local.length!==3||!local.every(Number.isFinite)||!Number.isFinite(glyph.value))continue;
@@ -375,7 +383,7 @@
             stats.selected = { id: state.selectedElement, text, ...center };
         }
       }
-      const coordinateLabels=typeof WingModelEntities!=='undefined'?WingModelEntities.coordinateCandidates(state,showCoordinates||state.selectedCoordinate!=null):[];
+      const coordinateLabels=!state.rfVisibleElementIds&&typeof WingModelEntities!=='undefined'?WingModelEntities.coordinateCandidates(state,showCoordinates||state.selectedCoordinate!=null):[];
       const pickedCoordinate=coordinateLabels.find(row=>row.id===state.selectedCoordinate);
       let coordinateSelected=false;
       if(pickedCoordinate){const point=project(pickedCoordinate.point);if(point)coordinateSelected=badge(pickedCoordinate.text,point,COLORS.selected,true,pickedCoordinate);}
@@ -383,7 +391,9 @@
       if (showNodes || showElements || showRibs || showStringers || showPanels || showReactions || showCoordinates || showGlobalAxes || showRbe3Dofs || showSprings || showActuators || showMaterialAxes) {
         const materialLabels=showMaterialAxes?(state.materialAxisLabels||[]).filter(row=>{const el=state.elements.get(row.id);return el&&visibleElement(state,el);}).map(row=>({kind:'material-axis',id:row.id,ownEids:[row.id],point:displayedPoint(state,row.id,centroid(positions,row.nodes)),text:row.text,color:'#ffbfc6'})):[];
         const candidates = [...(showGlobalAxes?state.globalAxes||[]:[]),...materialLabels,...actuatorLabels,...springLabels,...(globalThis.WingRbe3Labels?.candidates(state,positions,showRbe3Dofs)||[]),...coordinateGroups,...(showReactions?supportValueCandidates(state,showForceValues,showMomentValues):[]),...panelLabelCandidates(state,positions,showPanels),...labelCandidates(state, positions, showNodes, showElements),
-          ...physicalLabelCandidates(state, positions, showRibs, showStringers)].map((candidate) => ({ ...candidate, screen: project(candidate.point) }))
+          ...physicalLabelCandidates(state, positions, showRibs, showStringers)]
+          .filter(candidate=>!state.rfVisibleElementIds||!['actuator-label','spring-label','rbe3_dofs'].includes(candidate.kind)||state.rfVisibleElementIds.has(candidate.id))
+          .map((candidate) => ({ ...candidate, screen: project(candidate.point) }))
           .filter((item) => item.screen && item.screen.x >= 0 && item.screen.x <= width && item.screen.y >= 0 && item.screen.y <= height)
           .sort((a, b) => (b.kind==='global-axis')-(a.kind==='global-axis') || (b.kind==='panel')-(a.kind==='panel') || a.screen.z - b.screen.z);
         stats.eligible = candidates.length;

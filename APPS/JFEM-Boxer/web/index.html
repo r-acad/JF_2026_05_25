@@ -123,7 +123,7 @@
 
   <div id="workspace-body" class="workspace-body">
   <aside id="sidebar">
-    <div class="hud-title panel-heading"><span id="workspace-title">Planform</span><button id="btn-max-drawing" class="mini" type="button" aria-pressed="false" title="Maximize the 2D drawing and its parameters">Maximize</button></div>
+    <div class="hud-title panel-heading"><span id="workspace-title" role="heading" aria-level="2">Planform</span><button id="btn-aero-information" class="aero-info-button" type="button" title="Aerodynamics information" aria-label="Aerodynamics information" aria-haspopup="dialog" popovertarget="aero-information" hidden>i</button><button id="btn-max-drawing" class="mini" type="button" aria-pressed="false" title="Maximize the 2D drawing and its parameters">Maximize</button><button id="btn-max-aerostudy" class="mini" hidden>Maximize</button></div>
     <div id="workspace-content">
       <section id="panel-mesh-actions" class="workspace-panel workspace-action-panel" data-workspace-panel="mesh" role="tabpanel" aria-labelledby="tab-mesh" hidden>
         <div id="mesh-create-slot" class="workspace-actions"><button id="btn-create" disabled class="primary" title="Rebuild the FEM using the current geometry, mesh, properties and loads">Create FEM</button></div>
@@ -235,7 +235,6 @@
       </section>
 
       <section id="panel-aerostudy" class="workspace-panel" data-workspace-panel="aerostudy" role="tabpanel" aria-labelledby="tab-aerostudy" hidden>
-        <div class="parameter-heading"><h2>Aerodynamics <button id="btn-aero-information" class="aero-info-button" type="button" title="Aerodynamics information" aria-label="Aerodynamics information" aria-haspopup="dialog" popovertarget="aero-information">i</button></h2><button id="btn-max-aerostudy" class="mini">Maximize</button></div>
         <div id="aerodynamic-study"></div>
       </section>
       <section id="panel-potato" class="workspace-panel" data-workspace-panel="potato" role="tabpanel" aria-labelledby="tab-potato" hidden>
@@ -269,6 +268,27 @@
       </div>
       <button class="mini" data-workspace-target="displayloads">Display loads and constraints</button>
       </div>
+      </section>
+
+      <section id="panel-displayfilter" class="workspace-panel display-pane" data-workspace-panel="displayfilter" role="tabpanel" aria-labelledby="tab-displayfilter" hidden>
+        <div class="parameter-heading"><h2>Filter</h2></div>
+        <fieldset><legend>Physical rib bay</legend>
+          <label class="layer"><input id="show-rib-bay-only" type="checkbox" disabled><span>Show only one rib bay</span></label>
+          <label class="display-control">Bounding ribs<select id="rib-bay-select" disabled></select></label>
+          <button id="rib-bay-show-all" type="button" class="mini">Show all rib bays</button>
+          <p id="rib-bay-note" class="pick-note">Create FEM to select a physical rib bay.</p>
+          <p class="pick-note">Uses the generated rib planes, including slanted ribs. Whole elements are retained without cutting the FE model. Non-FE context surfaces and unassigned glyphs are temporarily hidden; disabling the filter restores them.</p>
+        </fieldset>
+      </section>
+
+      <section id="panel-displayaerodynamics" class="workspace-panel display-pane" data-workspace-panel="displayaerodynamics" role="tabpanel" aria-labelledby="tab-displayaerodynamics" hidden>
+        <div class="parameter-heading"><h2>Aerodynamics</h2></div>
+        <fieldset><legend>Independent aerodynamic solution</legend>
+          <label id="aero-wake-control" class="layer"><input id="show-aero-wakes" type="checkbox" disabled><span>Show wake filaments in FE view</span></label>
+          <label class="display-control">Wake length (spans)<input id="aero-wake-length" type="number" value="1" min="0.1" step="0.1" disabled></label>
+          <p id="aero-wake-note" class="pick-note">Run Aerodynamics to compute wake filaments. Mesh previews do not contain a solved wake.</p>
+          <button type="button" class="mini" data-workspace-target="aerostudy">Open Aerodynamics</button>
+        </fieldset>
       </section>
 
       <section id="panel-displaygeometry" class="workspace-panel display-pane" data-workspace-panel="displaygeometry" role="tabpanel" aria-labelledby="tab-displaygeometry" hidden>
@@ -671,6 +691,7 @@
 <script src="activity.js"></script>
 <script src="flight_conditions.js" defer></script>
 <script src="numbers.js" defer></script>
+<script src="numeric_inputs.js" defer></script>
 <script src="coordinate_inputs.js" defer></script>
 <script src="result_display.js" defer></script>
 <script src="parameter_locks.js" defer></script>
@@ -742,7 +763,9 @@
 <script src="aerodynamic_plots.js" defer></script>
 <script src="aerodynamic_view_svg.js" defer></script>
 <script src="aerodynamic_derivatives.js" defer></script>
+<script src="aero_case_difference.js" defer></script>
 <script src="aerodynamic_study.js" defer></script>
+<script src="aero_wake_overlay.js" defer></script>
 <script src="geometry_preview.js" defer></script>
 <script src="sensitivity_results.js" defer></script>
 <script src="sensitivity_table_data.js" defer></script>
@@ -773,6 +796,7 @@
 <script src="rf_sizing_estimate.js" defer></script>
 <script src="rf_field_data.js" defer></script>
 <script src="rf_field_visibility.js" defer></script>
+<script src="rib_bay_filter.js" defer></script>
 <script src="inspect_highlight.js" defer></script>
 <script src="rf_property_editor.js" defer></script>
 <script src="reserve_factor_table_window.js" defer></script>

@@ -16,7 +16,7 @@
     "show-fuel-inertia","show-fuel-cg","show-fuel-mass-labels","fuel-inertia-scale","show-structural-inertia","structural-inertia-scale","show-material-axes","show-material-axis-labels",
     "node-radius","marker-radius","constraint-marker-size","show-constraint-glow","show-global-axis-labels","celas-radius","show-ground-plane","show-symmetry-plane","ground-plane-z","ground-grid-spacing","show-shell-axes","show-bar-axes","show-node-ids","show-element-ids","show-coordinate-labels","show-rbe3-dofs","show-celas-cylinders","id-label-size",
     "mesh-labels-ribs","mesh-labels-stringers","show-rib-datums","rib-datum-size","vlm-field",
-    "vlm-force-scale","show-vlm-panel-forces","show-fuel-tank","show-panels","show-panel-ids","result-palette","show-support-forces","show-support-force-values","show-support-moments","show-support-moment-values","support-force-scale","support-force-diameter","show-support-fx","show-support-fy","show-support-fz","show-support-mx","show-support-my","show-support-mz",
+    "show-aero-wakes","aero-wake-length","vlm-force-scale","show-vlm-panel-forces","show-fuel-tank","show-panels","show-panel-ids","result-palette","show-support-forces","show-support-force-values","show-support-moments","show-support-moment-values","support-force-scale","support-force-diameter","show-support-fx","show-support-fy","show-support-fz","show-support-mx","show-support-my","show-support-mz",
     "deform-scale","animate","show-undeformed","undeformed-color","show-celas-labels","show-actuator-stiffness","show-reference-aero","show-deformed-aero","contour-select","compare-results","auto-mesh","auto-save","show-picked-axes","measure-snap-nodes"];
   const CHECK_IDS = new Set(CONTROL_IDS.filter((id) => id.startsWith("show-") || id.startsWith("mesh-labels-") || ["animate","auto-mesh","auto-save","compare-results","measure-snap-nodes"].includes(id)));
   const LEGACY_LABEL_IDS = new Set(["mesh-labels-none","mesh-labels-both"]);
@@ -105,6 +105,7 @@
       if (["node-radius","marker-radius","id-label-size","deform-scale"].includes(id) &&
           (value.trim()==="" || !Number.isFinite(Number(value)) || id !== "deform-scale" && Number(value)<0))
         throw new Error("Invalid display number: "+id);
+      if (id === "aero-wake-length" && (value.trim()==="" || !Number.isFinite(Number(value)) || Number(value)<.1)) throw new Error("Wake display length must be finite and at least 0.1 spans.");
       if (id === "vlm-force-scale" && (!Number.isFinite(Number(value)) || Number(value)<0.01 || Number(value)>100)) throw new Error("VLM force scale must be between 0.01 and 100.");
       if (["fuel-inertia-scale","structural-inertia-scale"].includes(id) && (!Number.isFinite(Number(value)) || Number(value)<0.01 || Number(value)>100)) throw new Error("Mass inertia scale must be between 0.01 and 100.");
       if (id === "support-force-scale" && (!Number.isFinite(Number(value)) || Number(value)<0.01 || Number(value)>100)) throw new Error("Constraint-force scale must be between 0.01 and 100.");
@@ -119,6 +120,11 @@
     for (const [name,value] of Object.entries(view.layers)) if (!/^[A-Z_0-9]+$/.test(name) || typeof value!=="boolean") throw new Error("Invalid layer visibility.");
     if(view.layerGroups!==undefined&&(!object(view.layerGroups)||Object.entries(view.layerGroups).some(([key,value])=>!LAYER_GROUP_IDS.includes(key)||typeof value!=="boolean")))throw new Error("Invalid entity-list collapse settings.");
     if (view.loadLayers !== undefined && (!object(view.loadLayers) || Object.entries(view.loadLayers).some(([name,value])=>!["AERO_LOADS","AERO_MOMENTS","VLM_MESH","VLM_FORCES"].includes(name)||typeof value!=="boolean"))) throw new Error("Invalid load-layer display preferences.");
+    if(view.ribBayFilter!==undefined){
+      const api=typeof WingRibBayFilter!=="undefined"?WingRibBayFilter:typeof require==="function"?require("./rib_bay_filter.js"):null;
+      if(!api)throw new Error("Rib-bay filtering requires the updated viewer. Refresh JFEM-Boxer.");
+      view.ribBayFilter=api.normalize(view.ribBayFilter);
+    }
     const camera=view.camera;
     triple(camera.target,"camera target");
     for (const key of ["alpha","beta","radius"]) if (!Number.isFinite(camera[key])) throw new Error("Invalid camera "+key);
@@ -156,7 +162,7 @@
       if(!object(settings)||Object.keys(settings).some(key=>key!=="method")||!["area","dimensions"].includes(settings.method)) throw new Error("Invalid planform input method.");
     }
     if (view.drawings !== undefined) {
-      if (!object(view.drawings) || Object.keys(view.drawings).some(key => !DRAWING_KEYS.has(key) && !/^airfoil-station-([1-9]|[1-9][0-9]|100)$/.test(key))) throw new Error("Invalid 2D drawing settings.");
+      if (!object(view.drawings) || Object.keys(view.drawings).some(key => !DRAWING_KEYS.has(key) && !/^airfoil-station-[1-9][0-9]*$/.test(key))) throw new Error("Invalid 2D drawing settings.");
       const api = typeof WingSVGViewport !== "undefined" ? WingSVGViewport : typeof require === "function" ? require("./svg_viewport.js") : null;
       if (!api) throw new Error("2D drawing images require the updated viewer. Refresh JFEM-Boxer.");
       view.drawings = Object.fromEntries(Object.entries(view.drawings).map(([key,value]) => [key,api.validateState(value)]));
@@ -202,7 +208,7 @@
     view.controls=controls;
     view.editingCase??=1;view.resultVariant??="";view.contourPreference??=null;view.realScale??=false;view.loadLayers??={};view.parameterLocks??={planform:false,mesh:false};
     view.reference??={selectedIndex:-1,mode:"off"};view.drawings??={};view.viewportTools??={collapsed:false};view.planformInputs??={method:"area"};view.legends??={collapsed:{}};
-    view.panelExplosion??={enabled:false,origin:"centroid",distance:1};view.layerGroups??={};view.geometryAppearance??={};
+    view.panelExplosion??={enabled:false,origin:"centroid",distance:1};view.layerGroups??={};view.geometryAppearance??={};view.ribBayFilter??={enabled:false,rib:1};
     view.aerodynamics??={settings:{},field:"delta_cp",frame:"wind",vectors:false,wireframe:true,commonScale:true,selected:0};
     view.potato??={selected:null,labels:"none"};
     view.loadPlots??={mode:"distributed",visible:["aerodynamic","structure","fuel","total"]};
@@ -280,6 +286,7 @@
       resultVariant:state.resultVariantPreference || state.results?.variantId || "",
       contourPreference:state.contourPreference ? {kind:state.contourPreference.kind,name:state.contourPreference.name} : null,
       realScale:state.realScale === true,
+      ribBayFilter:state.ribBayFilter?.capture()||{enabled:false,rib:1},
       fuelTankVisible:controls["show-fuel-tank"]!==false,
       parameterLocks:state.parameterLocks?.capture() || {planform:false,mesh:false},
       ...(state.planView ? {planView:state.planView.capture()} : {}),

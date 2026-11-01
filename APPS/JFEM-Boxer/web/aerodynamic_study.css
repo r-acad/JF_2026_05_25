@@ -15,7 +15,11 @@
 
 .aero-angle-slider{width:100%;padding:0!important;accent-color:#63badf}.aero-detached-placeholder{position:relative}.aero-detached-copy{opacity:.35;filter:grayscale(1);pointer-events:none;user-select:none}.aero-detached-notice{position:sticky;top:0;z-index:15;display:flex;gap:18px;align-items:center;padding:14px;background:#263d50;border:1px solid #7396ad;border-radius:6px;color:#e5f3ff}.aero-detached-notice button{width:auto}
 
-.aero-heading{display:flex;align-items:center;gap:6px;min-height:28px}.aero-heading>h1,.aero-heading>h2{flex:0 0 auto;margin:0!important;white-space:nowrap}#panel-aerostudy>.aero-heading{flex-wrap:nowrap}#panel-aerostudy>.aero-heading>h2{flex:0 0 auto}
+.aero-heading{display:flex;align-items:center;gap:6px;min-height:28px}.aero-heading>h1,.aero-heading>h2{flex:0 0 auto;margin:0!important;white-space:nowrap}
+#sidebar>.panel-heading[data-aerodynamics=true] #workspace-title{flex:0 1 auto;font-size:15px;font-weight:600;color:#e1eff9}
+#sidebar>.panel-heading[data-aerodynamics=true] #btn-aero-information{margin-left:0;margin-right:auto}
+#sidebar>.panel-heading[data-aerodynamics=true]>.panel-toggle{display:none}
+#btn-aero-information[hidden]{display:none}
 .aero-notices{position:absolute;top:10px;right:10px;width:min(520px,calc(100% - 20px));max-height:calc(100% - 20px);overflow:auto;display:flex;flex-direction:column;gap:6px;align-items:stretch;z-index:20;pointer-events:none}
 .aero-notices> :is(.aero-status,.aero-stale,.aero-progress){position:relative;flex:0 0 auto;min-width:0;pointer-events:auto;box-sizing:border-box;padding:8px 32px 8px 10px;font-size:12px;line-height:1.45}
 .aero-notices .aero-message-text{overflow-wrap:anywhere}.aero-notices .aero-notice-close{position:absolute;top:4px;right:4px;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;width:23px;min-width:23px;height:23px;min-height:23px;margin:0;padding:0;border:1px solid #8aa5b066;border-radius:4px;background:#17222b55;color:inherit;font:18px/1 system-ui;cursor:pointer}.aero-notices .aero-notice-close:hover{background:#5e7c8b88}.aero-notices .aero-notice-close:focus-visible{outline:2px solid #b2e3ff;outline-offset:1px}
@@ -44,3 +48,28 @@
 .aero-scale-help{flex:1 0 100%;color:#a9c5d8;font-size:10px}.aero-angle-tools{gap:6px}
 
 .aero-vector-legend{margin:0;padding:0 12px 8px;border-top:1px solid #304b5e}.aero-vector-legend[hidden]{display:none}.aero-vector-legend>summary{font-size:11px;padding:7px 0}.aero-vector-colors{display:flex;flex-wrap:wrap;gap:7px 16px;font-size:11px}.aero-vector-colors>span{display:flex;align-items:center;gap:6px}.aero-vector-colors i{width:10px;height:10px;border:1px solid #abc6d4;border-radius:2px;flex:none}
+
+/* Keep the aircraft visible: controls and reports scroll in a left pane,
+   while the rendering canvas fills the remaining workspace. */
+.aero-study{height:calc(100dvh - 165px);min-height:300px;display:flex;flex-direction:column;overflow:hidden;gap:4px;box-sizing:border-box}
+.aero-study>.aero-actions{flex:none;margin:0;gap:5px}.aero-workspace-buttons{display:flex;gap:4px;flex:none;overflow-x:auto;white-space:nowrap;padding-bottom:2px}
+.aero-workspace-buttons button{flex:none;padding:5px 9px}.aero-workspace-buttons button[aria-expanded=true]{background:#315d76;border-color:#8acbe8}
+.aero-actions button[data-action=detach]{background:#444c56;border-color:#7b8793;color:#f1f4f7}.aero-actions button[data-action=detach]:hover{background:#56616e}
+.aero-case-controls{flex:none;display:flex;align-items:center;gap:6px 14px;flex-wrap:wrap;font-size:11px;min-height:30px}.aero-case-controls label{display:flex;align-items:center;gap:6px;white-space:nowrap}.aero-case-controls select{max-width:240px;padding:4px 6px}.aero-difference-note{color:#c5dfef;flex:1;min-width:150px}.aero-case-controls[data-difference=true] .aero-difference-note{color:#ffd384}
+.aero-study-layout{position:relative;display:flex;flex:1;min-height:0;min-width:0;gap:8px;overflow:hidden}.aero-results{display:flex;flex-direction:column;flex:1;min-width:0;min-height:0}.aero-view{display:flex;flex-direction:column;flex:1;min-height:0}.aero-canvas-wrap{flex:1;min-height:0}.aero-canvas{position:absolute;inset:0;width:100%;height:100%;min-height:0}.aero-scale{flex:none;padding:5px 10px;flex-wrap:nowrap;min-height:25px;box-sizing:border-box}.aero-scale-bar{min-width:60px}.aero-panel-detail{flex:none;min-height:0;padding:4px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:18px}
+.aero-viewport-tools{position:absolute;left:8px;bottom:8px;right:8px;z-index:10;display:flex;gap:4px;flex-wrap:wrap;pointer-events:none;max-width:calc(100% - 24px)}.aero-viewport-tools>*{pointer-events:auto;background:#172b3ce8;border:1px solid #51758d;color:#e9f4fb;border-radius:4px;box-shadow:0 2px 8px #0004}.aero-viewport-tools button{padding:5px 8px}.aero-viewport-tools select{max-width:240px;padding:4px 7px}.aero-viewport-tools button[aria-pressed=true]{background:#a46016;border-color:#ffd07d}
+.aero-canvas-wrap>.aero-result-card{bottom:46px}.aero-notices{max-height:calc(100% - 85px)}
+.aero-drawer{position:relative;flex:0 0 clamp(300px,30%,440px);max-width:45%;min-width:0;z-index:15;display:flex;flex-direction:column;box-sizing:border-box;border:1px solid #60839a;border-radius:7px;background:#122431;overflow:hidden}.aero-drawer[hidden]{display:none}.aero-drawer-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 11px;border-bottom:1px solid #49687d;flex:none}.aero-drawer-heading strong{font-size:14px;flex:1;min-width:0}.aero-drawer-heading{gap:6px}.aero-drawer-heading button{flex:none}.aero-drawer-heading button{padding:4px 10px;background:#444c56;border:1px solid #7b8793;color:#fff}.aero-drawer-body{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding:10px}.aero-drawer-body>[hidden]{display:none!important}.aero-drawer .aero-setup{display:block}.aero-drawer .aero-chart-grid{display:grid;grid-template-columns:1fr}.aero-drawer .aero-scale-controls{display:flex}.aero-drawer .aero-scale-controls[hidden]{display:none}.aero-drawer .aero-view-tools{align-items:flex-start;gap:10px;margin:0 0 12px}.aero-exports{display:flex;flex-wrap:wrap;gap:8px}.aero-drawer .aero-axis-controls>.aero-axis-grid{position:static;max-width:100%;box-shadow:none}.aero-drawer .aero-angle-tools{align-items:flex-start;flex-wrap:wrap}.aero-drawer .aero-vector-legend{margin-top:12px;padding:0}.aero-drawer .aero-scale-controls .aero-limit-control{flex-basis:100%}
+.aero-popout-body>.aero-study{height:auto;min-height:0;flex:1}.aero-popout-body>.aero-heading{flex:none;margin-bottom:5px}.aero-detached-placeholder{height:100%;min-height:0;overflow:hidden}.aero-detached-copy{height:100%;min-height:0}.aero-detached-notice{position:absolute;left:12px;right:12px;top:12px}
+@media(max-width:750px){.aero-drawer{flex-basis:44%;max-width:50%;min-width:0}.aero-drawer .aero-input-grid{grid-template-columns:1fr}.aero-drawer-heading{flex-wrap:wrap}.aero-drawer-heading strong{flex-basis:100%}.aero-case-controls{gap:4px 8px}.aero-case-controls select{max-width:160px}.aero-difference-note{font-size:10px}.aero-study button{padding:5px 7px}.aero-actions{flex-wrap:nowrap;overflow-x:auto;white-space:nowrap}.aero-actions button{flex:none}}
+
+#panel-aerostudy:not([hidden]){display:flex;flex-direction:column;height:100%;min-height:0;box-sizing:border-box;overflow:hidden;padding:8px 10px}
+#panel-aerostudy>.aero-study{height:auto;min-height:0;flex:1}
+.aero-study-layout{align-items:stretch}
+
+/* A form can deliberately occupy the canvas area, then restore to its left dock. */
+.aero-study[data-aero-form-maximized=true] .aero-drawer{flex:1;max-width:none;width:100%}
+.aero-study[data-aero-form-maximized=true] .aero-results{display:none}
+.aero-study[data-aero-form-maximized=true] .aero-chart-grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,560px),1fr))}
+.aero-study[data-aero-form-maximized=true] .aero-drawer .aero-setup{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:10px;align-items:start}
+.aero-status[data-warning=true]:not([data-error=true]){border-color:#e1b755;background:#503a17}

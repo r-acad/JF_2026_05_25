@@ -137,7 +137,7 @@ function normalize_drawings(value)
     fields = Set(["version", "theme", "opacity", "imageVisible", "image", "imageScope", "imageAspectRatio", "pin", "filledFigures", "transform", "viewport", "grid", "snap", "measurements"])
     out = Dict{String,Any}()
     for (name, state) in data
-        name in names || occursin(r"^airfoil-station-([1-9]|[1-9][0-9]|100)$", name) || throw(ArgumentError("Unknown drawing metadata key: $name"))
+        name in names || occursin(r"^airfoil-station-[1-9][0-9]*$", name) || throw(ArgumentError("Unknown drawing metadata key: $name"))
         state isa AbstractDict && all(key -> key in fields, keys(state)) || throw(ArgumentError("Invalid $name drawing state"))
         canonical = try JSON.parse(normalize_plan_view(JSON.json(state))) catch error
             error isa ArgumentError || rethrow()

@@ -1,0 +1,14 @@
+'use strict';
+const assert=require('node:assert/strict');
+const Aero=require('../web/aerodynamic_study.js');
+const legacy=Aero.validateState({settings:{max_panels:2048}});
+assert.equal(legacy.settings.max_panels,0,'Old studies must not restore a hidden 2048-panel ceiling');
+const large=Aero.validateState({settings:{mode:'sweep',chord_panels:301,span_panels:501,control_chord_panels:201,sweeps:['alpha','beta','speed','altitude'].map(variable=>({variable,start:0,stop:1,count:201}))},selected:500,differenceBase:499,wakeLength:25});
+assert.equal(large.settings.sweeps.length,4);assert(large.settings.sweeps.every(s=>s.count===201));
+assert.equal(large.wakeLength,25);assert.equal(large.selected,500);assert.equal(large.differenceBase,499);
+assert.equal(large.settings.chord_panels,301);assert.equal(large.settings.span_panels,501);
+for(const count of [1,NaN,Infinity,2.5,Number.MAX_SAFE_INTEGER+1])assert.throws(()=>Aero.validateState({settings:{sweeps:[{variable:'alpha',start:0,stop:1,count}]}}));
+for(const selected of [-1,Infinity,1.2,Number.MAX_SAFE_INTEGER+1])assert.throws(()=>Aero.validateState({selected}));
+const Plots=require('../web/aerodynamic_plots.js'),points=Array.from({length:160000},(_,i)=>[i-80000,i%23-11]);
+const layout=Plots.layout({title:'Large sweep',xlabel:'x',ylabel:'y',series:[{name:'all samples',points}]});assert.equal(layout.all.length,160000);assert.equal(layout.xmin,-80000);assert.equal(layout.xmax,79999);assert(layout.ymin< -11&&layout.ymax>11);
+console.log('PASS Legacy panel ceilings are ignored; large meshes, sweeps and selections retain valid integer/finite checks without arbitrary capacity caps.');

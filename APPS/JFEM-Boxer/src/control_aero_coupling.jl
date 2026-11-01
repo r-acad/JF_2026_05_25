@@ -45,19 +45,22 @@ end
 function aerodynamic_control_families(p,metadata)
     references=get(metadata,"load_references",Any[])
     enabled=Set(String(s["name"]) for s in get(metadata,"surfaces",Any[]))
+    material=Dict(s["name"]=>s for s in get(metadata,"surfaces",Any[]))
     families=NamedTuple[]
     for definition in get(p,"movable_surfaces.items",Any[])
         definition["name"] in enabled || continue
         refs=sort!([r for r in references if r["surface"]==definition["name"]];by=r->r["eta"])
         isempty(refs) && continue
-        push!(families,(definition=definition,refs=refs,etas=Float64[r["eta"] for r in refs]))
+        surface=material[definition["name"]]
+        interval=(get(surface,"aerodynamic_eta_start",definition["eta_start"]),get(surface,"aerodynamic_eta_end",definition["eta_end"]))
+        push!(families,(definition=definition,refs=refs,etas=Float64[r["eta"] for r in refs],material_interval=interval))
     end
     return sort!(families;by=f->(f.definition["eta_start"],f.definition["name"]))
 end
 
 function aerodynamic_control_owner(families,eta,xc)
     for family in families
-        s=family.definition;a=s["eta_start"];b=s["eta_end"]
+        s=family.definition;a,b=hasproperty(family,:material_interval) ? family.material_interval : (s["eta_start"],s["eta_end"])
         a-1e-10<=eta<=b+1e-10 || continue
         front=movable_chord_coordinate(s,"front_spar",clamp(eta,a,b))
         (s["edge"]=="trailing" ? front-1e-10<=xc<=1+1e-10 : -1e-10<=xc<=front+1e-10) || continue

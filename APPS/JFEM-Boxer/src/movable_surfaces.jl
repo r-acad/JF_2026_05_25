@@ -2,7 +2,17 @@
 const MOVABLE_SURFACE_KINDS = ("aileron", "flap", "slat", "elevator", "rudder", "tab", "other")
 const MOVABLE_SURFACE_FIELDS = Set(["name", "kind", "edge", "eta_start", "eta_end",
     "hinge_start", "hinge_end", "deflection", "color"])
-const MOVABLE_SURFACE_OPTIONAL_FIELDS = Set(["front_spar_start", "front_spar_end", "hinge_z_start", "hinge_z_end"])
+const MOVABLE_SURFACE_OPTIONAL_FIELDS = Set(["front_spar_start", "front_spar_end", "hinge_z_start", "hinge_z_end", "clearance_inboard_m", "clearance_outboard_m"])
+
+"""Material extent after neutral spanwise end clearances; cutout/hinge anchors stay authored."""
+function movable_material_interval(w,s)
+    all(k->get(s,k,0.) isa Real&&!(get(s,k,0.) isa Bool)&&isfinite(get(s,k,0.))&&get(s,k,0.)>=0,("clearance_inboard_m","clearance_outboard_m")) ||
+        throw(ArgumentError("$(s["name"]): material end clearances must be finite and nonnegative metres"))
+    a=s["eta_start"]+get(s,"clearance_inboard_m",0.)/w.semispan
+    b=s["eta_end"]-get(s,"clearance_outboard_m",0.)/w.semispan
+    a<b||throw(ArgumentError("$(s["name"]): end clearances consume the entire movable material span"))
+    a,b
+end
 
 movable_chord_coordinate(s,role,eta) = begin
     a=get(s,role*"_start",s["hinge_start"]);b=get(s,role*"_end",s["hinge_end"])
@@ -43,13 +53,13 @@ function movable_kinematics(w,row;angle=row["deflection"])
 end
 
 function normalize_movable_surfaces(value)
-    value isa AbstractVector && length(value)<=100 ||
-        throw(ArgumentError("Movable surfaces must be a table of at most 100 surfaces"))
+    value isa AbstractVector ||
+        throw(ArgumentError("Movable surfaces must be a table"))
     result=Dict{String,Any}[]; names=Set{String}()
     for (i,row) in enumerate(value)
         row isa AbstractDict && issubset(MOVABLE_SURFACE_FIELDS,Set(String.(keys(row)))) &&
             issubset(Set(String.(keys(row))),union(MOVABLE_SURFACE_FIELDS,MOVABLE_SURFACE_OPTIONAL_FIELDS)) ||
-            throw(ArgumentError("Movable surface $i requires name, kind, edge, eta_start, eta_end, hinge_start, hinge_end, deflection and color; optional front_spar_start/end separate the control spar from its hinge and hinge_z_start/end define hinge height in local-thickness units"))
+            throw(ArgumentError("Movable surface $i requires name, kind, edge, eta_start, eta_end, hinge_start, hinge_end, deflection and color; optional front_spar_start/end separate the control spar from its hinge, hinge_z_start/end define hinge height, and clearance_inboard_m/outboard_m trim material ends in metres"))
         row["name"] isa AbstractString || throw(ArgumentError("Movable surface $i needs a name"))
         name=strip(row["name"])
         1<=length(name)<=80 && !any(iscntrl,name) || throw(ArgumentError("Movable surface $i needs a name of 1 to 80 characters without control characters"))
@@ -68,6 +78,12 @@ function normalize_movable_surfaces(value)
             number=get(row,field,0.)
             number isa Real && !(number isa Bool) && isfinite(number) ||
                 throw(ArgumentError("$name: $field must be a finite local-thickness ratio"))
+            clean[field]=Float64(number)
+        end
+        for field in ("clearance_inboard_m","clearance_outboard_m")
+            number=get(row,field,0.)
+            number isa Real&&!(number isa Bool)&&isfinite(number)&&number>=0 ||
+                throw(ArgumentError("$name: $field must be finite and nonnegative metres"))
             clean[field]=Float64(number)
         end
         0<=clean["eta_start"]<clean["eta_end"]<=1 && clean["eta_end"]-clean["eta_start"]>=1e-6 ||
@@ -109,9 +125,8 @@ function movable_surfaces_preview(p::AbstractDict)
     outline=vcat([camber(eta,0.) for eta in etas],[camber(eta,1.) for eta in reverse(etas)])
     surfaces=Any[]
     for row in rows
-        a,b=row["eta_start"],row["eta_end"]
+        a,b=movable_material_interval(w,row)
         stations=sort!(unique(vcat(collect(range(a,b;length=25)),filter(eta->a<eta<b,loft_control_etas(w)))))
-        hinge(eta)=row["hinge_start"]+(row["hinge_end"]-row["hinge_start"])*(eta-a)/(b-a)
         front_spar(eta)=movable_chord_coordinate(row,"front_spar",eta)
         motion=movable_kinematics(w,row);h0,h1=motion.h0,motion.h1;delta=h1.-h0;rotate=motion.transform
         edge=row["edge"]=="trailing" ? 1. : 0.
@@ -134,7 +149,8 @@ function movable_surfaces_preview(p::AbstractDict)
         end
         boundary=vcat([camber(eta,front_spar(eta)) for eta in stations],[camber(eta,edge) for eta in reverse(stations)])
         push!(surfaces,Dict("definition"=>row,"xyz"=>xyz,"triangles"=>triangles,
-            "hinge"=>[h0,h1],"outline"=>boundary,"hinge_curve"=>[h0.+((eta-a)/(b-a)).*delta for eta in stations],
+            "hinge"=>[h0,h1],"outline"=>boundary,"material_eta_start"=>a,"material_eta_end"=>b,
+            "hinge_curve"=>[h0.+t.*delta for t in range(0.,1.;length=25)],
             "front_spar_curve"=>[camber(eta,front_spar(eta)) for eta in stations]))
     end
     return Dict("outline"=>outline,"surfaces"=>surfaces,"units"=>"m","geometry_only"=>true)

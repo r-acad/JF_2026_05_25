@@ -31,7 +31,7 @@ function handle_aerodynamic_study(st,req;action="run")
         if action in ("mesh","run")
             body=JSON.parse(String(req.body));body isa AbstractDict||throw(ArgumentError("Expected aerodynamic request object"))
             params=get(body,"parameters",Dict());settings=get(body,"settings",Dict());signature=get(body,"signature","")
-            params isa AbstractDict&&settings isa AbstractDict&&signature isa AbstractString&&sizeof(signature)<=1024*1024||throw(ArgumentError("Invalid aerodynamic request"))
+            params isa AbstractDict&&settings isa AbstractDict&&signature isa AbstractString||throw(ArgumentError("Invalid aerodynamic request"))
             # Validate geometry/settings without creating any FE topology.
             _,_,controls=aerodynamic_geometry(params);validated=aerodynamic_settings(settings,controls)
             action=="run"&&aerodynamic_conditions(validated,controls)

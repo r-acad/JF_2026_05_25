@@ -38,8 +38,13 @@ end
     s=FW.aerodynamic_settings(free_wake_settings(),rows);patches=FW.aerodynamic_mesh(w,rows,s)
     rigid=FW.aerodynamic_solve(w,patches,merge(s,Dict("wake_model"=>"straight")))
     fixed=FW.aerodynamic_solve(w,patches,s;frozen_wake=true)
-    @test fixed["force_N"] ≈ rigid["force_N"] rtol=1e-9 atol=1e-9
-    @test fixed["moment_Nm"] ≈ rigid["moment_Nm"] rtol=1e-9 atol=1e-9
+    # Bound edges use a small mesh-scale core; wake filaments retain their
+    # requested radius. The classical limit, rather than the finite-core model, must
+    # agree with the dependency's unregularized single-surface straight wake.
+    classical=FW.aerodynamic_solve(w,patches,merge(s,Dict("wake_core"=>1e-8));frozen_wake=true)
+    @test classical["force_N"] ≈ rigid["force_N"] rtol=1e-9 atol=1e-9
+    @test classical["moment_Nm"] ≈ rigid["moment_Nm"] rtol=1e-9 atol=1e-9
+    @test fixed["residual_over_V"]<1e-10
     zero_case=only(FW.run_aerodynamic_study(p,free_wake_settings(alpha=0.))["cases"])
     @test norm(zero_case["force_N"])<1e-10
     @test zero_case["wake"]["converged"]
@@ -69,7 +74,9 @@ end
         mirror=[[v[1],-v[2],v[3]] for v in line]
         @test minimum(maximum(norm(a-b) for (a,b) in zip(mirror,other)) for other in lines)<1e-7
     end
-    longer=only(FW.run_aerodynamic_study(p,free_wake_settings(wake_length=3.,wake_rows=24))["cases"])
+    # The distinct mesh-scale bound core needs 108 iterations for this longer
+    # wake on the reference fixture. Keep the physical tolerance unchanged.
+    longer=only(FW.run_aerodynamic_study(p,free_wake_settings(wake_length=3.,wake_rows=24,wake_iterations=200))["cases"])
     @test longer["coefficients"]["wind"]["force"][3] ≈ c["coefficients"]["wind"]["force"][3] rtol=.03
     @test_throws ArgumentError FW.run_aerodynamic_study(p,free_wake_settings(wake_iterations=2,wake_tolerance=1e-5))
 end

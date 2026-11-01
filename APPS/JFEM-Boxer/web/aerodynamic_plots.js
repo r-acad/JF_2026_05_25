@@ -25,7 +25,7 @@
  const wrap=(text,n)=>{const words=String(text).split(/\s+/),lines=[''];for(let word of words){while(word.length>n){if(lines[lines.length-1])lines.push('');lines[lines.length-1]=word.slice(0,n);word=word.slice(n);lines.push('');}const last=lines.length-1;if((lines[last]+' '+word).trim().length>n)lines.push(word);else lines[last]=(lines[last]+' '+word).trim();}return lines;};
  function layout(plot){
   const titleLines=wrap(plot.title,78),legend=plot.series.filter(s=>s.points.some(p=>p.every(Number.isFinite))).map(s=>({s,lines:wrap(s.name,82)})),legendLines=legend.reduce((n,g)=>n+g.lines.length,0),xlabels=wrap(plot.xlabel,78),top=40+titleLines.length*17,bottom=top+230;
-  const all=plot.series.flatMap(s=>s.points).filter(p=>p.every(Number.isFinite));let xmin=Math.min(0,...all.map(p=>p[0])),xmax=Math.max(0,...all.map(p=>p[0])),ymin=Math.min(0,...all.map(p=>p[1])),ymax=Math.max(0,...all.map(p=>p[1]));if(xmin===xmax){xmin-=1;xmax+=1;}const pad=(ymax-ymin||1)*.08;ymin-=pad;ymax+=pad;
+  const all=plot.series.flatMap(s=>s.points).filter(p=>p.every(Number.isFinite));let xmin=0,xmax=0,ymin=0,ymax=0;for(const [px,py]of all){xmin=Math.min(xmin,px);xmax=Math.max(xmax,px);ymin=Math.min(ymin,py);ymax=Math.max(ymax,py);}if(xmin===xmax){xmin-=1;xmax+=1;}const pad=(ymax-ymin||1)*.08;ymin-=pad;ymax+=pad;
   const left=Math.max(82,45+Math.max(...Array.from({length:5},(_,i)=>format(ymin+i*(ymax-ymin)/4).length))*7),height=bottom+55+xlabels.length*17+legendLines*17;
   return{all,xmin,xmax,ymin,ymax,left,top,bottom,height,titleLines,legend,xlabels,x:v=>left+(v-xmin)/(xmax-xmin)*(660-left),y:v=>bottom-(v-ymin)/(ymax-ymin)*230};
  }

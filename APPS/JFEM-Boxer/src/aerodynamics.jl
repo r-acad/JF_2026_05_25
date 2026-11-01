@@ -15,10 +15,35 @@ end
 const VLM_MAX_STRIP_TWIST_DEG = 2.0
 const VLM_MAX_PANEL_WARP_DEG = 8.0
 const VLM_MAX_CONTROL_NORMAL_ERROR_DEG = 1.0
-const VLM_MAX_REFINED_PANELS = 4096
+
+# Capacity is governed by available memory and compute time, not a panel budget.
+# Keep machine-integer checks before deriving array dimensions or Cartesian
+# sweep sizes so an impossible request cannot wrap to a small/negative size.
+function vlm_count(value, label; minimum=1)
+    value isa Real && !(value isa Bool) && isfinite(value) && isinteger(value) && value>=minimum ||
+        throw(ArgumentError("$label must be a finite integer of at least $minimum"))
+    try
+        n=Int(value)
+        Base.checked_add(n,1) # every panel/row count may need one extra station
+        return n
+    catch e
+        e isa InexactError || e isa OverflowError || rethrow()
+        throw(ArgumentError("$label exceeds this platform's integer indexing capacity"))
+    end
+end
+
+function vlm_checked_size(label, dimensions::Integer...)
+    try
+        return foldl(Base.checked_mul,dimensions;init=1)
+    catch e
+        e isa OverflowError || rethrow()
+        throw(ArgumentError("$label exceeds this platform's integer indexing capacity"))
+    end
+end
 
 """Evaluate the real, rotated camber surface at a tensor product of stations."""
 function camber_grid(w::Wing, xcs, etas)
+    vlm_checked_size("VLM coordinate grid",3,length(xcs),length(etas))
     grid = Array{Float64}(undef, 3, length(xcs), length(etas))
     for (j, eta) in enumerate(etas), (i, xc) in enumerate(xcs)
         grid[:, i, j] .= camber_point(w, eta, xc)
@@ -100,9 +125,10 @@ All added nodes are sampled on the exact rotated camber surface. This improves
 the geometric approximation; it does not extend attached-flow physics to stall.
 """
 function vlm_mesh(w::Wing, nc::Int, ns::Int)
-    nc >= 1 && ns >= 1 || throw(ArgumentError("VLM panel counts must be positive"))
+    vlm_count(nc,"VLM chord panels");vlm_count(ns,"VLM span panels")
+    vlm_checked_size("VLM coordinate grid",3,nc+1,ns+1)
     base_etas = with_planform_stations(w, sort!(unique(vcat(
-        [sinpi(j / (2ns)) for j in 0:ns],w.airfoil_etas))))
+        [sinpi((j / ns) / 2) for j in 0:ns],w.airfoil_etas))))
     etas = Float64[first(base_etas)]
     for j in 1:length(base_etas)-1
         lo, hi = base_etas[j], base_etas[j+1]
@@ -113,8 +139,6 @@ function vlm_mesh(w::Wing, nc::Int, ns::Int)
     end
     xcs = [(1 - cospi(i / nc)) / 2 for i in 0:nc]
     for iteration in 1:12
-        (length(xcs)-1) * (length(etas)-1) <= VLM_MAX_REFINED_PANELS ||
-            throw(ArgumentError("VLM geometry refinement exceeds $VLM_MAX_REFINED_PANELS panels. Reduce requested resolution or simplify closely spaced lifting surface edge points."))
         grid = camber_grid(w, xcs, etas)
         metrics = validate_vlm_grid(grid)
         warped = findall(p -> p.warp_deg > VLM_MAX_PANEL_WARP_DEG, metrics)
@@ -241,6 +265,7 @@ function solve_vlm(w::Wing, p::AbstractDict; aerodynamic_mesh=nothing, match_lif
     # Explicit ratios avoid VortexLattice 0.2.3's uninitialized default array.
     # Control points are mid-span and at 3/4 of each panel chord.
     ratios = zeros(2, actual_nc, actual_ns) .+ [0.5, 0.75]
+    vlm_checked_size("VLM influence matrix",actual_nc,actual_ns,actual_nc,actual_ns)
     system = VortexLattice.System([solve_grid]; ratios = [ratios])
     VortexLattice.steady_analysis!(system, ref, fs;
         symmetric = true, derivatives = false, trailing_vortices = true,

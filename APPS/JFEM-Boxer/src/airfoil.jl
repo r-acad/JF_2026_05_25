@@ -206,7 +206,7 @@ function table_interp(xt::Vector{Float64}, zt::Vector{Float64}, x::Float64)
     lo = 1
     hi = length(xt)
     while hi - lo > 1
-        mid = (lo + hi) >> 1
+        mid = lo + ((hi - lo) >> 1)
         if xt[mid] <= x
             lo = mid
         else
@@ -256,7 +256,7 @@ function airfoil_from_profile(profile::AbstractDict; expected_source=nothing)
     end
     tables = map(("xu", "zu", "xl", "zl")) do key
         values = get(profile, key, nothing)
-        values isa AbstractVector && 3 <= length(values) <= 20000 || throw(ArgumentError("embedded airfoil $key needs 3 to 20000 coordinates"))
+        values isa AbstractVector && 3 <= length(values) || throw(ArgumentError("embedded airfoil $key needs at least 3 coordinates"))
         all(v -> v isa Real && isfinite(v), values) || throw(ArgumentError("embedded airfoil $key contains invalid coordinates"))
         Float64.(values)
     end
@@ -277,7 +277,6 @@ function embedded_airfoil(p, station)
     key = "airfoil.$(station)_profile"
     text = get(p,key,"")
     text isa AbstractString && !isempty(strip(text)) || throw(ArgumentError("Choose and load a coordinate $station profile in Airfoils before creating the model."))
-    sizeof(text) <= 2_000_000 || throw(ArgumentError("embedded $station airfoil exceeds 2 MB"))
     profile = try JSON.parse(text) catch; throw(ArgumentError("embedded $station airfoil is not valid JSON")); end
     profile isa AbstractDict || throw(ArgumentError("embedded $station airfoil must be an object"))
     return airfoil_from_profile(profile;expected_source=get(p,"airfoil.$(station)_source","uiuc"))
@@ -299,7 +298,6 @@ end
 """Validate portable intermediate sections without accessing the network."""
 function normalize_airfoil_stations(value)
     value isa AbstractVector || throw(ArgumentError("airfoil.stations must be an array of section tables"))
-    length(value)<=100 || throw(ArgumentError("airfoil.stations supports at most 100 intermediate sections"))
     out=Dict{String,Any}[];seen=Set{Float64}()
     for (index,raw) in enumerate(value)
         prefix="airfoil.stations row $index"
@@ -325,7 +323,6 @@ function normalize_airfoil_stations(value)
         else
             profile=get(row,"profile",nothing)
             profile isa AbstractDict || throw(ArgumentError("$prefix needs a loaded coordinate profile; select or import it in Airfoils"))
-            sizeof(JSON.json(profile))<=2_000_000 || throw(ArgumentError("$prefix embedded profile exceeds 2 MB"))
             airfoil_from_profile(profile;expected_source=source)
             String(profile["id"])==result["code"] || throw(ArgumentError("$prefix code does not match its embedded coordinate profile"))
             result["profile"]=deepcopy(profile)

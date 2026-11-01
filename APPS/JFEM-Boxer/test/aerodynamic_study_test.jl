@@ -87,7 +87,9 @@ end
     @test [c["condition"]["alpha"] for c in sweep["cases"]]==[-2.,-2.,1.,1.,4.,4.]
     @test sweep["geometry"]["movable_surfaces.items"][1]["deflection"]==0.
     @test sweep["version"]==W.AERODYNAMIC_STUDY_VERSION
-    @test_throws ArgumentError W.run_aerodynamic_study(p,merge(base,Dict("mode"=>"sweep","sweeps"=>[Dict("variable"=>"alpha","start"=>0.,"stop"=>5.,"count"=>101),Dict("variable"=>"beta","start"=>0.,"stop"=>5.,"count"=>2)])))
+    rows=W.normalize_movable_surfaces(p["movable_surfaces.items"])
+    expanded=W.aerodynamic_settings(merge(base,Dict("mode"=>"sweep","sweeps"=>[Dict("variable"=>"alpha","start"=>0.,"stop"=>5.,"count"=>101),Dict("variable"=>"beta","start"=>0.,"stop"=>5.,"count"=>2)])),rows)
+    @test length(W.aerodynamic_conditions(expanded,rows))==202
     @test_throws ArgumentError W.run_aerodynamic_study(p,merge(base,Dict("speed"=>200.)))
     @test_throws ArgumentError W.run_aerodynamic_study(p,merge(base,Dict("controls"=>control(50.))))
     translated=deepcopy(p);translated["planform.root_ref_x"]=20.;translated["planform.root_ref_y"]=-5.;translated["planform.root_ref_z"]=7.
@@ -100,10 +102,9 @@ end
     @test all(isapprox.(half["force_N"],.5 .* full["force_N"];rtol=1e-10,atol=1e-10))
     @test all(isapprox.(half["coefficients"]["wind"]["force"],full["coefficients"]["wind"]["force"];rtol=1e-10,atol=1e-12))
     @test full["residual_over_V"]<1e-10
-    @test_throws ArgumentError W.run_aerodynamic_study(aero_fixture(),small_settings(Dict("chord_panels"=>16,"span_panels"=>40,"mode"=>"sweep","sweeps"=>[Dict("variable"=>"alpha","start"=>0.,"stop"=>5.,"count"=>101)])))
 end
 
-@testset "Physical winglet aspect ratios, wakes, budgets and derivatives" begin
+@testset "Physical winglet aspect ratios, wakes and derivatives" begin
     p=aero_fixture();p["loft.vertical_shift_stations"]=[Dict("eta"=>e,"shift_percent"=>z) for (e,z) in ((0.,0.),(.8,0.),(1.,45.))]
     stages=String[];mesh=only(W.run_aerodynamic_study(p,small_settings(Dict("max_panels"=>4096));mesh_only=true,progress=(s,d,t)->push!(stages,s))["cases"])
     @test .7-1e-9<=mesh["min_panel_aspect_ratio"]<=mesh["max_panel_aspect_ratio"]<=1.5+1e-9
@@ -112,7 +113,9 @@ end
     @test !any(minimum(c[2] for c in q["corners"])<3.2-1e-8&&maximum(c[2] for c in q["corners"])>3.2+1e-8 for q in mesh["panels"] if q["side"]=="right")
     @test all(isapprox(sqrt(sum(abs2,mesh["wake_direction"])),1.;atol=1e-12) for _ in 1:1)
     @test all(isapprox(v[1],.75;atol=1e-10) for v in mesh["wake_origins"])
-    @test_throws ArgumentError W.run_aerodynamic_study(p,small_settings(Dict("max_panels"=>16));mesh_only=true)
+    legacy=only(W.run_aerodynamic_study(p,small_settings(Dict("max_panels"=>16));mesh_only=true)["cases"])
+    @test legacy["panel_count"]==mesh["panel_count"]
+    @test legacy["condition"]["max_panels"]==0
     simple=aero_fixture();settings=small_settings(Dict("derivatives"=>true,"chord_panels"=>2,"span_panels"=>3,"alpha"=>4.,"p"=>.2))
     solved=only(W.run_aerodynamic_study(simple,settings)["cases"]);ds=solved["derivatives"]["rows"]
     @test Set(d["variable"] for d in ds)==Set(["alpha","beta","p","q","r","speed","altitude"])

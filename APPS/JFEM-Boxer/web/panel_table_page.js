@@ -61,6 +61,7 @@
   rendering=false;notifyDrafts();
  }
  function commit(panel,field,raw,id){
+  if(field.type==='number')raw=globalThis.WingNumericInputs?.normalizeText(raw)??raw;
   const prior=drafts.get(id),draft=prior&&prior.raw===raw?prior:{raw,error:'',version:++counter,base:api.fieldState(snapshot,kind,panel.key,field.name)};
   if(queued.get(id)?.version===draft.version||[...requests.values()].some(p=>p.id===id&&p.version===draft.version))return;
   try{api.update(snapshot,kind,panel.key,field.name,raw);showError('');draft.error='';drafts.set(id,draft);queued.set(id,{id,key:panel.key,field:field.name,value:raw,version:draft.version,base:draft.base,layoutToken:snapshot.layout_token});pump();render();}

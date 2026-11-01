@@ -85,7 +85,7 @@ const SCHEMA = ParamSpec[
               choices=["linear","cosine"], help="Interpolate vertical shift independently of thickness and twist. With t=(eta-eta_i)/(eta_j-eta_i), linear uses weight t; cosine uses (1-cos(pi*t))/2 and has zero shift slope at each station. The same translation applies to structural and aerodynamic geometry, fuel and mass locations"),
 
     ParamSpec("movable_surfaces.items", "Movable surfaces", :movablesurfaces, Any[], "Movable surfaces";
-        help="Named leading- or trailing-edge regions defined by span eta, independent control front-spar and true hinge x/c at each end, and preview deflection. Saved with the Study and TOML. Optional FE shells and hinge attachments are defined in Structure / Movable surfaces. Geometry without an enabled structure remains a preview; The FE load-case VLM uses the original common loft. Loads / Aerodynamics independently analyzes sealed camber controls."),
+        help="Named leading- or trailing-edge regions defined by cutout/hinge span eta, independent control front-spar and true hinge x/c, and deflection. Optional inboard/outboard material end clearances in metres trim the moving surface in preview, FE shells and independent aerodynamics without moving the authored cutout or hinge anchors. Saved with the Study and TOML. Optional FE shells and hinge attachments are defined in Structure / Movable surfaces. The FE load-case VLM uses the original common loft; the Aerodynamics tab analyzes control deflections independently."),
 
     ParamSpec("movable_structure.surfaces", "Surface structures", :movablestructure, Any[], "Movable structures";
         help="Optional load-carrying shells for each defined movable surface: upper/lower skins, control front spar, optional secondary spar and ribs. Structural end eta can stop the box inboard of its aerodynamic tip. Independent properties per movable rib bay. Monolithic materials are selected from the material library. Distributed structural mass is required."),
@@ -195,7 +195,7 @@ const SCHEMA = ParamSpec[
     # Keep dotted TOML sections contiguous; the group controls its UI placement.
     ParamSpec("leading_edge.chord_elements", "Leading-edge skin elements, nose to spar", :int, 8, "Mesh";
               help = "Whole number from 2 to 100 of shell elements across EACH leading-edge skin, from the nose to the front spar, in every spanwise mesh interval. Also sets the chordwise columns in leading-edge ribs. Default 8 gives 8 upper and 8 lower skin elements per interval, with approximately equal surface arc-length spacing. Elements per rib bay sets spanwise refinement; Vertical elements sets rib height refinement. Front-spar boundary nodes stay shared. Applies when Create leading-edge structure is enabled; independent of Aero chord points and VLM panels"),
-    ParamSpec("leading_edge.t_skin", "Minimum leading-edge skin thickness", :float, 0.0015, "Leading-edge properties";
+    ParamSpec("leading_edge.t_skin", "Minimum leading-edge skin thickness", :float, 0.001, "Leading-edge properties";
               unit = "m", help = "Monolithic thickness of both leading-edge skins; sandwich construction uses its face/core dimensions"),
     ParamSpec("leading_edge.t_rib", "Minimum leading-edge rib thickness", :float, 0.0015, "Leading-edge properties";
               unit = "m", help = "Monolithic thickness of leading-edge rib extensions; sandwich construction uses its face/core dimensions"),
@@ -298,9 +298,9 @@ const SCHEMA = ParamSpec[
     ParamSpec("aero.speed_of_sound", "Speed of sound", :float, 340.0, "Aerodynamics";
               unit = "m/s", help = "Mach = speed / speed of sound; maximum 0.5. A Prandtl-Glauert transformation accounts for linear subsonic compressibility. Attached flow is assumed; shocks and stall are not modeled"),
     ParamSpec("aero.span_panels", "Panels per semi-span", :int, 20, "Aerodynamics";
-              help = "Requested minimum VLM panel count along the aerodynamic semispan, from 4 to 64, with cosine spacing towards the tip. Geometry refinement can add panels for twist and local surface normals. Increase this to study spanwise aerodynamic load convergence. Structural shell subdivisions are controlled separately in Structural Mesh"),
+              help = "Requested minimum VLM panel count along the aerodynamic semispan, at least 4, with cosine spacing towards the tip. Geometry refinement can add panels for twist and local surface normals. Increase this to study spanwise aerodynamic load convergence; available memory and runtime govern practical mesh size. Structural shell subdivisions are controlled separately in Structural Mesh"),
     ParamSpec("aero.chord_panels", "Panels per chord", :int, 9, "Aerodynamics";
-              help = "Requested minimum VLM panel count across the full camber-surface chord, from 2 to 24, with cosine spacing. Camber and twist may add panels to resolve curved geometry and local normals. Controls the aerodynamic solve; Aero chord points only samples the displayed wetted loft, and Leading-edge skin elements controls structural shells"),
+              help = "Requested minimum VLM panel count across the full camber-surface chord, at least 2, with cosine spacing. Camber and twist may add panels to resolve curved geometry and local normals. Available memory and runtime govern practical mesh size. Controls the aerodynamic solve; Aero chord points only samples the displayed wetted loft, and Leading-edge skin elements controls structural shells"),
 
     # --- material ----------------------------------------------------------
     ParamSpec("material.name", "Material 1 name", :string, "AL2024", "Materials";
@@ -321,9 +321,9 @@ const SCHEMA = ParamSpec[
               help = "Select an isotropic material for stringers, spar caps, rib stiffeners and fixed-area runout connectors"),
 
     # --- properties --------------------------------------------------------
-    ParamSpec("properties.t_skin_upper", "Minimum upper skin thickness", :float, 0.0008,
+    ParamSpec("properties.t_skin_upper", "Minimum upper skin thickness", :float, 0.001,
               "Properties"; unit = "m", help = "Default monolithic thickness of the upper main-box skin in metres. It changes shell stiffness and mass; panel overrides can set local values. Sandwich skins use their assigned face/core thicknesses. Leading-edge skins have separate properties"),
-    ParamSpec("properties.t_skin_lower", "Minimum lower skin thickness", :float, 0.0008,
+    ParamSpec("properties.t_skin_lower", "Minimum lower skin thickness", :float, 0.001,
               "Properties"; unit = "m", help = "Default monolithic thickness of the lower main-box skin in metres. It changes shell stiffness and mass; panel overrides can set local values. Sandwich skins use their assigned face/core thicknesses. Leading-edge skins have separate properties"),
     ParamSpec("properties.panels", "Individual stiffened-panel properties", :panelproperties, Any[], "Properties";
               help = "Physical panel key and layout token, with sparse skin and stringer properties. Blank values inherit shared defaults. Geometry and mesh-density edits retain overrides while physical rib/stringer/runout membership is unchanged. Changed membership requires reviewing or resetting the affected overrides"),
@@ -382,7 +382,7 @@ const SCHEMA = ParamSpec[
               help = "Writes PARAM,JFBKCOMP,1, an optional JFEM-specific output request (not a material, stiffness or buckling-accuracy parameter). JFBKCOMP means JFEM buckling compact output. Use it for small reports or repeated studies needing only eigenvalues and the properties at each mode's largest translation. It retains each eigenvalue, preload/subcase identity, tied maximum-translation GRID IDs (relative tolerance 1e-6) and the property IDs of directly attached elements; rotations are excluded from the peak measure. The solve and eigenvalues are unchanged and eigenvectors are still computed internally. Compact output omits exported mode vectors, preload fields and energy data, so deformation and contour viewing are unavailable. Leave this off (or omit the PARAM, or set it to 0) for normal graphical results. Default off"),
     ParamSpec("output.include_aero_shells", "Export aero shells", :bool, false,
               "Analysis"; help = "Add the displayed full-chord aerodynamic loft to the exported deck as separate GRID/CQUAD4/PSHELL entries. These shells are disconnected from the structural box and form a free body; connect or remove them before solving that exported deck. Their resolution follows Aero chord points, not the VLM lattice"),
-    ParamSpec("output.t_aero_shell", "Aero shell thickness", :float, 0.0005,
+    ParamSpec("output.t_aero_shell", "Aero shell thickness", :float, 0.001,
               "Analysis"; unit = "m", help = "PSHELL thickness in metres for the optional exported aerodynamic-loft shells. Used only when Export aero shells is enabled. It does not set structural skin thickness, VLM panel properties or displayed loft sampling"),
     ParamSpec("nonlinear.load_steps", "Nonlinear load increments", :int, 8, "Analysis";
               help = "SOL106 nominal increments to the full selected load; native JFEM can cut back failed increments"),
@@ -466,7 +466,6 @@ end
 function normalize_planform_points(value, key::AbstractString = "planform points";
                                    nominal::Real = point_nominal(Dict(), key))
     value isa AbstractVector || throw(ArgumentError("$key must be an array of eta/dxc tables"))
-    length(value) <= 100 || throw(ArgumentError("$key supports at most 100 points"))
     out = Dict{String,Any}[]
     used = Set{Float64}()
     rear = key == "box.rear_spar_points"
@@ -653,7 +652,6 @@ function normalize_loft_stations(value, key::AbstractString)
         key == "loft.vertical_shift_stations" ? "shift_percent" :
         throw(ArgumentError("unknown loft station table $key"))
     value isa AbstractVector || throw(ArgumentError("$key must be an array of ETA/$field rows"))
-    length(value)<=100 || throw(ArgumentError("$key allows at most 100 stations"))
     rows=Dict{String,Float64}[]
     for (i,row) in enumerate(value)
         row isa AbstractDict || throw(ArgumentError("$key row $i must be an ETA/$field object"))
@@ -986,10 +984,8 @@ function validate_params(p::AbstractDict; check_cases::Bool = true)
         pos(k)
     end
     condition = flight_condition(p)
-    4 <= p["aero.span_panels"] <= 64 || throw(ArgumentError(
-        "aero.span_panels must be between 4 and 64"))
-    2 <= p["aero.chord_panels"] <= 24 || throw(ArgumentError(
-        "aero.chord_panels must be between 2 and 24"))
+    vlm_count(p["aero.span_panels"],"aero.span_panels";minimum=4)
+    vlm_count(p["aero.chord_panels"],"aero.chord_panels";minimum=2)
     if p["loads.method"] == "vortex_lattice"
         p["rbe3.enabled"] || throw(ArgumentError(
             "vortex_lattice transfers loads to RBE3 centers; rbe3.enabled must be true"))

@@ -14,12 +14,12 @@
   const label=(input.closest('label')?.textContent||input.getAttribute('aria-label')||'');
   return /\beta\b|\u03b7|[xz]\s*\/\s*c/i.test(label);
  }
- function format(input){if(isField(input)&&input.value.trim()!==''&&Number.isFinite(input.valueAsNumber))input.value=String(round(input.valueAsNumber));}
+ function format(input){if(isField(input)&&input.value.trim()!==''&&Number.isFinite(input.valueAsNumber)){input.value=String(round(input.valueAsNumber));globalThis.WingNumericInputs?.formatExact(input);}}
  function install(doc){
   const visit=node=>{if(node.nodeType!==1)return;if(node!==doc.activeElement)format(node);for(const input of node.querySelectorAll('input[type=number]'))if(input!==doc.activeElement)format(input);};
   const observer=new doc.defaultView.MutationObserver(records=>{for(const r of records)for(const node of r.addedNodes)visit(node);});
   observer.observe(doc.documentElement,{childList:true,subtree:true});visit(doc.documentElement);
-  doc.addEventListener('change',event=>{const input=event.target;if(!isField(input))return;const old=input.value;format(input);if(input.value!==old)input.dispatchEvent(new doc.defaultView.Event('input',{bubbles:true}));},true);
+  doc.addEventListener('change',event=>{if(globalThis.WingNumericInputs)return;const input=event.target;if(!isField(input))return;const old=input.value;format(input);if(input.value!==old)input.dispatchEvent(new doc.defaultView.Event('input',{bubbles:true}));},true);
   return observer;
  }
  return{isKey,round,roundInputs,isField,install};

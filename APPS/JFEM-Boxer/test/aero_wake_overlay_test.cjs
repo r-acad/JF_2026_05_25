@@ -1,0 +1,16 @@
+'use strict';
+const assert=require('node:assert/strict'),Wake=require('../web/aero_wake_overlay.js'),Aero=require('../web/aerodynamic_study.js');
+const straight={id:1,coefficients:{},span_m:10,wake_origins:[[1,2,3],[-1,-2,-3]],wake_direction:[1,0,0]};
+assert(!Wake.available(null));assert(!Wake.available(straight,true));assert(Wake.available(straight));
+assert(!Wake.available({...straight,coefficients:null}));assert(!Wake.available({...straight,wake_direction:[0,0,0]}));
+assert(!Wake.available({...straight,wake_model:'relaxed'}));
+const relaxed={...straight,wake_model:'relaxed',wake:{converged:true,sheets:[{lines:[[[0,0,0],[3,4,0],[3,9,0]]]}]}};
+assert(Wake.available(relaxed));assert(!Wake.available({...relaxed,wake:{...relaxed.wake,converged:false}}));
+assert.deepEqual(Aero.wakeLines(relaxed,.75),[[[0,0,0],[3,4,0],[3,6.5,0]]]);
+assert.deepEqual(Aero.wakeLines(straight,.5),[[[1,2,3],[6,2,3]],[[-1,-2,-3],[4,-2,-3]]]);
+assert(!Wake.available({...straight,difference:{label:'1 - 2'}}));
+const Workspace=require('../web/workspace.js'),view=controls=>({controls,layers:{},camera:{target:[0,0,0],alpha:0,beta:1,radius:10},workspace:{activeTab:'displayaerodynamics',width:360,collapsed:false},activeCase:1});
+for(const length of ['0.1','1','10','25','1000'])assert.doesNotThrow(()=>Workspace.validateView(view({'show-aero-wakes':true,'aero-wake-length':length})));
+for(const length of ['','0','-1','NaN','Infinity'])assert.throws(()=>Workspace.validateView(view({'aero-wake-length':length})));
+assert.throws(()=>Workspace.validateView(view({'show-aero-wakes':'true'})));
+console.log('Wake availability and physical-length clipping passed.');

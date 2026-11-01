@@ -9,7 +9,6 @@ valid_uiuc_id(id) = occursin(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\.dat$", id) && 
 function fetch_airfoil_text(url)
     response = HTTP.get(url; request_timeout=30, connect_timeout=10, retry=false, status_exception=false)
     response.status == 200 || throw(ArgumentError("UIUC returned HTTP $(response.status)"))
-    length(response.body) <= 4_000_000 || throw(ArgumentError("UIUC response exceeds 4 MB"))
     return String(response.body)
 end
 
@@ -56,7 +55,6 @@ end
 
 """Normalize single-element Selig/Lednicer coordinates for portable embedding."""
 function parse_coordinate_airfoil(text::AbstractString; id::AbstractString, source_kind="uiuc", source_url=UIUC_AIRFOIL_URL*id)
-    sizeof(text)<=2_000_000 || throw(ArgumentError("airfoil coordinate file exceeds 2 MB"))
     occursin('\0',text) && throw(ArgumentError("$(id): binary/NUL data is not an airfoil coordinate file"))
     name=""; points=Tuple{Float64,Float64}[]; counts=nothing; domain_allowed=false
     content=replace(replace(text,r"^\ufeff"=>""),'\x1a'=>"")
@@ -86,7 +84,7 @@ function parse_coordinate_airfoil(text::AbstractString; id::AbstractString, sour
             throw(ArgumentError("$(id): invalid coordinate line $number; expected two finite numbers"))
         end
     end
-    7<=length(points)<=40000 || throw(ArgumentError("$(id): expected 7 to 40000 airfoil coordinates"))
+    7<=length(points) || throw(ArgumentError("$(id): expected at least 7 airfoil coordinates"))
     if counts!==nothing
         sum(counts)==length(points) || throw(ArgumentError("$(id): Lednicer surface counts do not match the data"))
         a=points[1:counts[1]];b=points[counts[1]+1:end]

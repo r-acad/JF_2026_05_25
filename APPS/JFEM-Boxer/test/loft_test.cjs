@@ -10,7 +10,8 @@ assert.equal(L.interpolateSchedule([],0),null);checks++;
 near(L.interpolateSchedule([{eta:0,twist:10},{eta:.5,twist:-5},{eta:1,twist:-20}],.25,{kind:'twist'}),2.5);
 near(L.interpolateSchedule([{eta:0,twist:44.99},{eta:1,twist:-44.99}],.5,{kind:'twist',method:'cosine'}),0);
 near(L.normalizeSchedule([{eta:1,tc:1}],'thickness')[0].tc,1);
-for(const [value,kind]of[[null,'thickness'],[[{eta:.1,tc:0}],'thickness'],[[{eta:.1,tc:1.01}],'thickness'],[[{eta:-.1,tc:.1}],'thickness'],[[{eta:.2,tc:.1},{eta:.2,tc:.2}],'thickness'],[[{eta:.2,tc:.1,extra:1}],'thickness'],[[{eta:.2,twist:45}],'twist'],[[{eta:.2,twist:-45}],'twist'],[[{eta:.2,twist:Infinity}],'twist'],[[{eta:null,twist:0}],'twist'],[Array.from({length:101},(_,i)=>({eta:i/101,tc:.1})),'thickness']]){assert.throws(()=>L.normalizeSchedule(value,kind));checks++;}
+for(const [value,kind]of[[null,'thickness'],[[{eta:.1,tc:0}],'thickness'],[[{eta:.1,tc:1.01}],'thickness'],[[{eta:-.1,tc:.1}],'thickness'],[[{eta:.2,tc:.1},{eta:.2,tc:.2}],'thickness'],[[{eta:.2,tc:.1,extra:1}],'thickness'],[[{eta:.2,twist:45}],'twist'],[[{eta:.2,twist:-45}],'twist'],[[{eta:.2,twist:Infinity}],'twist'],[[{eta:null,twist:0}],'twist']]){assert.throws(()=>L.normalizeSchedule(value,kind));checks++;}
+assert.equal(L.normalizeSchedule(Array.from({length:101},(_,i)=>({eta:i/101,tc:.1})),'thickness').length,101);checks++;
 assert.throws(()=>L.interpolateSchedule(rows,.5,{method:'spline'}));checks++;
 assert.throws(()=>L.interpolateSchedule(rows,NaN));checks++;
 console.log(JSON.stringify({passed:true,checks,scope:'Schedule bounds, pure sorting, clamped endpoints, independent linear/cosine formula and legacy-empty sentinel'}));

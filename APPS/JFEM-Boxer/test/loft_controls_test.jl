@@ -172,7 +172,7 @@ if selected("fuel")
     end
     @test_throws ArgumentError W.normalize_loft_stations([Dict("eta"=>.5,"twist"=>45.)],"loft.twist_stations")
     @test_throws ArgumentError W.normalize_loft_stations([Dict("eta"=>.5,"twist"=>NaN)],"loft.twist_stations")
-    @test_throws ArgumentError W.normalize_loft_stations([Dict("eta"=>i/101,"tc"=>.12) for i in 1:101],"loft.thickness_stations")
+    @test length(W.normalize_loft_stations([Dict("eta"=>i/101,"tc"=>.12) for i in 1:101],"loft.thickness_stations"))==101
     p["loft.twist_interpolation"]="spline"
     @test_throws ArgumentError W.normalize_params(p)
 end

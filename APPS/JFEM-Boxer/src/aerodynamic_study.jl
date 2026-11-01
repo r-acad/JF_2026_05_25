@@ -1,8 +1,5 @@
 # Independent full-wing VLM studies. No Model, FE grid, materials or loads required.
-const AERODYNAMIC_STUDY_VERSION="full_wing_edge_wake_v7"
-const AERODYNAMIC_MAX_PANELS=4096
-const AERODYNAMIC_MAX_SAMPLES=101
-const AERODYNAMIC_MAX_RETAINED_PANELS=120000
+const AERODYNAMIC_STUDY_VERSION="full_wing_conforming_wake_v8"
 aerodynamic_geometry_key(k)=startswith(k,"planform.")||startswith(k,"airfoil.")||startswith(k,"loft.")||k=="movable_surfaces.items"
 aerodynamic_plain(v::AbstractDict)=Dict{String,Any}(String(k)=>aerodynamic_plain(x) for (k,x) in v)
 aerodynamic_plain(v::AbstractVector)=map(aerodynamic_plain,v)
@@ -36,13 +33,16 @@ function aerodynamic_settings(raw::AbstractDict,controls)
     defaults=Dict{String,Any}("stability_alpha"=>0.,"derivatives"=>true,"mode"=>"single","alpha"=>5.,"beta"=>0.,"p"=>0.,"q"=>0.,"r"=>0.,
         "speed"=>70.,"atmosphere"=>"isa1976","altitude"=>0.,"density"=>1.225,"speed_of_sound"=>340.294,"compressibility"=>"prandtl_glauert",
         "chord_panels"=>8,"span_panels"=>16,"control_chord_panels"=>3,
-        "chord_spacing"=>"cosine","span_spacing"=>"cosine","max_panels"=>2048,
+        "chord_spacing"=>"cosine","span_spacing"=>"cosine","max_panels"=>0,
         "max_strip_twist"=>2.,"max_panel_warp"=>8.,"max_normal_error"=>1.,
         "wake_model"=>"straight","wake_acceleration"=>"anderson","wake_length"=>3.,"wake_rows"=>16,"wake_iterations"=>100,
         "wake_tolerance"=>.002,"wake_relaxation"=>.25,"wake_core"=>.02,"wake_derivatives"=>"frozen",
         "reference"=>[nothing,nothing,nothing],"controls"=>Dict{String,Any}(),"sweeps"=>Any[])
     all(k->haskey(defaults,k),keys(raw))||throw(ArgumentError("Unknown aerodynamic study setting"))
     s=merge(defaults,Dict{String,Any}(raw))
+    # Retain this legacy serialized setting for older studies, but never impose
+    # their old mesh budget. Zero explicitly denotes no application panel cap.
+    s["max_panels"]=0
     s["derivatives"] isa Bool||throw(ArgumentError("Derivatives must be true or false"))
     s["mode"] in ("single","sweep")||throw(ArgumentError("Choose single condition or sweep"))
     s["atmosphere"] in ("isa1976","manual")||throw(ArgumentError("Choose ISA 1976 or manual atmosphere"))
@@ -53,12 +53,13 @@ function aerodynamic_settings(raw::AbstractDict,controls)
     s["wake_model"]=="relaxed"&&s["compressibility"]!="incompressible"&&throw(ArgumentError("Relaxed free wakes require Incompressible flow; Prandtl-Glauert is available with straight wakes"))
     for (key,lo,hi) in (("stability_alpha",-30.,30.),("alpha",-30.,30.),("beta",-30.,30.),("p",-360.,360.),("q",-360.,360.),("r",-360.,360.),
         ("speed",.01,1000.),("altitude",-5000.,86000.),("density",1e-8,100.),("speed_of_sound",1.,2000.),
-        ("wake_length",.25,10.),("wake_tolerance",1e-5,.02),("wake_relaxation",.05,.8),("wake_core",.001,.2),
+        ("wake_tolerance",1e-5,.02),("wake_relaxation",.05,.8),("wake_core",.001,.2),
         ("max_strip_twist",.25,10.),("max_panel_warp",1.,30.),("max_normal_error",.1,5.))
         value=s[key];value isa Real&&!(value isa Bool)&&isfinite(value)&&lo<=value<=hi||throw(ArgumentError("$key must be between $lo and $hi"));s[key]=Float64(value)
     end
-    for (key,lo,hi) in (("wake_rows",4,80),("wake_iterations",2,300),("chord_panels",1,80),("span_panels",2,160),("control_chord_panels",1,30),("max_panels",16,AERODYNAMIC_MAX_PANELS))
-        value=s[key];value isa Real&&!(value isa Bool)&&isinteger(value)&&lo<=value<=hi||throw(ArgumentError("$key must be an integer between $lo and $hi"));s[key]=Int(value)
+    value=s["wake_length"];value isa Real&&!(value isa Bool)&&isfinite(value)&&value>=.25||throw(ArgumentError("wake_length must be finite and at least 0.25 spans"));s["wake_length"]=Float64(value)
+    for (key,lo) in (("wake_rows",4),("wake_iterations",2),("chord_panels",1),("span_panels",2),("control_chord_panels",1))
+        s[key]=vlm_count(s[key],key;minimum=lo)
     end
     all(k->s[k] in ("uniform","cosine"),("chord_spacing","span_spacing"))||throw(ArgumentError("Mesh spacing must be uniform or cosine"))
     s["reference"] isa AbstractVector&&length(s["reference"])==3&&all(v->v===nothing||v isa Real&&!(v isa Bool)&&isfinite(v),s["reference"])||throw(ArgumentError("Moment/rate reference requires three finite coordinates or Auto values"))
@@ -77,14 +78,15 @@ function aerodynamic_settings(raw::AbstractDict,controls)
         clean[c["name"]]=Dict("source"=>source,"enabled"=>enabled,"pairing"=>pairing,"right"=>Float64(right),"left"=>Float64(left))
     end
     s["controls"]=clean
-    sweeps=s["sweeps"];sweeps isa AbstractVector&&length(sweeps)<=3||throw(ArgumentError("Use at most three sweep variables"))
+    sweeps=s["sweeps"];sweeps isa AbstractVector||throw(ArgumentError("Sweeps must be a list"))
     used=Set{String}()
     for sweep in sweeps
         sweep isa AbstractDict&&Set(keys(sweep))==Set(["variable","start","stop","count"])||throw(ArgumentError("A sweep needs variable, start, stop and count"))
         key=sweep["variable"];key isa AbstractString||throw(ArgumentError("Invalid sweep variable"))
         (key in ("alpha","beta","p","q","r","speed","altitude")||startswith(key,"control:")&&key[9:end] in names||startswith(key,"control_left:")&&key[14:end] in names)||throw(ArgumentError("Unknown sweep variable $key"))
         key in used&&throw(ArgumentError("Each sweep variable may appear once"));push!(used,key)
-        all(k->sweep[k] isa Real&&!(sweep[k] isa Bool)&&isfinite(sweep[k]),("start","stop","count"))&&isinteger(sweep["count"])&&2<=sweep["count"]<=101||throw(ArgumentError("Sweep bounds must be finite and count an integer from 2 to 101"))
+        all(k->sweep[k] isa Real&&!(sweep[k] isa Bool)&&isfinite(sweep[k]),("start","stop"))||throw(ArgumentError("Sweep bounds must be finite"))
+        sweep["count"]=vlm_count(sweep["count"],"Sweep count";minimum=2)
     end
     s["mode"]=="sweep"&&isempty(sweeps)&&throw(ArgumentError("Add at least one sweep variable"))
     return s
@@ -93,8 +95,8 @@ end
 function aerodynamic_conditions(settings,controls)
     cases=[deepcopy(settings)]
     if settings["mode"]=="sweep"
+        vlm_checked_size("Aerodynamic Cartesian sweep",(sweep["count"] for sweep in settings["sweeps"])...)
         for sweep in settings["sweeps"]
-            length(cases)*Int(sweep["count"])<=AERODYNAMIC_MAX_SAMPLES||throw(ArgumentError("Sweep requests more than $AERODYNAMIC_MAX_SAMPLES conditions"))
             next=Dict{String,Any}[]
             for c in cases,value in range(sweep["start"],sweep["stop"];length=Int(sweep["count"]))
                 v=deepcopy(c);key=sweep["variable"]
@@ -121,7 +123,8 @@ end
 
 # A boundary not lying on the physical hinge moves relative to the fixed skin.
 # Give the control and fixed part separate sheets so a gap is never replaced
-# by a stretched fixed panel. Split even at zero angle to keep stencil topology.
+# by a stretched fixed panel. At zero motion the coincident sheet stays joined;
+# control derivatives crossing that topology transition remesh the perturbation.
 function aerodynamic_control_gap(w,row)
     motion=movable_kinematics(w,row)
     any(range(row["eta_start"],row["eta_end"];length=9)) do eta
@@ -149,127 +152,7 @@ function aerodynamic_span_fraction(t,kind;cosine_chord=true)
     (1-blend)*t+blend*(1-cospi(t))/2
 end
 
-function aerodynamic_mesh(w,controls,s;progress=(stage,done,total)->nothing)
-    # Full-chord span patches permit local chord density without introducing
-    # artificial trailing wakes at internal chord/hinge boundaries.
-    boundaries=with_planform_stations(w,sort!(unique(vcat(0.,1.,w.airfoil_etas,loft_control_etas(w),
-        [c[k] for c in controls for k in ("eta_start","eta_end")]))))
-    patches=NamedTuple[];total=0
-    spacing(t,kind)=kind=="cosine" ? (1-cospi(t))/2 : t
-    cosine=s["chord_spacing"]=="cosine"
-    function band(side,a,b,depth=0,component=nothing)
-        depth<=12||throw(ArgumentError("Cannot meet VLM panel aspect ratio 0.7-1.5 near eta $a; simplify closely spaced loft/control stations"))
-        mid=(a+b)/2
-        active=sort([c for c in controls if c["eta_start"]<mid<c["eta_end"]];by=c->c["front_spar_start"])
-        zone(e)=vcat(0.,[movable_chord_coordinate(c,"front_spar",e) for c in active],1.)
-        seams=Set(i for i in eachindex(active) if aerodynamic_control_gap(w,active[i]))
-        if component===nothing
-            groups=UnitRange{Int}[];firstzone=1
-            for i in eachindex(active)
-                if i in seams;push!(groups,firstzone:i);firstzone=i+1;end
-            end
-            push!(groups,firstzone:length(active)+1)
-            if length(groups)>1;for group in groups;band(side,a,b,depth,group);end;return;end
-            component=only(groups)
-        end
-        element_name="fixed wing"
-        for idx in seams
-            row=active[idx]
-            if row["edge"]=="trailing" ? first(component)>idx : last(component)<=idx
-                element_name="control: "*row["name"]
-            end
-        end
-        function point(e,xi)
-            z=zone(e);k=min(floor(Int,xi)+1,length(z)-1);t=xi-(k-1);xc=(1-t)*z[k]+t*z[k+1]
-            v=camber_point(w,e,xc)
-            for (idx,row) in enumerate(active)
-                idx in seams&&((row["edge"]=="trailing"&&last(component)<=idx)||(row["edge"]=="leading"&&first(component)>idx))&&continue
-                c=s["controls"][row["name"]];angle=aerodynamic_motion_angle(w,row,side,c)
-                v=aerodynamic_control_point(w,row,e,xc,v,angle)
-            end
-            return v
-        end
-        # Integrate physical arc length / local chord. Steep winglets receive
-        # rows according to their actual height, not their projected eta width.
-        samples=collect(range(a,b;length=65));arc=[0.];weighted=[0.]
-        for (u,v) in zip(samples[1:end-1],samples[2:end])
-            ds=norm3(camber_point(w,v,.5).-camber_point(w,u,.5));e=(u+v)/2
-            density=s["span_spacing"]=="cosine" ? 1+.15*cospi(e)^8 : 1.
-            density+=.15*sum(exp(-abs(e-k)/.025) for k in boundaries[2:end-1];init=0.)
-            push!(arc,last(arc)+ds);push!(weighted,last(weighted)+ds/chord(w,e)*density)
-        end
-        last(arc)>0||throw(ArgumentError("Collapsed aerodynamic span interval"))
-        inverse(t)=begin
-            q=t*last(weighted);i=clamp(searchsortedlast(weighted,q),1,length(samples)-1)
-            samples[i]+(samples[i+1]-samples[i])*(q-weighted[i])/(weighted[i+1]-weighted[i])
-        end
-        minwidths=[minimum(zone(e)[i+1]-zone(e)[i] for e in (a,mid,b)) for i in 1:length(zone(mid))-1]
-        minimum(minwidths)>1e-8||throw(ArgumentError("Aerodynamic hinge zones cross or collapse"))
-        h=min(1/s["chord_panels"],last(arc)/(max(1,s["span_panels"]*(b-a))*chord(w,mid)))
-        for row in active
-            i=row["edge"]=="leading" ? 1 : length(minwidths)
-            i in component&&(h=min(h,minwidths[i]/s["control_chord_panels"]))
-        end
-        h=min(h,minimum(minwidths[component]))
-        for iteration in 1:10
-            counts=[max(1,ceil(Int,width/h-1e-10)) for width in minwidths]
-            # Resolve control loading/hinge gradients with 25% more chord cells
-            # than the base wing zoning, and at least one extra cell per control.
-            controlzones=Set(row["edge"]=="leading" ? 1 : length(minwidths) for row in active)
-            for i in intersect(controlzones,Set(component))
-                counts[i]=max(counts[i]+1,ceil(Int,1.25counts[i]))
-            end
-            if !cosine
-                # Extra control cells must also refine wider adjacent zones.
-                # Otherwise their incompatible chord scales cannot satisfy
-                # both aspect bounds, however often the span band is split.
-                cellwidth=minimum(minwidths[i]/counts[i] for i in component)
-                for i in component
-                    counts[i]=max(counts[i],ceil(Int,minwidths[i]/cellwidth-1e-10))
-                end
-            end
-            xis=vcat([i-1+spacing(k/counts[i],s["chord_spacing"]) for i in component for k in 0:counts[i]-1],Float64(last(component)))
-            # Actual cell width differs slightly after rounding hinge-zone counts.
-            actualh=minimum(minwidths[i]*(spacing((k+1)/counts[i],s["chord_spacing"])-spacing(k/counts[i],s["chord_spacing"])) for i in component for k in 0:counts[i]-1)
-            n=max(1,ceil(Int,last(weighted)/actualh/(cosine ? 1.3 : 1.)))
-            for attempt in 1:5
-                predicted=total+(length(xis)-1)*n
-                predicted<=s["max_panels"]||throw(ArgumentError("Quality-constrained full-wing mesh exceeds $(s["max_panels"]) panels; increase Maximum full-wing panels or reduce base/control density. Span/chord aspect upper bound is 1.5; true cosine spacing permits ratios below 0.7."))
-                spans=[inverse(aerodynamic_span_fraction(j/n,s["span_spacing"];cosine_chord=cosine)) for j in 0:n];grid=Array{Float64}(undef,3,length(xis),length(spans))
-                for (j,e) in enumerate(spans),(i,xi) in enumerate(xis);grid[:,i,j].=point(e,xi);end
-                if side=="left";grid=grid[:,:,end:-1:1];grid[2,:,:].=2w.root_ref_y.-grid[2,:,:];end
-                metrics=validate_vlm_grid(grid);ratios=aerodynamic_aspect.(metrics)
-                lo=minimum(first,ratios);hi=maximum(last,ratios)
-                aspectok=(cosine||lo>=.7-1e-9)&&hi<=1.5+1e-9
-                geometryok=maximum(m.warp_deg for m in metrics)<=s["max_panel_warp"]&&
-                    maximum(m.control_normal_error_deg for m in metrics)<=s["max_normal_error"]&&
-                    maximum(abs(rad2deg(twist(w,spans[j+1])-twist(w,spans[j]))) for j in 1:n)<=s["max_strip_twist"]
-                progress("Checking 3D mesh quality: $side, $(length(metrics)) panels in span patch ($total accepted)",0,1)
-                if aspectok&&geometryok
-                    total+=length(metrics)
-                    push!(patches,(grid=grid,metrics=metrics,xis=xis,etas=side=="left" ? reverse(spans) : spans,side=side,
-                        element_name=element_name,zone_range=component,split_boundaries=copy(seams),name=side*" / chord zones $(first(component)):$(last(component)) / "*(isempty(active) ? "fixed wing" : join([c["name"] for c in active]," + ")),active=active))
-                    return
-                end
-                geometryok||break
-                if !cosine&&hi/lo>1.5/.7*(1+1e-8)
-                    # Taper, hinge sweep or loft curvature changes cell scales
-                    # too much across this band; use smaller full-chord patches.
-                    split=inverse(.5);band(side,a,split,depth+1,component);band(side,split,b,depth+1,component);return
-                end
-                lower=max(1,ceil(Int,n*hi/1.5-1e-8));upper=cosine ? typemax(Int) : floor(Int,n*lo/.7+1e-8)
-                if lower>upper;break;end
-                next=cosine ? max(lower,ceil(Int,n*hi/1.35)) : clamp(round(Int,n*sqrt(lo*hi)/sqrt(.7*1.5)),lower,upper)
-                next==n&&break;n=next
-            end
-            # A short band or geometric curvature needs finer chord cells too.
-            h/=(iteration<4 ? 1.35 : 1.6)
-        end
-        split=inverse(.5);band(side,a,split,depth+1,component);band(side,split,b,depth+1,component)
-    end
-    for side in ("left","right"),(a,b) in zip(boundaries[1:end-1],boundaries[2:end]);band(side,a,b);end
-    return patches
-end
+include("aerodynamic_mesh_lanes.jl")
 
 function aerodynamic_reference(w,s)
     auto=section_point(w,0.,.25,0.)
@@ -283,7 +166,7 @@ function aerodynamic_mesh_payload(patches,w,s)
         eta=(patch.etas[j]+patch.etas[j+1])/2
         z=vcat(0.,[movable_chord_coordinate(c,"front_spar",eta) for c in patch.active],1.)
         at(xi)=begin k=min(floor(Int,xi)+1,length(z)-1);t=xi-(k-1);(1-t)*z[k]+t*z[k+1];end
-        xc=(at(patch.xis[i])+at(patch.xis[i+1]))/2
+        xc=hasproperty(patch,:chord_coordinates) ? sum(patch.chord_coordinates[i:i+1,j:j+1])/4 : (at(patch.xis[i])+at(patch.xis[i+1]))/2
         control=findfirst(c->c["edge"]=="trailing" ? xc>=movable_chord_coordinate(c,"front_spar",eta) : xc<=movable_chord_coordinate(c,"front_spar",eta),patch.active)
         push!(panels,Dict("id"=>id,"patch"=>patchno,"strip"=>j,"chord"=>i,"side"=>patch.side,"region"=>patch.name,
             "chord_fraction"=>xc,"control"=>control===nothing ? "" : patch.active[control]["name"],
@@ -304,7 +187,39 @@ function aerodynamic_mesh_payload(patches,w,s)
         "max_normal_error_deg"=>maximum(m.control_normal_error_deg for p in patches for m in p.metrics))
 end
 
+function aerodynamic_initialize_system!(system,patches,grids,ref,fs,surface_ids,known,core;relaxed)
+    for k in eachindex(system.surfaces)
+        VortexLattice.update_surface_panels!(system.surfaces[k],grids[k];ratios=system.ratios[k],fcore=(c,ds)->core)
+    end
+    conformity=aerodynamic_conform_vortex_interfaces!(system.surfaces,patches;grids)
+    system.reference[]=ref;system.freestream[]=fs;system.symmetric.=false
+    system.wakes.=[Matrix{VortexLattice.WakePanel{Float64}}(undef,0,size(p,2)) for p in system.surfaces]
+    system.nwake.=0;system.surface_id.=surface_ids;system.wake_finite_core.=true
+    system.trailing_vortices.=true;system.xhat[]=VortexLattice.SVector(1.,0.,0.)
+    system.Γ.=0.;system.near_field_analysis[]=false;system.derivatives[]=false
+    # Calling steady_analysis! here would reconstruct each patch independently
+    # and undo the canonical vortex vertices at shared physical interfaces.
+    if !relaxed
+        VortexLattice.influence_coefficients!(system.AIC,system.surfaces;
+            symmetric=system.symmetric,surface_id=system.surface_id,
+            trailing_vortices=system.trailing_vortices,xhat=system.xhat[])
+        VortexLattice.normal_velocity!(system.w,system.surfaces,system.wakes,ref,fs;
+            additional_velocity=known,Vcp=nothing,symmetric=system.symmetric,
+            surface_id=system.surface_id,nwake=system.nwake,wake_finite_core=system.wake_finite_core,
+            trailing_vortices=system.trailing_vortices,xhat=system.xhat[])
+        VortexLattice.circulation!(system.Γ,system.AIC,system.w)
+        VortexLattice.near_field_forces!(system.properties,system.surfaces,system.wakes,ref,fs,system.Γ;
+            dΓdt=nothing,additional_velocity=known,Vh=nothing,Vv=nothing,symmetric=system.symmetric,
+            nwake=system.nwake,surface_id=system.surface_id,wake_finite_core=system.wake_finite_core,
+            wake_shedding_locations=nothing,trailing_vortices=system.trailing_vortices,xhat=system.xhat[])
+        system.near_field_analysis[]=true
+    end
+    conformity
+end
+
 function aerodynamic_solve(w,patches,s;wake_seed=nothing,frozen_wake=false,progress=(stage,done,total)->nothing)
+    geometry_interference=aerodynamic_body_interference(patches)
+    geometry_interference["valid"]||throw(ArgumentError(geometry_interference["message"]))
     p=Dict{String,Any}("aero.atmosphere"=>s["atmosphere"],"aero.altitude"=>s["altitude"],"aero.speed"=>s["speed"],
         "aero.density"=>s["density"],"aero.speed_of_sound"=>s["speed_of_sound"])
     flight=flight_condition(p);speed=s["speed"];rho=flight["density_kg_m3"];q=flight["q_Pa"];mach=flight["Mach"]
@@ -323,13 +238,16 @@ function aerodynamic_solve(w,patches,s;wake_seed=nothing,frozen_wake=false,progr
         grid[:,i,j].=forward(Tuple(patch.grid[:,i,j]).-origin)
     end
     ratios=[zeros(2,size(g,2)-1,size(g,3)-1).+[.5,.75] for g in grids]
+    panel_count=foldl(Base.checked_add,(length(p.metrics) for p in patches);init=0)
+    vlm_checked_size("VLM influence matrix",panel_count,panel_count)
     system=VortexLattice.System(grids;ratios=ratios)
     ref=VortexLattice.Reference(w.area,w.mac,w.span,collect(forward(ref_local)),speed)
     fs=VortexLattice.Freestream(speed,0.,0.,[0.,0.,0.])
     element_ids=Dict{String,Int}();surface_ids=[get!(()->length(element_ids)+1,element_ids,p.element_name) for p in patches]
-    VortexLattice.steady_analysis!(system,ref,fs;symmetric=false,derivatives=false,surface_id=surface_ids,additional_velocity=known,xhat=[1.,0.,0.],
-        fcore=(c,ds)->s["wake_model"]=="relaxed" ? s["wake_core"]*w.mac : 1e-3)
-    wake=s["wake_model"]=="relaxed" ? aerodynamic_free_wake!(system,ref,fs,known,s,w,forward,inverse,origin;seed=wake_seed,frozen=frozen_wake,progress) : nothing
+    relaxed=s["wake_model"]=="relaxed"
+    vortex_conformity=aerodynamic_initialize_system!(system,patches,grids,ref,fs,surface_ids,known,
+        relaxed ? s["wake_core"]*w.mac : 1e-3;relaxed)
+    wake=s["wake_model"]=="relaxed" ? aerodynamic_free_wake!(system,ref,fs,known,s,w,forward,inverse,origin;seed=wake_seed,frozen=frozen_wake,body_grids=grids,progress) : nothing
     all(isfinite,system.Γ)||error("VLM returned nonfinite circulation")
     payload=aerodynamic_mesh_payload(patches,w,s);panels=payload["panels"];force=AERO_ZERO;moment=AERO_ZERO;index=0;offset=0;strips=Any[]
     for (patchno,patch) in enumerate(patches)
@@ -393,28 +311,28 @@ function aerodynamic_solve(w,patches,s;wake_seed=nothing,frozen_wake=false,progr
     end
     payload["condition"]=s;payload["flight"]=flight;payload["coefficients"]=coefficients;payload["CDi_trefftz"]=cdi;payload["span_efficiency"]=cdi===nothing ? nothing : inviscid_span_efficiency(cl,cdi,w.span^2/w.area)
     payload["force_N"]=collect(force);payload["moment_Nm"]=collect(moment);payload["strips"]=strips;payload["residual_over_V"]=residual;payload["warnings"]=warnings
+    payload["geometry_interference"]=geometry_interference
+    payload["vortex_conformity"]=vortex_conformity
     return payload
 end
 
 function run_aerodynamic_study(flat,raw;mesh_only=false,progress=(stage,done,total)->nothing)
     progress("Reading aerodynamic geometry",0,1);p,w,controls=aerodynamic_geometry(flat);s=aerodynamic_settings(raw,controls)
-    cases=mesh_only ? [s] : aerodynamic_conditions(s,controls);results=Any[];retained=0;retained_wake=0;mesh_cache=Dict{String,Any}();meshes=Any[]
+    cases=mesh_only ? [s] : aerodynamic_conditions(s,controls);results=Any[];mesh_cache=Dict{String,Any}();meshes=Any[]
     for (i,condition) in enumerate(cases)
         progress("Meshing full wing: condition $i / $(length(cases))",i-1,length(cases))
-        patches=get!(()->aerodynamic_mesh(w,controls,condition;progress=progress),mesh_cache,JSON.json(condition["controls"]));retained+=sum(length(p.metrics) for p in patches)
-        retained<=AERODYNAMIC_MAX_RETAINED_PANELS||throw(ArgumentError("Sweep result size exceeds $AERODYNAMIC_MAX_RETAINED_PANELS retained panels; reduce cases or mesh density"))
-        if condition["wake_model"]=="relaxed"
-            vertices=sum((condition["wake_rows"]+1)*(size(p.grid,3)) for p in patches)
-            vertices<=12000||throw(ArgumentError("Free wake exceeds 12,000 vertices; reduce wake rows or wing mesh density"))
-            retained_wake+=vertices
-            retained_wake<=120000||throw(ArgumentError("Free-wake sweep exceeds 120,000 retained wake vertices; reduce sweep count or density"))
-        end
+        patches=get!(()->aerodynamic_mesh(w,controls,condition;progress=progress),mesh_cache,JSON.json(condition["controls"]))
         push!(meshes,patches)
     end
     for (i,condition) in enumerate(cases)
         patches=meshes[i]
         progress(mesh_only ? "Preparing mesh preview" : "Solving VLM: condition $i / $(length(cases))",i-1,length(cases))
         push!(results,mesh_only ? aerodynamic_mesh_payload(patches,w,condition) : aerodynamic_solve(w,patches,condition;progress=(stage,done,total)->progress("Condition $i / $(length(cases)): "*stage,done,total)))
+        if mesh_only
+            interference=aerodynamic_body_interference(patches)
+            results[end]["geometry_interference"]=interference
+            results[end]["warnings"]=interference["valid"] ? String[] : [interference["message"]]
+        end
         results[end]["condition"]=condition;results[end]["id"]=i
         if !mesh_only&&s["derivatives"]
             results[end]["derivatives"]=aerodynamic_derivatives(w,controls,patches,condition,results[end];

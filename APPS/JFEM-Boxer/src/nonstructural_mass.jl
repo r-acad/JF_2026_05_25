@@ -7,6 +7,7 @@ const NONSTRUCTURAL_COMPONENTS = (
     ("rib_web", "Rib webs", "kg/m2"),
     ("leading_edge_skin", "Leading-edge skins", "kg/m2"),
     ("leading_edge_rib", "Leading-edge ribs", "kg/m2"),
+    ("movable", "Movable skins, webs, ribs and hinge lugs", "kg/m2"),
     ("stringer", "Stringers", "kg/m"),
     ("spar_cap", "Spar caps", "kg/m"),
     ("rib_stiffener", "Rib stiffeners", "kg/m"),

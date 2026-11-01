@@ -268,7 +268,6 @@ end
 function handle_input_text(st::AppState, req)
     try
         isfile(st.input_path) || throw(ArgumentError("Configured server input file does not exist"))
-        filesize(st.input_path) <= 128*1024*1024 || throw(ArgumentError("TOML input exceeds the 128 MiB preview limit"))
         return json_response(Dict("ok"=>true,"text"=>read(st.input_path,String),"path"=>st.input_path))
     catch error
         return error_response("TOML preview: "*describe_error(error))
@@ -459,7 +458,6 @@ function handle_import_toml(st::AppState, req)
         raw isa AbstractDict && get(raw,"text",nothing) isa AbstractString ||
             throw(ArgumentError("TOML import needs a text string"))
         text=String(raw["text"])
-        sizeof(text)<=128*1024*1024 || throw(ArgumentError("TOML input exceeds the 128 MiB limit"))
         params,unknown=normalize_params(flatten_toml(TOML.parse(text)))
         isempty(unknown) || throw(ArgumentError("unsupported TOML parameters: "*join(sort!(unknown),", ")))
         return json_response(Dict("ok"=>true,"parameters"=>params,

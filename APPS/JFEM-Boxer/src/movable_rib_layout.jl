@@ -129,7 +129,7 @@ function validate_movable_skin_cell(reg,nodes,label)
 end
 
 function movable_attachment_planes(g,s,row,rot,attachments)
-    a,b=s["eta_start"],movable_structural_end(row,s);delta=rot.h1.-rot.h0
+    a,b=first(movable_material_interval(g.wing,s)),movable_structural_end(row,s,g.wing);delta=rot.h1.-rot.h0
     map(attachments) do original
         attachment=copy(original);eta=attachment["eta"];jr=g.ribs[attachment["rib"]]
         column=attachment["spar"]=="front" ? 0 : ni(g)
@@ -174,7 +174,7 @@ end
 
 """Conforming master-rib grid: every physical rib node lies in its own plane."""
 function movable_rib_eta_grid(w,s,row,rot,ribs,attachments,us,nh)
-    a,b=s["eta_start"],movable_structural_end(row,s);edge=s["edge"]=="trailing" ? 1. : 0.
+    a,b=first(movable_material_interval(w,s)),movable_structural_end(row,s,w);edge=s["edge"]=="trailing" ? 1. : 0.
     result=zeros(length(us),length(ribs),nh+1)
     point(eta,u,k)=begin
         xc=rot.front_spar(eta)+(edge-rot.front_spar(eta))*u

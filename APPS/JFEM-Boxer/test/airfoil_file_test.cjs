@@ -19,11 +19,13 @@ check(lednicer.format==='Lednicer surface counts','Lednicer recognized');for(con
 const ises=A.parseCoordinateFile('ISES section\n-2.0 3.0 -2.5 3.5\n'+data(coordinates));check(ises.format==='ISES single-element','ISES domain line');
 const fortran=A.parseCoordinateFile('D exponents\n'+data(coordinates).replace(/0\.002/g,'2.0D-3'));near(fortran.zu.at(-1),.002);
 for(const text of['999 999\n'+data(coordinates),'section\n'+data(coordinates)+'\n0.5 NaN','NaN 0\n'+data(coordinates),'binary\0data','only a name','bad\n'+data(coordinates.map(([x,z],i)=>[x,i===3?-.2:z])),'counts\n5 8\n'+data(upper)+'\n'+data(lower),'bad\n'+data(coordinates.map(([x,z],i)=>[i===2?.9:x,z]))]){assert.throws(()=>A.parseCoordinateFile(text));checks++;}
-assert.throws(()=>A.parseCoordinateFile('x'.repeat(A.MAX_FILE_BYTES+1)),/2 MB/);checks++;
+const largeText='# '+ 'x'.repeat(2000001)+'\nLarge valid file\n'+data(coordinates);
+check(A.parseCoordinateFile(largeText).xu.length===5,'Coordinate input larger than former 2 MB ceiling');
 (async()=>{
  const raw=Buffer.from('\ufeffUploaded title\n'+data(coordinates),'utf8');
  const p=await A.readCoordinateFile({name:'my-section.dat',size:raw.length,arrayBuffer:async()=>raw.buffer.slice(raw.byteOffset,raw.byteOffset+raw.byteLength)});
  check(A.fileProfileReady(p),'Complete portable provenance');check(p.raw_sha256===crypto.createHash('sha256').update(raw).digest('hex'),'Hash exact original bytes including UTF8 BOM');check(Number.isFinite(Date.parse(p.imported_at)),'UTC import time');check(p.name==='Uploaded title','Source title retained');check(JSON.parse(JSON.stringify(p)).xu.length===5,'Offline JSON round trip');
- await assert.rejects(()=>A.readCoordinateFile({name:'huge.dat',size:A.MAX_FILE_BYTES+1,arrayBuffer:async()=>{throw Error('must not read oversized file');}}),/2 MB/);checks++;
+ const large=Buffer.from(largeText,'utf8'),largeProfile=await A.readCoordinateFile({name:'large.dat',size:large.length,arrayBuffer:async()=>large.buffer.slice(large.byteOffset,large.byteOffset+large.byteLength)});
+ check(A.fileProfileReady(largeProfile)&&largeProfile.xu.length===5,'Large local file retains verified provenance');
  console.log(JSON.stringify({passed:true,checks,scope:'Independent section metrics, ordering, rigid normalization, formats, malformed input and exact raw-file provenance'}));
 })().catch(e=>{console.error(e);process.exitCode=1;});

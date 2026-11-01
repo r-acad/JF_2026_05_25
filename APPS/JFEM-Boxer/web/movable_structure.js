@@ -1,7 +1,7 @@
 (function(root,factory){const api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.WingMovableStructure=api;})(typeof globalThis!=='undefined'?globalThis:this,function(){
  'use strict';
  const SURFACES='movable_structure.surfaces',ATTACHMENTS='movable_structure.attachments';
- const defaults={surface:'',enabled:true,skin_material:1,web_material:1,rib_material:1,upper_thickness:.0015,lower_thickness:.0015,web_thickness:.002,rib_thickness:.0015,span_bays:4,span_elements:2,chord_elements:4,height_elements:2,secondary_spar:.5,mesh_deflected:false,end_eta:0,max_rib_pitch_ratio:1.5};
+ const defaults={surface:'',enabled:true,skin_material:1,web_material:1,rib_material:1,upper_thickness:.001,lower_thickness:.001,web_thickness:.002,rib_thickness:.0015,span_bays:4,span_elements:2,chord_elements:4,height_elements:2,secondary_spar:.5,mesh_deflected:false,end_eta:0,max_rib_pitch_ratio:1.5};
  const attachmentDefaults={surface:'',eta:.5,rib:1,spar:'rear',kind:'hinge',translation_stiffness:1e9,tilt_stiffness:1e6,hinge_stiffness:1e4,actuator_stiffness:1e7,fitting:"idealized",lug_material:1,lug_thickness:.003,actuator:false,box_lateral_stay:true,movable_lateral_stay:false};
  const HELP=[
   'Spanwise FE edges are automatically limited to the shortest local structural control chord they span, using actual 3D geometry. Requested subdivisions can refine further. This adds FE rows while keeping physical ribs, attachment planes and geometry anchors fixed.',

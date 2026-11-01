@@ -588,9 +588,9 @@ const WORKSPACE_TABS = [
   ["Model", "mesh", "Structural Mesh"], ["Model", "engines", "Engines"], ["Model", "material", "Materials"], ["Model", "shells", "Skin"],
   ["Model", "sections", "Stringers"], ["Model", "ribproperties", "Ribs"], ["Model", "sparproperties", "Spars"], ["Model", "leproperties", "Leading Edge"], ["Model", "nonstructural", "Mass"], ["Model", "supports", "Constraints"],
   ["Summary", "weights", "Mass properties"], ["Summary", "summary", "General"],
-  ["Loads", "cases", "Cases"], ["Loads", "aerostudy", "Aerodynamics"], ["Loads", "vlmmesh", "VLM settings"], ["Loads", "loadplots", "Load plots"], ["Loads", "potato", "Potato"],
+  ["Loads", "cases", "Cases"], ["Loads", "vlmmesh", "VLM settings"], ["Loads", "aerostudy", "Aerodynamics"], ["Loads", "loadplots", "Load plots"], ["Loads", "potato", "Potato"],
   ["Solve", "analysis", "FE Analysis"], ["Solve", "sensitivity", "Sensitivity"], ["Solve", "results", "FE Results"], ["Solve", "stressreport", "Stress Report"], ["Solve", "sensitivityresults", "Sensitivity"], ["Solve", "deck", "Deck"], ["Solve", "log", "Log"],
-  ["View", "display", "Entities"], ["View", "displaygeometry", "Geometry"], ["View", "displayreference", "Reference Geometry"], ["View", "displayloads", "Loads&Constraints"], ["View", "displayproperties", "Properties"], ["View", "displayappearance", "Appearance"], ["View", "displaylabels", "Axes & labels"], ["View", "displayenvironment", "Environment"], ["View", "displaymass", "Mass properties"], ["View", "inspect", "Inspect"],
+  ["View", "display", "Entities"], ["View", "displayfilter", "Filter"], ["View", "displaygeometry", "Geometry"], ["View", "displayaerodynamics", "Aerodynamics"], ["View", "displayreference", "Reference Geometry"], ["View", "displayloads", "Loads&Constraints"], ["View", "displayproperties", "Properties"], ["View", "displayappearance", "Appearance"], ["View", "displaylabels", "Axes & labels"], ["View", "displayenvironment", "Environment"], ["View", "displaymass", "Mass properties"], ["View", "inspect", "Inspect"],
 ];
 const WORKSPACE_GROUP_TAB = {
   "Planform": "planform", "Airfoils": "airfoils", "Loft": "loft", "Movable surfaces": "movablesurfaces", "Movable structures": "movablestructure", "Torsion box": "box", "Ribs": "ribs", "Fuel tank": "fuel", "Mesh": "mesh", "Material": "material",
@@ -609,14 +609,14 @@ const GENERATED_MODEL_TABS = new Set(["planform","airfoils","loft","movablesurfa
 const WORKSPACE_MENUS = {
   geometrymenu:{tabs:new Set(["planform","airfoils","loft","movablesurfaces"]),current:"planform",label:"Geometry"},
   structure:{tabs:new Set(["box","ribs","stringerlayout","leadingedge","movablestructure"]),current:"box",label:"Structure"},
-  aerodynamics:{tabs:new Set(["cases","aerostudy","vlmmesh","loadplots","potato"]),current:"cases",label:"Loads"},
+  aerodynamics:{tabs:new Set(["cases","vlmmesh","loadplots","potato"]),current:"cases",label:"Loads"},
   properties:{tabs:PROPERTY_TABS,current:"shells",label:"Properties"},
   overview:{tabs:SUMMARY_TABS,current:"weights",label:"Summary"},
   analysismenu:{tabs:new Set(["analysis","sensitivity"]),current:"analysis",label:"Analysis"},
   resultsmenu:{tabs:new Set(["results","stressreport","sensitivityresults"]),current:"results",label:"Results"},
-  displaymenu:{tabs:new Set(["display","displaygeometry","displayreference","displayloads","displayproperties","displayappearance","displaylabels","displayenvironment","displaymass"]),current:"display",label:"Display"},
+  displaymenu:{tabs:new Set(["display","displayfilter","displaygeometry","displayaerodynamics","displayreference","displayloads","displayproperties","displayappearance","displaylabels","displayenvironment","displaymass"]),current:"display",label:"Display"},
 };
-const WORKSPACE_MAIN_TABS = WORKSPACE_TABS.filter(([,id]) => !["cases","airfoils","loft","movablesurfaces","movablestructure","sections","ribproperties","sparproperties","leproperties","nonstructural","summary","ribs","stringerlayout","leadingedge","loadplots","potato","aerostudy","sensitivity","sensitivityresults","stressreport","displaygeometry","displayreference","displayloads","displayproperties","displayappearance","displaylabels","displayenvironment","displaymass"].includes(id)).map(tab => tab[1] === "planform" ? ["Geometry","geometrymenu","Geometry"] : tab[1] === "box" ? ["Geometry","structure","Structure"] : tab[1] === "vlmmesh" ? ["Loads","aerodynamics","Loads"] : tab[1] === "shells" ? ["Model", "properties", "Properties"] : tab[1] === "weights" ? ["Summary","overview","Summary"] : tab[1] === "analysis" ? ["Solve","analysismenu","Analysis"] : tab[1] === "results" ? ["Solve","resultsmenu","Results"] : tab[1] === "display" ? ["View","displaymenu","Display"] : tab);
+const WORKSPACE_MAIN_TABS = WORKSPACE_TABS.filter(([,id]) => !["cases","airfoils","loft","movablesurfaces","movablestructure","sections","ribproperties","sparproperties","leproperties","nonstructural","summary","ribs","stringerlayout","leadingedge","loadplots","potato","sensitivity","sensitivityresults","stressreport","displayfilter","displaygeometry","displayaerodynamics","displayreference","displayloads","displayproperties","displayappearance","displaylabels","displayenvironment","displaymass"].includes(id)).map(tab => tab[1] === "planform" ? ["Geometry","geometrymenu","Geometry"] : tab[1] === "box" ? ["Geometry","structure","Structure"] : tab[1] === "vlmmesh" ? ["Loads","aerodynamics","Loads"] : tab[1] === "shells" ? ["Model", "properties", "Properties"] : tab[1] === "weights" ? ["Summary","overview","Summary"] : tab[1] === "analysis" ? ["Solve","analysismenu","Analysis"] : tab[1] === "results" ? ["Solve","resultsmenu","Results"] : tab[1] === "display" ? ["View","displaymenu","Display"] : tab);
 const parentTab = id => Object.keys(WORKSPACE_MENUS).find(key=>WORKSPACE_MENUS[key].tabs.has(id));
 
 function leaveInspection(){
@@ -703,6 +703,7 @@ function activateWorkspaceTab(id, options = {}) {
   if (id === "stringerlayout") state.stringerLayout?.refresh();
   if (["displaygeometry","displayreference","displayenvironment"].includes(id)) {state.geometryDisplay?.rebuild();syncGeometryControls();}
   if (state.data) applyAeroOverlayStyles();
+  if(id==="displayaerodynamics")state.aeroWakeOverlay?.sync();
   state.viewportTools?.syncInspection?.();
   if (state.engine) state.engine.resize();
   return true;
@@ -1392,7 +1393,7 @@ function formSignature(params) {
       if(s.kind==="movablesurfaces") {
         const structures=params?.["movable_structure.surfaces"]??JSON.parse(document.getElementById("p-movable_structure.surfaces")?.value||"[]");
         const active=new Map(structures.filter(row=>row.enabled!==false).map(row=>[row.surface,row]));
-        value=value.map(row=>({...row,front_spar_start:row.front_spar_start??row.hinge_start,front_spar_end:row.front_spar_end??row.hinge_end,hinge_z_start:row.hinge_z_start??0,hinge_z_end:row.hinge_z_end??0}));
+        value=value.map(row=>({...row,front_spar_start:row.front_spar_start??row.hinge_start,front_spar_end:row.front_spar_end??row.hinge_end,hinge_z_start:row.hinge_z_start??0,hinge_z_end:row.hinge_z_end??0,clearance_inboard_m:row.clearance_inboard_m??0,clearance_outboard_m:row.clearance_outboard_m??0}));
         value=value.filter(row=>active.has(row.name)).map(row=>Object.fromEntries(Object.entries(row).filter(([key])=>
           key!=="color"&&(key!=="deflection"||active.get(row.name).mesh_deflected))));
       }
@@ -2203,16 +2204,18 @@ const RF_EMPTY_ELEMENT_IDS=new Set();
 function syncReserveFactorVisibility(){
   if(!state.rfMovableStyle)state.rfMovableStyle=WingRFFieldVisibility.createMovableStyle({state});
   state.rfMovableStyle.sync(state.rfField?.contour);
+  state.ribBayFilter?.refresh();
   const field=state.rfField,enabled=!!field?.request.onlyBelowOne;
-  if(!enabled){
+  if(!enabled&&!state.ribBayFilter?.active){
     const wasActive=state.rfVisibility?.active;state.rfVisibility?.sync(null);
     if(wasActive){state.edgeVisibilityKey=null;applyBeamStyle();syncMeshEdges();state.annotations?.invalidate();}
     return;
   }
   if(!state.rfVisibility)state.rfVisibility=WingRFFieldVisibility.create({state,syncImported:mesh=>WingImportedRender.sync(mesh,state.layers)});
-  const stale=field.contour.stale||(state.modelDirty&&!reserveFactorEstimateCurrent(field.contour))||state.polling||state.solverStarting||resultsHavePendingDrafts();
-  const allowed=stale?RF_EMPTY_ELEMENT_IDS:field.contour.failingElementIds||RF_EMPTY_ELEMENT_IDS,changed=state.rfVisibility.allowed!==allowed;
-  state.rfVisibility.sync(allowed);
+  const stale=enabled&&(field.contour.stale||(state.modelDirty&&!reserveFactorEstimateCurrent(field.contour))||state.polling||state.solverStarting||resultsHavePendingDrafts());
+  const failing=enabled?(stale?RF_EMPTY_ELEMENT_IDS:field.contour.failingElementIds||RF_EMPTY_ELEMENT_IDS):null;
+  const allowed=state.ribBayFilter?.combine(failing)||failing,changed=state.rfVisibility.allowed!==allowed;
+  state.rfVisibility.sync(allowed,{ribBay:!!state.ribBayFilter?.active&&!enabled,nodes:state.ribBayFilter?.nodes});
   if(changed){state.edgeVisibilityKey=null;syncMeshEdges();state.annotations?.invalidate();}
 }
 
@@ -2272,7 +2275,15 @@ function clearReserveFactorField({render=true}={}){
   return{active:false,message:'RF field cleared.'};
 }
 
+function commitStudyNumericEdits() {
+  globalThis.WingNumericInputs?.commitAll(document);
+  state.aerodynamicStudy?.commitEdits();
+}
+
 function collectParams({includeView = false, allowReserveFactorDraft = false} = {}) {
+  // Saving commits any field still being edited, while live preview reads do
+  // not interrupt typing or quantize untouched imported/computed values.
+  if(includeView)commitStudyNumericEdits();
   if(!allowReserveFactorDraft)assertReserveFactorDraftFinished();
   readMaterialAllowables();
   state.allowablesEditor?.assertValid();
@@ -3324,6 +3335,7 @@ async function previewStudyComments(file,context={}) {
 
 async function saveModelDefinition({saveAs=false,noteText} = {}) {
   if (!workspaceOperationAvailable()) return false;
+  commitStudyNumericEdits();
   try { state.panelTables?.assertValidDraft?.(); assertReserveFactorDraftFinished(); }
   catch(error) { showOperationError("Study not saved",error.message);log(error.message,"warn");return false; }
   const title=state.importedDeck ? fileBasename(state.importedDeck.source.name).replace(/\.(bdf|dat|nas)$/i,"") : state.values["output.title"];
@@ -3434,6 +3446,7 @@ function installAutosave(){
 function restoreWorkspaceView(view) {
   WingWorkspace.migrateReactionControls(view);
   state.geometryDisplay?.reset();
+  state.ribBayFilter?.restore(view.ribBayFilter);
   state.geometryAppearance=typeof WingGeometryDisplay!=="undefined"?WingGeometryDisplay.normalize(view.geometryAppearance):{};
   state.layerGroupCollapsed=new Map(Object.entries(view.layerGroups||{}));
   if(state.panelView)setPanelDisplay(false,false);
@@ -3581,7 +3594,6 @@ async function loadModelDefinition(file, options = {}) {
         if (!input.ok) throw new Error(input.error || "Could not read server input");
         parameters=input.values;
       } else {
-        if (file.size>128*1024*1024) throw new Error("TOML input exceeds the 128 MiB limit");
         const response=await postParams("/api/import_toml",{text:await file.text()});
         if (!response.ok) throw new Error(await readError(response));
         parameters=(await response.json()).parameters;
@@ -4360,6 +4372,10 @@ function initScene(initializedEngine = null) {
   }
   installGeometryControls();
   installPicking(canvas);
+  state.ribBayFilter=WingRibBayFilter.create({state,document,onChange:()=>{
+    syncReserveFactorVisibility();syncRibDatums();updateSelection();state.annotations?.invalidate();markStudyViewModified();
+  }});
+  state.ribBayFilter.refresh(true);
 
   scene.onBeforeRenderObservable.add(() => {
     syncCameraClipping();
@@ -4373,6 +4389,7 @@ function initScene(initializedEngine = null) {
     if (animating()) {
       state.phase += (state.engine.getDeltaTime() / 1000) * 2 * Math.PI * ANIMATION_HZ;
       applyDeformation();
+      syncReserveFactorVisibility();
     }
   });
 
@@ -4444,6 +4461,8 @@ function renderMovableSurfaces(data, visible = true) {
 }
 
 function disposeModel() {
+  state.rfVisibility?.restore();
+  state.ribBayFilter?.invalidate();
   meshQualityReview?.clear();
   state.rfInspectionCache=null;
   state.rfInspectEvaluator?.destroy();state.rfInspectEvaluator=null;state.rfInspectionError=null;state.rfSectionUpdate=null;state.rfSizingPending=false;state.rfSectionsPending=false;state.rfSectionGeneration=(state.rfSectionGeneration||0)+1;
@@ -4585,6 +4604,10 @@ function lineMesh(name, positions, pairs, hex, alpha, deformable, colorable) {
   if (alpha !== undefined) mesh.alpha = alpha;
   mesh.parent = state.root;
   mesh.isPickable = false;
+  // Only FE-coordinate line buffers use GRID indices. Aerodynamic lattices
+  // and axis arrows have their own point numbering and must not be mistaken
+  // for structural nodes by the rib-bay renderer.
+  if(positions===state.baseline||positions===state.deformed)mesh.filterNodeMap = pairs;
   if (deformable) {
     // CreateLineSystem lays vertices out line by line, two per line, so the
     // node index of vertex v is simply pairs[v].
@@ -5108,6 +5131,7 @@ function* buildModelSteps(data, options = {}) {
   }
   if(restorePanels&&state.panelIndex.panels.length)setPanelDisplay(true);
   refreshPanelExplosion();
+  state.ribBayFilter?.refresh(true);syncRibDatums(data);syncReserveFactorVisibility();
   updateMeshQualityReview(data);
   } finally { state.scene.blockMaterialDirtyMechanism=wasMaterialBatch; }
 }
@@ -6619,7 +6643,8 @@ function syncRibDatums(data = state.data) {
   if (!valid) { if(note)note.textContent="Enter a positive square side length in metres."; state.ribDatums?.setVisible(false); return; }
   if (!state.scene || !data || typeof WingRibDatums === "undefined") return;
   if (!state.ribDatums) state.ribDatums=WingRibDatums.create({scene:state.scene});
-  state.ribDatums.update(data,side);
+  const datumData=state.ribBayFilter?.active?{...data,annotations:{...data.annotations,ribs:(data.annotations?.ribs||[]).filter(r=>state.ribBayFilter.includesRib(r.index))}}:data;
+  state.ribDatums.update(datumData,side);
   state.ribDatums.setVisible(document.getElementById("show-rib-datums").checked);
   state.geometryDisplay?.apply();
   const count=(data.annotations?.ribs || []).filter(rib=>rib.datum_origin).length;
@@ -6772,7 +6797,11 @@ function installAerodynamicStudy(){
   state.aerodynamicStudy=WingAerodynamicStudy.install(host,{
     readGeometry:readAuthoredGeometry,
     readFlight:()=>effectiveCase(state.loadCases?.find(c=>Number(c.id)===Number(state.editingCase))||null),
-    onChange:markStudyViewModified
+    onChange:markStudyViewModified,
+    onResultChanged:(selected,metadata)=>{
+      if(!state.aeroWakeOverlay&&state.scene&&typeof WingAeroWakeOverlay!=="undefined")state.aeroWakeOverlay=WingAeroWakeOverlay.create({state,linesForCase:WingAerodynamicStudy.wakeLines,onChange:markStudyViewModified});
+      state.aeroWakeOverlay?.update(selected,metadata);
+    }
   });
 }
 
@@ -7475,6 +7504,9 @@ function setLogMaximized(on) {
 function syncDrawingMaximizeButton() {
   const button = document.getElementById("btn-max-drawing");
   if (!button) return;
+  const aero = workspaceUI.activeTab === "aerostudy", info = document.getElementById("btn-aero-information");
+  if (info) info.hidden = !aero;
+  button.parentElement.dataset.aerodynamics = String(aero);
   // Keep one maximize action in the pane header, including tables and forms.
   // Existing specialized buttons retain their listeners and stable IDs.
   const specialized = ["log","deck","loadplots","potato","aerostudy","sensitivity"];
@@ -7856,10 +7888,11 @@ function visibleNodeIndices() {
   const nodes = new Set();
   for (const element of state.elements.values()) if (state.layers.get(element.group.name)?.visible&&(!state.rfVisibleElementIds||state.rfVisibleElementIds.has(element.id)))
     for (const node of element.nodes) nodes.add(node);
-  if(state.rfVisibleElementIds)return nodes;
-  for (const marker of state.markers) if (state.layers.get(marker.kind)?.visible) nodes.add(marker.node);
-  if(state.layers.get("SPC")?.visible)for(const node of state.supportGlyphs?.nodes || [])nodes.add(node);
-  if (state.layers.get("NODES")?.visible) for (let i = 0; i < state.data.nodes.n_structural; i++) nodes.add(i);
+  const bayNodes=state.ribBayFilter?.active&&!state.rfField?.request?.onlyBelowOne?state.ribBayFilter.nodes:null;
+  if(state.rfVisibleElementIds&&!bayNodes)return nodes;
+  for (const marker of state.markers) if (state.layers.get(marker.kind)?.visible&&(!bayNodes||bayNodes.has(marker.node))) nodes.add(marker.node);
+  if(state.layers.get("SPC")?.visible)for(const node of state.supportGlyphs?.nodes || [])if(!bayNodes||bayNodes.has(node))nodes.add(node);
+  if (state.layers.get("NODES")?.visible) for (let i = 0; i < state.data.nodes.n_structural; i++) if(!bayNodes||bayNodes.has(i))nodes.add(i);
   return nodes;
 }
 

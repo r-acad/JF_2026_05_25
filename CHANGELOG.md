@@ -5,6 +5,64 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Numeric input precision and minimum skin gauges
+
+- Normalize real-valued UI edits to at most three decimal places and five
+  significant figures. Use engineering notation for small values, including
+  beam inertias, and commit active edits before saving. Preserve exact entity
+  identifiers, imported coordinate datasets and computed geometry/results.
+  Authored eta/x/c/z/c definition fields retain their existing limit of five
+  significant digits, including loaded definitions; other untouched loaded values
+  are not quantized by this edit policy.
+- Keep useful numeric spinner increments while accepting valid intermediate
+  values without browser step-validation errors.
+- Set new upper/lower, leading-edge, movable and aerodynamic-export skin
+  gauges to 1 mm.
+- Add a movable-shell non-structural areal density covering its skins, webs,
+  ribs and hinge lugs, with consistent mass, inertia and PSHELL export.
+
+### Neutral movable-surface aerodynamic seams
+
+- Keep coincident neutral controls connected even with an offset hinge,
+  avoiding false curved-seam intersections and artificial internal wakes.
+  Preserve actual end-clearance holes and detached moving-control seams.
+- Remesh control-derivative stencils that cross a neutral topology transition;
+  report incompatible frozen-wake stencils explicitly as unavailable.
+
+### Aerodynamic workspace and comparison views
+
+- Consolidate the main Aerodynamics title and information button into its
+  workspace header; enable plain mouse-wheel zoom with FEM camera sensitivity.
+- Share chordwise mesh lines across connected fixed-wing patches at control
+  boundaries, removing nonconforming camber seams; preserve their coordinates
+  when evaluating control derivatives.
+- Join the corresponding bound-vortex vertices before assembling circulation,
+  resolving quarter-cell/trailing-edge mismatches at partial-span cutouts.
+- Use one consistent finite-core velocity field for relaxed-wake circulation,
+  convection and force recovery. Safeguard invalid wake updates without
+  weakening the physical residual checks, and retain the last valid state.
+- Detect intersecting deflected lifting surfaces before the aerodynamic solve;
+  keep invalid meshes inspectable with a closable geometry warning and identify
+  the affected control/fixed-wing surfaces.
+- Add explicit inboard/outboard movable material clearances, shared by preview,
+  FE shells and aerodynamic panels, while preserving authored cutouts, hinge
+  anchors and attachment stations.
+- Promote Aerodynamics beside Loads and keep its 3D canvas visible while
+  settings, tables, distributions, sweep plots and exports open in a left pane.
+  Add form Maximize/Restore controls. Match FEM orbit/pan and CATIA zoom gestures;
+  use grey popout/return buttons.
+- Remove aerodynamic panel, resolution, sweep, wake and geometry-input size
+  budgets, including limits saved by older studies. Retain geometry-quality, physical validity,
+  convergence and integer-overflow checks.
+- Add Display / Filter to isolate a physical rib bay, retaining its boundary
+  ribs and intersecting elements without changing the FE model or its results.
+- Add Display / Aerodynamics wake filaments for the selected completed case,
+  disabled without solved wake data and independent of FE deformation.
+- Compare sweep cases as A minus B on corresponding panels, including exact
+  force and force-per-area vector differences; reject incompatible grids.
+- Correct initial loft-preview transparency and right-handed rendering to
+  remove overlapping surface stripes before FEM generation.
+
 ### Offline sysimages with prepared package environments
 
 - Fix prepared projects that omit direct standard-library entries: expose the
@@ -47,9 +105,8 @@ Versions follow [Semantic Versioning](https://semver.org/).
   Balance uniform chord zones after control refinement to meet both aspect
   bounds without excessive span subdivision.
 - Add safeguarded Anderson wake iteration, retaining plain relaxation and
-  the existing physical residual/tolerance. The calebito1 example converges
-  with its original wake length, rows and core using acceleration and a
-  300-iteration cap; include the selected iteration method in reports.
+  the existing physical residual/tolerance. Include the selected iteration
+  method in reports; assess convergence from the current formulation's run.
 - Compact the Aerodynamics header and toolbar spacing; place dismissible
   progress, completion, error and stale notices over the 3D render.
 - Add min/max contour sliders and numeric limits, automatic reset and all

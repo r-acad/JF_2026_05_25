@@ -2,7 +2,7 @@
 const assert=require('node:assert/strict'),M=require('../web/movable_surfaces.js');let checks=0;
 const row=(overrides={})=>({name:'Flap',kind:'flap',edge:'trailing',eta_start:.2,eta_end:.7,hinge_start:.7,hinge_end:.8,deflection:15,color:'#29B6D1',...overrides});
 const input=[row({name:'  Flap  '})],before=JSON.stringify(input);
-assert.deepEqual(M.normalize(input),[row({color:'#29b6d1',front_spar_start:.7,front_spar_end:.8,hinge_z_start:0,hinge_z_end:0})]);assert.equal(JSON.stringify(input),before);checks+=2;
+assert.deepEqual(M.normalize(input),[row({color:'#29b6d1',front_spar_start:.7,front_spar_end:.8,hinge_z_start:0,hinge_z_end:0,clearance_inboard_m:0,clearance_outboard_m:0})]);assert.equal(JSON.stringify(input),before);checks+=2;
 assert.deepEqual(M.normalize([]),[]);checks++;
 const independent=M.normalize([row({front_spar_start:.85,front_spar_end:.9})])[0];assert.equal(independent.hinge_start,.7);assert.equal(independent.front_spar_start,.85);checks+=2;
 for(const changes of [{eta_start:-.1},{eta_end:1.01},{eta_start:.7},{hinge_start:0},{hinge_end:1},{eta_start:NaN},{deflection:Infinity},{name:''},{name:'x\n'+'y'},{name:'x'.repeat(81)},{color:'red'},{kind:'spoiler'},{edge:'upper'},{hinge_start:true},{eta_end:null},{extra:1},{front_spar_start:null},{front_spar_end:1}]){assert.throws(()=>M.normalize([row(changes)]));checks++;}
@@ -20,4 +20,6 @@ assert.equal(M.nextSurface([row({eta_end:1-1e-7})]),null);checks++;
 for(const z of [-2,-.5,0,.5,3]){const r=M.normalize([row({hinge_z_start:z,hinge_z_end:-z})])[0];assert.equal(r.hinge_z_start,z);assert.equal(r.hinge_z_end,-z);checks+=2;}
 for(const z of [Infinity,NaN,null,'0']){assert.throws(()=>M.normalize([row({hinge_z_start:z})]));checks++;}
 for(const angle of [-360,-180,-90,0,90,180,360]){assert.equal(M.normalize([row({deflection:angle})])[0].deflection,angle);checks++;}
-console.log(JSON.stringify({passed:true,checks,scope:'Strict fields, finite bounds, unique names, adjacent and overlapping footprints, crossed hinges, safe new surface placement'}));
+for(const value of [-.1,Infinity,NaN,null,'0',true]){assert.throws(()=>M.normalize([row({clearance_outboard_m:value})]));checks++;}
+assert.equal(M.normalize([row({clearance_inboard_m:.00202,clearance_outboard_m:.02592})])[0].clearance_outboard_m,.02592);checks++;
+console.log(JSON.stringify({passed:true,checks,scope:'Strict fields, finite bounds, unique names, adjacent and overlapping footprints, crossed hinges, safe new surface placement and optional material clearances'}));
