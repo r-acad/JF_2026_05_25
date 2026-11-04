@@ -73,3 +73,26 @@
 .aero-study[data-aero-form-maximized=true] .aero-chart-grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,560px),1fr))}
 .aero-study[data-aero-form-maximized=true] .aero-drawer .aero-setup{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:10px;align-items:start}
 .aero-status[data-warning=true]:not([data-error=true]){border-color:#e1b755;background:#503a17}
+
+/* Primary commands share the Aerodynamics title row in either owning window. */
+.aero-header-actions{display:flex;align-items:center;flex-wrap:wrap;gap:5px;margin:0 0 0 6px;min-width:0}
+.aero-header-actions button{flex:none;min-height:28px;margin:0;padding:5px 9px;border:1px solid #50738b;border-radius:5px;background:#176dab;color:#f2f8fc;font:12px system-ui,sans-serif;white-space:nowrap;cursor:pointer}
+.aero-header-actions button:disabled{opacity:.45;cursor:default}
+.aero-header-actions button[data-action=cancel]{background:#71352d}
+#sidebar>.panel-heading:not([data-aerodynamics=true])>.aero-header-actions{display:none}
+#sidebar>.panel-heading[data-aerodynamics=true]{gap:6px;flex-wrap:wrap}
+#sidebar>.panel-heading[data-aerodynamics=true] #btn-aero-information{margin:0}
+#sidebar>.panel-heading[data-aerodynamics=true] #workspace-title{flex:none}
+.aero-heading{flex-wrap:wrap}
+.aero-work-estimate{flex:0 0 auto;align-self:center;white-space:nowrap;margin:0 0 0 9px;line-height:1.35;font-size:11px}
+.aero-sweep-summary{grid-column:1/-1;font-size:10px;color:#b3d0e3;line-height:1.4}
+.aero-sweep-summary[data-invalid=true]{color:#ffad91}
+.aero-derivative-warning{box-sizing:border-box;width:min(620px,calc(100vw - 32px));padding:24px;border:1px solid #b18d50;border-radius:10px;background:#192b39;color:#e7f1f7;box-shadow:0 15px 60px #0009;font:14px/1.6 system-ui,sans-serif}
+.aero-derivative-warning::backdrop{background:#07111cb5}
+.aero-derivative-warning h2{margin:0 0 14px;font-size:20px;color:#ffd793;line-height:1.3}
+.aero-derivative-warning p{margin:0 0 22px}
+.aero-derivative-warning-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:9px}
+.aero-derivative-warning-actions button{width:auto;min-height:36px;padding:7px 11px;border:1px solid #6d8a9e;border-radius:5px;background:#344858;color:#fff;font:13px system-ui,sans-serif;cursor:pointer}
+.aero-derivative-warning-actions button.primary{background:#176dab;border-color:#75b4e0}
+.aero-derivative-warning-actions button:focus-visible{outline:2px solid #ffd793;outline-offset:3px}
+@media(max-width:750px){.aero-header-actions{flex:0 1 auto;margin:0 0 0 2px}.aero-header-actions button{padding:5px 7px;font-size:11px}.aero-work-estimate{font-size:10px}.aero-derivative-warning{padding:18px}.aero-derivative-warning-actions{justify-content:stretch}.aero-derivative-warning-actions button{flex:1 1 100%}}

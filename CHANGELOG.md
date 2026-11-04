@@ -5,6 +5,62 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Restore saved Studies without rebuilding the FEM
+
+- Restore saved native definitions, images and view settings with lightweight
+  parameter checks. Defer full physical validation and FEM generation to model
+  generation or analysis, preserving Live mesh for subsequent edits.
+- Isolate Study restoration from FEM preparation and deep normalization so it
+  does not compile unused meshing paths. Use a common parameter dictionary
+  for browser requests and share loft construction with movable previews.
+- Dismiss the initial viewport guidance when a Study loads, including when
+  no finite-element model has been generated yet.
+
+### Clarify aerodynamic sweeps
+
+- Offer a warning before derivative-enabled sweeps, with choices to cancel,
+  disable derivatives and run, or continue with the requested derivatives.
+- Define new sweeps by Start, End and Step, retaining saved count-based sweeps.
+  Include the first step beyond End when the range is not exactly divisible.
+- Group aerodynamic actions in the header beside help and place the work
+  estimate beside Exports.
+- Refresh the calebito1 example Study and add calebito2 as a fixed-wing sweep
+  example with derivatives disabled.
+
+### Reduce unnecessary aerodynamic work
+
+- Make stability/control derivatives opt-in for new aerodynamic definitions,
+  preserving explicit saved choices. Show the Cartesian condition count and
+  estimated extra derivative evaluations before running.
+- Retain a warm, owned aerodynamic Julia process between requests, use the
+  current shared sysimage when available, and replace the process after
+  cancellation, failure or source changes. Throttle progress-file updates.
+- Recover only the velocity field needed by the independent VLM force law;
+  skip unused streamwise-only fields. Derivative probes retain coefficients
+  without building discarded panel and strip reports, and reuse the base
+  response for physically inactive manual-atmosphere altitude changes.
+- Reuse static bound-vortex topology and cores during free-wake iterations,
+  reduce temporary vector allocations and parallelize independent influence
+  columns while preserving their accumulation order and convergence criteria.
+- Build result tables and plots on demand and cache immutable contour domains
+  so changing the selected case does not repeatedly scan the full sweep.
+
+### Save unsaved Studies before starting another
+
+- Offer Save, Don't save and Cancel before replacing an unsaved current Study.
+  A cancelled or failed save retains the existing Study.
+- Mark aerodynamic parameter, control and sweep-definition changes as unsaved
+  Study edits, updating the Project status and saved definition.
+
+### Correct aerodynamic self-comparison
+
+- Allow a solved aerodynamic case to be subtracted from itself, including
+  when only one condition has been solved. Preserve the selected B case when
+  enabling subtraction instead of choosing another condition automatically.
+- Display exact zero panel differences and remove the corresponding force
+  and pressure arrows. Explain explicitly when an incompatible comparison
+  falls back to showing case A.
+
 ### Illustrated reserve factor calculation reference
 
 - Add the JFEM-Boxer RF methods report, covering internal-load recovery,

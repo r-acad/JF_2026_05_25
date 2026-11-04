@@ -11,6 +11,20 @@
   const dialog=doc.createElement("dialog"),title=doc.createElement("h2"),fields=identificationFields(doc,initial),actions=doc.createElement("div"),cancel=doc.createElement("button"),create=doc.createElement("button");dialog.className="startup-study-dialog";title.id="new-study-identification-heading";title.textContent="Start new study";dialog.setAttribute("aria-labelledby",title.id);actions.className="startup-study-identification-actions";cancel.type=create.type="button";cancel.textContent="Cancel";create.textContent="Create study";create.className="startup-study-create";actions.append(cancel,create);dialog.append(title,fields.group,actions);doc.body.append(dialog);
   return new Promise(resolve=>{let closed=false;const finish=value=>{if(closed)return;closed=true;dialog.close();dialog.remove();resolve(value);};cancel.onclick=()=>finish(null);create.onclick=()=>finish(fields.capture());dialog.addEventListener("cancel",e=>{e.preventDefault();finish(null);});dialog.showModal();fields.input.focus();});
  }
+ function confirmNewStudy({document:doc=globalThis.document,name}={}){
+  const dialog=doc.createElement('dialog'),title=doc.createElement('h2'),text=doc.createElement('p'),actions=doc.createElement('div');
+  dialog.className='startup-study-dialog';dialog.dataset.unsavedStudy='true';title.id='unsaved-study-heading';title.textContent='Save the current Study?';
+  dialog.setAttribute('aria-labelledby',title.id);text.textContent=(name||'The current Study')+' has unsaved changes. Save them before starting a new Study?';
+  actions.className='startup-study-identification-actions';dialog.append(title,text,actions);doc.body.append(dialog);
+  return new Promise(resolve=>{
+   let closed=false;const finish=value=>{if(closed)return;closed=true;dialog.close();dialog.remove();resolve(value);};
+   for(const[value,label]of[[null,'Cancel'],['discard',"Don't save"],['save','Save']]){
+    const button=doc.createElement('button');button.type='button';button.textContent=label;button.dataset.unsavedChoice=value||'cancel';
+    if(value==='save')button.className='startup-study-create';button.onclick=()=>finish(value);actions.append(button);
+   }
+   dialog.addEventListener('cancel',event=>{event.preventDefault();finish(null);});dialog.showModal();actions.lastElementChild.focus();
+  });
+ }
  function choose({recentStudies,parent=globalThis.document.body,onChoose,message=""}={}){
   const doc=parent.ownerDocument;
   return new Promise((resolve,reject)=>{
@@ -23,5 +37,5 @@
    Promise.resolve().then(()=>recentStudies?.list?.()||[]).then(rows=>{if(chosen)return;const last=rows?.[0];choices.querySelector('[data-choice="last"]').disabled=!last;recent.textContent=last?"Last Study: "+last.name+" · "+new Date(last.updatedAt).toLocaleString()+". The accessible file or its stored browser copy will be offered.":"No previously saved or loaded Study is available in this browser.";}).catch(error=>{if(chosen)return;recent.textContent="Recent Studies could not be checked: "+(error?.message||String(error))+". Start new or open an existing file.";});
   });
  }
- return{choose,identify,identificationFields};
+ return{choose,identify,identificationFields,confirmNewStudy};
 });

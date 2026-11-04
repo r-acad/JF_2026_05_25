@@ -14,6 +14,8 @@ displays structural results and property sensitivities.
 
 Open the public [test1 Study](examples/test1/test1.wingfem.json) or
 [calebito1 Study](examples/test1/calebito1.json) through **Project > Open**.
+The [calebito2 Study](examples/test1/calebito2.json) supplies a fixed-wing
+example with an aerodynamic sweep and derivatives disabled.
 These retain the authored geometry, controls and analysis settings; mesh and
 solver results are created locally. Run the repository-root setup first.
 The [Python sizing example](../../utils/python_client/README.md) demonstrates
@@ -21,6 +23,12 @@ repeated property updates through a warm JFEM process.
 The [illustrated RF methods report](../../Reference_documentation/06_JFEM-Boxer/Structures/JFEM_Boxer_Reserve_Factor_Methods.pdf)
 explains internal-load recovery, strength and buckling calculations, load
 policy, mathematical assumptions and worked examples.
+
+Starting a new Study offers **Save**, **Don't save** and **Cancel** when the
+current definition has unsaved changes. Cancelling or failing a save keeps
+the current Study open. Aerodynamic analysis settings, controls and sweep
+definitions count as Study edits and turn the Project status orange; camera
+and display preferences keep their existing separate status.
 
 Real-valued numeric edits use at most three decimal places and five significant
 figures. Engineering notation keeps small dimensions, section inertias and
@@ -54,13 +62,19 @@ status distinguishes the current preview from retained FE geometry/results.
 Incomplete FE material, property or load fields do not block loft editing.
 Invalid geometric drafts retain the last valid preview with a message.
 
-**Live mesh** controls FEM generation only. With it off, new/opened Studies
-remain geometry-only, and edits retain the last generated nodes, elements,
-loads and results. Press **Create FEM** when ready. Turning Live mesh on
-generates the latest definition after valid edits; its saved Study preference
-is honored on loading. Explicit deck-writing/analysis actions still prepare
-the model they require. Imported decks and archived results retain their source
-geometry. The live preview adds no stiffness, masses or FE connectivity.
+Opening a saved Study restores its definition, images and view without
+generating a FEM or repeating full geometry and load-case checks. Basic file
+and parameter checks remain; full physical checks run when creating the FEM
+or starting analysis. The welcome message disappears when the Study is loaded,
+even before its geometry preview or FEM is ready.
+
+**Live mesh** controls FEM generation only. Its saved preference is restored
+without generating a FEM during loading; with it enabled, subsequent valid
+edits update the FEM. With it off, edits retain the last generated nodes,
+elements, loads and results. Press **Create FEM** when ready. Explicit
+deck-writing/analysis actions still prepare the model they require. Imported
+decks and archived results retain their source geometry. The live preview adds
+no stiffness, masses or FE connectivity.
 
 Movable-surface meshing adds spanwise FE rows when needed so that each spanwise
 element edge is no longer than the shortest local structural control chord it
@@ -374,14 +388,32 @@ rotation angles. Review old rudder studies and rerun after this correction.
    antisymmetric or independent pairing (ailerons default to antisymmetric).
    Turning a control off analyzes zero motion without editing geometry/FE inputs.
    Sweeping a control explicitly uses the analysis override convention.
-5. **Compute derivatives** is enabled initially. Turn it off for quicker
-   coefficient-only runs. It adds finite-difference solves for each condition;
-   mesh previews always skip derivatives.
+5. **Compute derivatives** is off initially. Enable it when stability or
+   control derivatives are needed; existing Studies retain their explicit
+   choice. It adds finite-difference evaluations for every condition. The
+   work estimate beside **Exports** shows the number of conditions and
+   the upper bound on extra evaluations; mesh previews skip derivatives.
 6. **Preview VLM mesh** builds only the full-wing camber lattice. **Run
    aerodynamics** solves a single condition or a Cartesian sweep of the selected
-   variables: alpha, beta, rates, speed, altitude or control commands. Sweep
-   bounds include both endpoints. There is no application-imposed condition
+   variables: alpha, beta, rates, speed, altitude or control commands. Enter
+   **Start**, **End** and **Step** for each variable; use a negative Step for a
+   decreasing range. If Step does not divide the range exactly, include the
+   first point beyond End: 0 to 10 by 3 gives 0, 3, 6, 9, 12. Existing saved
+   count-based sweeps retain their original values. There is no application-imposed condition
    count or retained-panel budget. Each sweep variable must be unique.
+
+Derivative-enabled sweeps display a warning with the estimated extra work before
+starting. Choose **Cancel**, **Disable derivatives and run**, or **Run with
+derivatives**. Disabling the option also marks the Study as changed. Preview
+does not compute derivatives. Run, Preview and the separate-tab controls share
+the Aerodynamics header beside its help button.
+
+The aerodynamic process stays running between previews and analyses, retaining
+compiled Julia methods. The first request after installation or a source change
+can still compile; subsequent requests reuse the running process. Cancellation,
+worker failure or source changes replace it. The shared verified sysimage is
+used when current. Tables and plots are built when their panes are opened.
+Full solved panel data remain available for contours, comparisons and exports.
 
 **Wake calculation** adds a computed **Relaxed free wake** option alongside
 **Straight wake**. Selecting it selects and locks **Incompressible** flow.

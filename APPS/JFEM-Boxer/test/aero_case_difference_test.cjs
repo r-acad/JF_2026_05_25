@@ -1,5 +1,5 @@
 'use strict';
-const assert=require('node:assert/strict'),D=require('../web/aero_case_difference.js');
+const assert=require('node:assert/strict'),D=require('../web/aero_case_difference.js'),A=require('../web/aerodynamic_study.js');
 const clone=value=>JSON.parse(JSON.stringify(value));
 function panel(id,patch,area,force){return{id,patch,strip:1,chord:1,side:patch===1?'left':'right',region:'wing / flap',control:'flap',eta:.5,chord_fraction:.75,corners:[[0,0,0],[1,0,0],[1,1,0],[0,1,0]],position:[.5,.5,0],area_m2:area,normal:[0,0,1],force_N:force,delta_cp:2,delta_pressure_Pa:20,circulation_m2_s:4,speed_ratio:1.2,force_wind_N:[1,2,3],wind_loads_N:[1,2,3],moment_Nm:[1,2,3],velocity_m_s:[70,0,0]};}
 const a={id:2,condition:{alpha:5},vector_frame:'construction C',span_m:10,area_m2:20,mac_m:2,panel_count:2,panels:[panel(1,1,2,[2,4,8]),panel(2,2,1,[0,0,6])],force_N:[2,4,14],coefficients:{wind:{force:[1,2,3]}},derivatives:{},strips:[],moment_Nm:[1,2,3],CDi_trefftz:.03,span_efficiency:.9,trefftz:{},residual_over_V:.001,wake:{sheets:[]},wake_origins:[[0,0,0]],wake_direction:[1,0,0],wake_model:'relaxed'};
@@ -15,7 +15,23 @@ assert.equal(difference.difference.label,'Case 2 - Case 1');assert.equal(differe
 for(const k of ['coefficients','derivatives','strips','moment_Nm','CDi_trefftz','span_efficiency','trefftz','residual_over_V','wake','wake_origins','wake_direction','wake_model'])assert(!Object.hasOwn(difference,k),k);
 for(const k of ['force_wind_N','wind_loads_N','moment_Nm','velocity_m_s'])assert(!Object.hasOwn(difference.panels[0],k),k);
 assert.equal(JSON.stringify([a,b]),before,'Inputs stay unchanged');
-const zero=D.subtract(a,a);assert(zero.panels.every(p=>p.force_N.every(v=>v===0)&&p.pressure_vector_Pa.every(v=>v===0)));assert(zero.panels.every(p=>p.delta_cp===0));
+function assertSelfDifference(first,second){
+ const before=JSON.stringify([first,second]),zero=D.subtract(first,second);
+ assert.equal(D.compare(first,second).compatible,true);
+ assert.deepEqual(zero.force_N,[0,0,0]);
+ for(const p of zero.panels){
+  assert.deepEqual(p.force_N,[0,0,0]);assert.deepEqual(p.pressure_vector_Pa,[0,0,0]);
+  for(const key of ['delta_cp','delta_pressure_Pa','circulation_m2_s','speed_ratio'])assert.equal(p[key],0,key);
+ }
+ for(const quantity of ['force','pressure']){
+  const arrows=A.panelArrowData(zero,quantity);assert.deepEqual(arrows.groups,[]);
+  assert.equal(arrows.maximum,0);assert.equal(arrows.scale,0);
+ }
+ assert.equal(JSON.stringify([first,second]),before,'Self comparison leaves both inputs unchanged');
+}
+assertSelfDifference(a,a);
+const identical=clone(a);identical.panels.reverse();identical.panels.forEach(p=>p.id+=100);
+assertSelfDifference(a,identical);
 const inverse=D.subtract(b,a);for(const p of difference.panels){const q=inverse.panels.find(q=>q.patch===p.patch);for(let i=0;i<3;i++){assert.equal(p.force_N[i],-q.force_N[i]||0);assert.equal(p.pressure_vector_Pa[i],-q.pressure_vector_Pa[i]||0);}}
 // A control deflection can move corresponding panels without changing their grid.
 const moved=clone(b);moved.panels[0].corners=moved.panels[0].corners.map(([x,y,z])=>[x,y,z+.1]);moved.panels[0].position[2]+=.1;

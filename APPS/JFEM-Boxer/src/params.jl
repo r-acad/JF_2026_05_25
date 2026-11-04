@@ -800,7 +800,7 @@ function round_coordinate_inputs(value,key="")
     value isa Real&&!(value isa Bool)&&isfinite(value)&&coordinate_input_key(key) ? round(Float64(value);sigdigits=5) : value
 end
 
-function normalize_params(flat::AbstractDict)
+function normalize_params(flat::AbstractDict; validate::Bool = true)
     flat=round_coordinate_inputs(flat)
     legacy_assessment=!isempty(flat)&&!any(key->haskey(flat,key),ASSESSMENT_FACTOR_KEYS)
     if haskey(flat,"jfem.path")
@@ -856,6 +856,7 @@ function normalize_params(flat::AbstractDict)
             push!(unknown, key)
             continue
         end
+        v isa Number && !isfinite(v) && throw(ArgumentError("$key must be finite"))
         # Point migration needs all scalar nominal locations, independent of
         # dictionary iteration order. Normalize these arrays after the merge.
         p[key] = spec.kind in (:planformpoints,:masterribs,:riborientations) ? v : coerce_value(spec, v)
@@ -875,8 +876,78 @@ function normalize_params(flat::AbstractDict)
     p["leading_edge.rib_orientations"]=normalize_rib_tables(p["leading_edge.rib_orientations"],"leading_edge.rib_orientations")
     migrate_legacy_sections!(p, flat)
     apply_material_allowable_defaults!(p)
-    validate_params(p)
+    # Restoring an editable Study needs schema/type migration, not construction
+    # of every physical rib layout for every load case. Those checks still run
+    # before generation/solving. Never allow nonfinite scalar values into forms.
+    for spec in SCHEMA
+        spec.kind in (:float,:int) || continue
+        isfinite(p[spec.key]) || throw(ArgumentError("$(spec.key) must be finite"))
+    end
+    validate && validate_params(p)
     return p, unknown
+end
+
+"""Check portable JSON data without instantiating the physical input coercers."""
+function check_restored_json(value, path::String="Study")
+    if value isa AbstractDict
+        for (key,item) in value
+            key isa AbstractString||throw(ArgumentError("$path has a non-text field name"))
+            check_restored_json(item,path*"."*String(key))
+        end
+    elseif value isa AbstractVector
+        for item in value;check_restored_json(item,path);end
+    elseif value isa Real
+        isfinite(value)||throw(ArgumentError("$path must be finite"))
+    elseif !(value===nothing||value isa AbstractString)
+        throw(ArgumentError("$path has an unsupported value type"))
+    end
+    return nothing
+end
+
+"""Current complete native snapshots can populate forms without re-coercion.
+
+Sparse/older definitions and legacy scalar encodings retain the migration path.
+Physical validity and deep property-table rules are checked when creating a FEM.
+"""
+function canonical_study_parameters(flat::AbstractDict)
+    (haskey(flat,"jfem.path")||any(key->haskey(flat,key),LEGACY_SECTION_KEYS))&&return false
+    for spec in SCHEMA
+        haskey(flat,spec.key)||return false
+        value=flat[spec.key]
+        if spec.kind===:float
+            value isa Real&&!(value isa Bool)||return false
+        elseif spec.kind===:int
+            value isa Real&&!(value isa Bool)&&isinteger(value)||return false
+        elseif spec.kind===:bool
+            value isa Bool||return false
+        elseif spec.kind in (:choice,:string)
+            value isa AbstractString||return false
+        elseif spec.kind===:stringerangles
+            value isa AbstractVector&&all(item->item isa Real&&!(item isa Bool),value)||return false
+        else
+            value isa AbstractVector&&all(item->item isa AbstractDict,value)||return false
+        end
+    end
+    return true
+end
+
+function restore_study_params(flat::AbstractDict)
+    check_restored_json(flat)
+    # Infer the large legacy migration graph only for an actual legacy file.
+    canonical_study_parameters(flat)||return Base.invokelatest(normalize_params,flat;validate=false)
+    p=default_params()
+    unknown=String[]
+    metadata=(REFERENCE_METADATA_KEY,PLAN_VIEW_METADATA_KEY,DRAWINGS_METADATA_KEY,
+        "structure_inertia_migration_note","assessment.migration_note")
+    for (key,value) in flat
+        k=String(key)
+        if haskey(SCHEMA_BY_KEY,k)||k in metadata
+            p[k]=deepcopy(value)
+        elseif !(k in LEGACY_SECTION_KEYS)
+            push!(unknown,k)
+        end
+    end
+    return p,unknown
 end
 
 """

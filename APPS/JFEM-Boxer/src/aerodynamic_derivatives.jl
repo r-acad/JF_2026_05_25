@@ -21,7 +21,7 @@ function aerodynamic_recontrol(w,patches,s)
     end
 end
 
-function aerodynamic_derivatives(w,controls,patches,s,base;progress=(stage,done,total)->nothing)
+function aerodynamic_derivatives(w,controls,patches,s,base;work=nothing,progress=(stage,done,total)->nothing)
     # Derivative coordinates: angles in radians; p_hat=p*b/(2V),
     # q_hat=q*MAC/(2V), r_hat=r*b/(2V); speed m/s and altitude m.
     variables=[(key=key,unit="rad^-1",step=1e-3,scale=180/pi,lo=-30.,hi=30.) for key in ("alpha","beta")]
@@ -36,6 +36,8 @@ function aerodynamic_derivatives(w,controls,patches,s,base;progress=(stage,done,
         end
     end
     rows=Any[];remeshed_controls=String[];unavailable=Any[]
+    bump!(key)=work===nothing ? nothing : (work[key]=get(work,key,0)+1)
+    work===nothing||(work["derivative_variables"]=get(work,"derivative_variables",0)+length(variables))
     for (i,v) in enumerate(variables)
         progress("Computing derivatives: $(v.key) ($i / $(length(variables)))",i-1,length(variables))
         left=startswith(v.key,"control_left:");control=left||startswith(v.key,"control:")
@@ -58,6 +60,7 @@ function aerodynamic_derivatives(w,controls,patches,s,base;progress=(stage,done,
         if transition&&s["wake_model"]=="relaxed"&&s["wake_derivatives"]=="frozen"
             reason="An offset-hinge control stencil crosses neutral motion and changes wake-sheet topology; a frozen base wake cannot be attached to that control stencil. Select relaxed wake derivatives to evaluate this control."
             push!(unavailable,Dict("variable"=>v.key,"reason"=>reason));push!(base["warnings"],v.key*": "*reason)
+            bump!("unavailable_derivative_variables")
             continue
         end
         transition&&push!(remeshed_controls,v.key)
@@ -72,7 +75,13 @@ function aerodynamic_derivatives(w,controls,patches,s,base;progress=(stage,done,
         end
         high>low||throw(ArgumentError("No valid finite-difference stencil for $(v.key)"))
         function sample(value)
-            value==center&&return base
+            if value==center;bump!("derivative_base_reuses");return base;end
+            # With a manual atmosphere altitude is metadata only: density,
+            # sound speed, geometry, dimensional velocity and all coefficients
+            # remain exactly unchanged. Preserve the row without two solves.
+            if v.key=="altitude"&&s["atmosphere"]=="manual"
+                bump!("inactive_derivative_reuses");return base
+            end
             t=deepcopy(s)
             if control
                 t["controls"][name]=control_command(value)
@@ -80,8 +89,11 @@ function aerodynamic_derivatives(w,controls,patches,s,base;progress=(stage,done,
             seed=transition ? nothing : get(base,"wake",nothing)
             if s["wake_model"]=="relaxed"&&s["wake_derivatives"]=="relaxed";t["wake_tolerance"]=min(s["wake_tolerance"],1e-5);end
             sample_mesh=transition ? aerodynamic_mesh(w,controls,t;progress) : control ? aerodynamic_recontrol(w,patches,t) : patches
-            transition&&!aerodynamic_body_interference(sample_mesh)["valid"]&&return nothing
+            interference=control ? aerodynamic_body_interference(sample_mesh) : get(base,"geometry_interference",nothing)
+            transition&&!interference["valid"]&&return nothing
+            bump!("derivative_solves")
             return aerodynamic_solve(w,sample_mesh,t;
+                coefficients_only=true,geometry_interference=interference,
                 wake_seed=seed===nothing ? nothing : seed["sheets"],
                 frozen_wake=seed!==nothing&&s["wake_derivatives"]=="frozen",progress)
         end
@@ -89,6 +101,7 @@ function aerodynamic_derivatives(w,controls,patches,s,base;progress=(stage,done,
         if minus===nothing||plus===nothing
             reason="A neutral offset-hinge control perturbation intersects another physical sheet. Revise control end clearances or hinge geometry before using this control derivative."
             push!(unavailable,Dict("variable"=>v.key,"reason"=>reason));push!(base["warnings"],v.key*": "*reason)
+            bump!("unavailable_derivative_variables")
             continue
         end
         coefficients=Dict(frame=>Dict(kind=>(plus["coefficients"][frame][kind].-minus["coefficients"][frame][kind])./delta

@@ -15,7 +15,7 @@ try{
   const url=new URL(route.request().url()),data=route.request().method()==='POST'?route.request().postDataJSON():null;
   if(url.pathname.startsWith('/api/'))requests.push(url.pathname);
   if(url.pathname==='/api/input')return route.fulfill({json:schema});
-  if(url.pathname==='/api/validate_workspace')return route.fulfill({json:{ok:true,parameters:data}});
+  if(['/api/validate_workspace','/api/restore_workspace'].includes(url.pathname))return route.fulfill({json:{ok:true,parameters:data}});
   if(['/api/generate','/api/prepare_workspace'].includes(url.pathname))return route.fulfill({body:fs.readFileSync(path.join(fixture,'payload.msgpack')),contentType:'application/msgpack'});
   if(url.pathname==='/api/activity')return route.fulfill({json:{ok:true,events:[]}});
   if(url.pathname==='/api/last_deck')return route.fulfill({json:{ok:true,available:false}});

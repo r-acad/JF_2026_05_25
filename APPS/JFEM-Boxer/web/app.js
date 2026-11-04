@@ -113,6 +113,7 @@ const state = {
   logCursor: 0,
   modelDirty: false,
   studyDirty: true,
+  newStudyPending: false,
   studyRevision: 0,
   studyEpoch: 0,
   autosave: null,
@@ -1999,6 +2000,7 @@ function scheduleAutoMesh() {
   if(state.importedDeck)return;
   cancelAutoMeshTimer();
   if (!state.autoMeshPending || !state.autoMeshReady) return;
+  if (state.studyRestoring || state.workspaceBusy) return;
   if (!state.autoMeshEnabled) {
     meshStatus("Model changed · press Create FEM", "stale");
     return;
@@ -3463,7 +3465,7 @@ function installAutosave(){
   const control=document.getElementById("auto-save"),label=document.getElementById("autosave-label"),status=document.getElementById("autosave-status");
   state.autosave=WingAutosave.create({
     read:()=>({enabled:control.checked,dirty:state.studyDirty||resultsHavePendingDrafts(),revision:state.studyRevision,epoch:state.studyEpoch,
-      blocked:!state.autoMeshReady?"Autosave waits for a Study.":state.studyRestoring||state.loadingInput||state.workspaceBusy||state.studyCommentOpen?"Autosave waits for the Study operation.":
+      blocked:!state.autoMeshReady?"Autosave waits for a Study.":state.studyRestoring||state.loadingInput||state.workspaceBusy||state.studyCommentOpen||state.newStudyPending?"Autosave waits for the Study operation.":
         resultsHavePendingDrafts()?"Autosave waits for unfinished property-table edits.":
         state.loftEditor?.isInteracting()?"Autosave waits for the loft control-point edit.":
         state.reference?.loading||state.reference?.saving||state.reference?.isInteracting()?"Autosave waits for reference editing.":
@@ -3622,7 +3624,7 @@ async function loadModelDefinition(file, options = {}) {
     state.studyRestoring = true;
     try {
     const parametersOnly=options.toml || options.newStudy || options.serverInput;
-    activity()?.update(token, {label:(options.importDeck ? (options.importRequest?.format==="abaqus"?"Reading Abaqus":"Reading Nastran") : options.newStudy ? "Creating new Study" : parametersOnly ? "Loading TOML" : "Loading Study")+" · "+file.name, detail:options.importDeck ? "Reading the main deck and resolving INCLUDE files automatically…" : "Validating parameters and reference geometry…"});
+    activity()?.update(token, {label:(options.importDeck ? (options.importRequest?.format==="abaqus"?"Reading Abaqus":"Reading Nastran") : options.newStudy ? "Creating new Study" : parametersOnly ? "Loading TOML" : "Loading Study")+" · "+file.name, detail:options.importDeck ? "Reading the main deck and resolving INCLUDE files automatically…" : parametersOnly ? "Reading model parameters and linked geometry…" : "Restoring the saved definition, images and view…"});
     meshStatus("Preparing "+file.name+"…", "building");
     let definition,items,input,studyText;
     if (parametersOnly) {
@@ -3664,14 +3666,17 @@ async function loadModelDefinition(file, options = {}) {
     try {
       staged = await state.reference.stagePortable(items, definition.view.reference, {linked:parametersOnly});
       const importRequest=options.importRequest || definition.model_source;
-      const geometryOnly=!importRequest&&definition.view.controls?.["auto-mesh"]!==true;
+      // A Study stores the editable definition, not a reusable FEM. Restore it
+      // immediately; meshing and full physical checks belong to Create FEM/Run.
+      const restoreOnly=!parametersOnly&&!importRequest;
+      const geometryOnly=!importRequest&&(restoreOnly||definition.view.controls?.["auto-mesh"]!==true);
       const importPolicy=importRequest?WingAssessmentLoadPolicy.read(definition.parameters):null;
       if(importPolicy){
         const hadPolicy=['assessment.strength_safety_factor','assessment.buckling_policy_factor'].every(key=>Object.hasOwn(definition.parameters,key));
         Object.assign(definition.parameters,{'assessment.strength_safety_factor':importPolicy.strengthSafetyFactor,'assessment.buckling_policy_factor':importPolicy.bucklingPolicyFactor});
         if(!options.importDeck&&!hadPolicy&&!definition.parameters['assessment.migration_note'])definition.parameters['assessment.migration_note']='This older imported Study did not record its sizing load policy. Confirm that its analyzed source preload represents LIMIT loads rather than an existing ULTIMATE conversion before applying the separate strength safety factor. The source deck loads have been preserved.';
       }
-      const response = await postParams(importRequest ? "/api/import_reference" : geometryOnly ? "/api/validate_workspace" : "/api/prepare_workspace", importRequest ? {...importRequest,"assessment.strength_safety_factor":importPolicy.strengthSafetyFactor,"assessment.buckling_policy_factor":importPolicy.bucklingPolicyFactor,"assessment.migration_note":definition.parameters['assessment.migration_note']||'',"materials.allowables":options.importDeck?[]:definition.parameters["materials.allowables"]||[]} : definition.parameters, token);
+      const response = await postParams(importRequest ? "/api/import_reference" : restoreOnly ? "/api/restore_workspace" : geometryOnly ? "/api/validate_workspace" : "/api/prepare_workspace", importRequest ? {...importRequest,"assessment.strength_safety_factor":importPolicy.strengthSafetyFactor,"assessment.buckling_policy_factor":importPolicy.bucklingPolicyFactor,"assessment.migration_note":definition.parameters['assessment.migration_note']||'',"materials.allowables":options.importDeck?[]:definition.parameters["materials.allowables"]||[]} : definition.parameters, token);
       if (response.status === 404) throw new Error("Portable model files need the updated server. Restart JFEM-Boxer and refresh.");
       // A Study with a poor mesh must remain editable. Load its validated
       // definition without a FEM; never publish the rejected geometry or
@@ -3726,7 +3731,7 @@ async function loadModelDefinition(file, options = {}) {
         clearResults();disposeModel();state.data=null;state.lastTransfer=null;state.nodeIds=[];state.bbox=null;
         state.meshIdentity=null;state.fuelIsolation=null;state.panelIndex=WingStiffenedPanels.index(null);
         state.propertyDisplay?.refresh(null);document.getElementById("show-panels").disabled=true;
-        document.getElementById("stats").textContent="No FEM: correct the mesh-quality issues and create the FEM.";
+        document.getElementById("stats").textContent=qualityProblem?"No FEM: correct the mesh-quality issues and create the FEM.":"Geometry preview only. Create FEM to generate nodes and elements.";
       }
       buildForm(state.schema, state.values);
       WingWorkspace.applyControls(document, definition.view.controls);
@@ -3737,6 +3742,9 @@ async function loadModelDefinition(file, options = {}) {
       state.autoMeshPending = false; setModelDirty(!!qualityProblem||geometryOnly);
       if(data)showStats(data, byteLength, 0);
       restoreWorkspaceView(definition.view);
+      // Restoring saved controls is not a user edit. In particular, retain Auto
+      // for subsequent edits without letting it rebuild the just-opened Study.
+      state.autoMeshPending=false;cancelAutoMeshTimer();
       staged.commit();
       if (parametersOnly) {
         state.values["references.items"]=state.reference.serialize();
@@ -3744,6 +3752,7 @@ async function loadModelDefinition(file, options = {}) {
         state.autoMeshPending=false;setModelDirty(!!qualityProblem||geometryOnly);if(data)fitView();
       }
       staged.finalize();
+      document.getElementById("splash").classList.add("hidden");
       ensureGeometryPreview();state.geometryPreview?.request(0);
       state.rfPropertyEditor?.close();state.panelTables?.resetDrafts?.();
       state.studyNotes=parametersOnly ? {text:"",history:[]} : definition.notes;
@@ -3766,7 +3775,7 @@ async function loadModelDefinition(file, options = {}) {
       }else if(geometryOnly){
         meshStatus("Geometry loaded - press Create FEM when ready", "stale");
         document.getElementById("stats").textContent="Geometry preview only. Create FEM to generate nodes and elements.";
-        log("Loaded "+file.name+" geometry without generating a FEM. Auto is off.","good");
+        log("Loaded "+file.name+" geometry without generating a FEM. "+(restoreOnly?"Full model checks run when creating the FEM or starting analysis. The saved Auto setting applies to subsequent edits.":"Auto is off."),"good");
       }else{
         meshStatus("Loaded " + file.name, "current");
         logMeshQuality(data);
@@ -3808,9 +3817,23 @@ async function loadModelDefinition(file, options = {}) {
 }
 
 async function newStudy(options={}) {
-  const identification=Object.hasOwn(options,'identification')?options.identification:await WingStartupStudy.identify({document});
-  if(identification===null)return false;
-  return loadModelDefinition({name:"New Study"},{newStudy:true,identification});
+  if(state.newStudyPending||!workspaceOperationAvailable()||state.studyCommentOpen)return false;
+  state.newStudyPending=true;
+  state.autosave?.changed();
+  try{
+    // The initial startup choice has no current Study to replace.
+    if(state.autoMeshReady&&(state.studyDirty||resultsHavePendingDrafts())){
+      const choice=await WingStartupStudy.confirmNewStudy({document,name:state.studyFile});
+      if(choice===null)return false;
+      if(choice==='save'){
+        const saved=await requestStudySave();
+        if(!saved||state.studyDirty||resultsHavePendingDrafts())return false;
+      }
+    }
+    const identification=Object.hasOwn(options,'identification')?options.identification:await WingStartupStudy.identify({document});
+    if(identification===null)return false;
+    return await loadModelDefinition({name:"New Study"},{newStudy:true,identification});
+  }finally{state.newStudyPending=false;state.autosave?.changed();}
 }
 function loadTomlDefinition(file) { return loadModelDefinition(file,{toml:true}); }
 
@@ -6853,6 +6876,7 @@ function installAerodynamicStudy(){
     readGeometry:readAuthoredGeometry,
     readFlight:()=>effectiveCase(state.loadCases?.find(c=>Number(c.id)===Number(state.editingCase))||null),
     onChange:markStudyViewModified,
+    onDefinitionChange:markStudyModified,
     onResultChanged:(selected,metadata)=>{
       if(!state.aeroWakeOverlay&&state.scene&&typeof WingAeroWakeOverlay!=="undefined")state.aeroWakeOverlay=WingAeroWakeOverlay.create({state,linesForCase:WingAerodynamicStudy.wakeLines,onChange:markStudyViewModified});
       state.aeroWakeOverlay?.update(selected,metadata);

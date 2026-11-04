@@ -1,6 +1,14 @@
 'use strict';
 const assert=require('node:assert/strict'),A=require('../web/aerodynamic_study.js'),W=require('../web/workspace.js');
 const state=A.validateState(null);assert.equal(state.settings.chord_panels,8);assert.equal(state.settings.span_panels,16);
+assert.equal(state.settings.derivatives,false,'Ordinary analyses must not silently request derivative perturbations.');
+assert.equal(A.validateState({settings:{derivatives:true}}).settings.derivatives,true,'Explicit saved derivative requests must survive default changes.');
+assert.deepEqual(A.workEstimate(state.settings),{valid:true,conditions:1,derivativeVariables:0,baseEvaluations:1,additionalEvaluations:0,maximumEvaluations:1});
+const work=A.workEstimate({...state.settings,derivatives:true,mode:'sweep',sweeps:[{count:15},{count:10}],controls:{Flap:{enabled:true,pairing:'symmetric'},Disabled:{enabled:false,pairing:'independent'}}});
+assert.deepEqual(work,{valid:true,conditions:150,derivativeVariables:8,baseEvaluations:150,additionalEvaluations:2400,maximumEvaluations:2550});
+assert.equal(A.workEstimate({...state.settings,derivatives:true,controls:{Aileron:{enabled:true,pairing:'independent'}}}).derivativeVariables,9);
+assert.equal(A.workEstimate({...state.settings,mode:'sweep',sweeps:[{count:Number.MAX_SAFE_INTEGER},{count:2}]}).valid,false);
+assert.equal(A.workEstimate({...state.settings,mode:'sweep',sweeps:[]}).valid,false);
 const loaded=A.validateState({settings:{alpha:3,controls:{Flap:{enabled:true,pairing:'symmetric',right:10,left:10}},sweeps:[{variable:'alpha',start:-2,stop:6,count:5}]}});
 assert.equal(loaded.settings.controls.Flap.source,'geometry');assert.throws(()=>A.validateState({settings:{controls:{Flap:{enabled:true,pairing:'symmetric',source:'invalid',right:0,left:0}}}}),/control/);assert.equal(loaded.settings.alpha,3);assert.equal(loaded.settings.speed,70);assert.equal(loaded.settings.controls.Flap.right,10);
 assert.throws(()=>A.validateState({settings:{alpha:null}}),/alpha/);assert.throws(()=>A.validateState({settings:{controls:{Flap:'bad'}}}),/control/);assert.throws(()=>A.validateState({settings:{sweeps:[{variable:'alpha',start:0,stop:5,count:1}]}}),/sweep/);

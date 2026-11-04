@@ -432,7 +432,10 @@ end
 function handle_workspace(st::AppState, req; generate::Bool = false)
     progress = request_progress(st, req)
     try
-        raw = JSON.parse(String(req.body))
+        # Study files have hundreds of keys. Materialize the same dictionary
+        # representation normalized during TOML startup instead of compiling a
+        # second JSON.Object normalization path on the first file open.
+        raw = JSON.parse(String(req.body);dicttype=Dict{String,Any})
         raw isa AbstractDict || throw(ArgumentError("workspace parameters must be a JSON object"))
         params, unknown = normalize_params(raw)
         isempty(unknown) || throw(ArgumentError("unsupported workspace parameters: " * join(sort!(unknown), ", ")))
@@ -448,6 +451,19 @@ function handle_workspace(st::AppState, req; generate::Bool = false)
         e isa PanelOverrideConflict&&return panel_override_error_response(e)
         e isa MeshQualityError&&return mesh_quality_error_response(e)
         return error_response(describe_error(e))
+    end
+end
+
+"""Restore editable saved inputs without inferring the FEM construction graph."""
+function handle_restore_workspace(st::AppState,req)
+    try
+        raw=JSON.parse(String(req.body);dicttype=Dict{String,Any})
+        raw isa AbstractDict||throw(ArgumentError("workspace parameters must be a JSON object"))
+        params,unknown=restore_study_params(raw)
+        isempty(unknown)||throw(ArgumentError("unsupported workspace parameters: "*join(sort!(unknown),", ")))
+        return json_response(Dict("ok"=>true,"parameters"=>params))
+    catch error
+        return error_response(describe_error(error))
     end
 end
 
@@ -914,6 +930,7 @@ function make_router(st::AppState)
     HTTP.register!(router, "POST", "/api/geometry_preview", req -> handle_geometry_preview(st, req))
     HTTP.register!(router, "POST", "/api/movable_surfaces", req -> handle_movable_surfaces(st, req))
     HTTP.register!(router, "POST", "/api/validate_workspace", req -> handle_workspace(st, req))
+    HTTP.register!(router, "POST", "/api/restore_workspace", req -> handle_restore_workspace(st, req))
     HTTP.register!(router, "POST", "/api/study/pick", req -> handle_study_pick(st, req))
     HTTP.register!(router, "POST", "/api/study/write", req -> handle_study_file(st, req))
     HTTP.register!(router, "POST", "/api/study/read", req -> handle_study_file(st, req;read_only=true))

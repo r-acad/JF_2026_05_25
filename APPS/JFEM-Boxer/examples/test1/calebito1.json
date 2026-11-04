@@ -2,7 +2,7 @@
   "format": "wingfegen-workspace",
   "version": 1,
   "created_at": "2026-10-28T14:39:49.732Z",
-  "saved_at": "2026-10-29T15:08:00.589Z",
+  "saved_at": "2026-11-04T13:22:46.991Z",
   "notes": {
     "text": "a",
     "history": [
@@ -24,85 +24,24 @@
       }
     ]
   },
+  "identification": {
+    "text": "",
+    "visible": false
+  },
   "parameters": {
-    "properties.stringer_height": 0.032,
     "loads.fuel_accel_z": -1,
-    "mesh.elements_stringer_height": 2,
     "leading_edge.rib_orientation": "flight_direction",
     "leading_edge.end_rib": 0,
     "planform.dihedral": 5,
-    "fuel.fill_fraction": 1,
-    "properties.t_spar_web": 0.0015,
     "stringers.orientation": "surface_normal",
-    "mesh.aero_chord_points": 41,
     "aero.speed_of_sound": 340,
-    "output.buckling_compact": false,
-    "loft.vertical_shift_interpolation": "linear",
-    "fuel.density": 800,
     "airfoil.tip": "NACA2410",
-    "nonstructural.upper_skin": 0,
-    "loads.torque_y": 0,
-    "nonstructural.leading_edge_rib": 0,
     "nonstructural.lower_skin": 0,
-    "properties.rib_stiffeners_enabled": true,
-    "planform.leading_edge_points": [
-      {
-        "eta": 0,
-        "dxc": 0
-      },
-      {
-        "eta": 0.98,
-        "dxc": 0
-      },
-      {
-        "eta": 1,
-        "dxc": 0.5303
-      }
-    ],
     "movable_structure.attachments": [],
-    "properties.spar_web_buckling_fixity": 1,
     "mesh.elements_between_stringers": 1,
-    "properties.panels": [],
-    "loads.method": "vortex_lattice",
-    "planform.aspect_ratio": 6.75,
     "properties.rib_stiffener_flange_width": 0.03,
-    "materials.library": [
-      {
-        "nu": 0.3,
-        "name": "Steel (generic)",
-        "id": 2,
-        "rho": 7850,
-        "E": 210000000000
-      },
-      {
-        "nu": 0.3,
-        "name": "Foam core (effective isotropic)",
-        "id": 3,
-        "rho": 80,
-        "E": 100000000
-      },
-      {
-        "nu": 0.25,
-        "name": "Honeycomb core (effective isotropic)",
-        "id": 4,
-        "rho": 50,
-        "E": 200000000
-      }
-    ],
-    "nonlinear.residual_tolerance": 0.000001,
-    "nonlinear.load_steps": 8,
     "planform.root_ref_x": 0,
-    "supports.mode": "root",
-    "leading_edge.disabled_bays": "",
-    "properties.rib_stiffener_height": 0.032,
-    "output.title": "Lifting surface torsion box",
-    "properties.stringer_web_thickness": 0.002,
-    "ribs.masters": [],
     "leading_edge.rib_kink_side": "inboard",
-    "aero.altitude_unit": "m",
-    "loads.lift_total": 6000,
-    "box.rib_pitch": 0.6,
-    "planform.twist_axis_xc": 0.25,
     "planform.trailing_edge_points": [
       {
         "eta": 0,
@@ -128,19 +67,18 @@
         "shift_percent": 16
       }
     ],
-    "loads.fuel_percent": 100,
     "view.plan_view": "",
     "airfoil.tip_source": "naca",
-    "fuel.start_rib": 1,
     "loads.distribution": "elliptical",
-    "aero.span_panels": 20,
     "movable_surfaces.items": [
       {
         "eta_end": 0.7,
         "front_spar_end": 0.75,
         "name": "Surface 1",
         "hinge_end": 0.7,
+        "clearance_outboard_m": 0,
         "front_spar_start": 0.75,
+        "clearance_inboard_m": 0,
         "hinge_z_end": -2,
         "hinge_z_start": -2,
         "eta_start": 0.2,
@@ -151,35 +89,165 @@
         "color": "#29b6d1"
       }
     ],
-    "stringers.euler_fixity_coefficient": 1,
     "stringers.shell_offsets": false,
-    "material.name": "AL2024",
     "airfoil.root_source": "naca",
     "properties.stringer_flange_width": 0.03,
     "nonstructural.runout": 0,
-    "airfoil.tip_profile": "",
     "loft.thickness_stations": [],
-    "planform.root_ref_y": 0,
     "box.stringer_angle_reference": "rear_spar",
-    "nonlinear.max_cutbacks": 8,
     "loads.structure_inertia": true,
+    "mass.structural_representation": "distributed",
+    "planform.root_ref_z": 0,
+    "loads.fuel_accel_x": 0,
+    "view.drawings": "",
+    "jfem.timeout_minutes": 0,
+    "properties.spar_bays": [],
+    "box.stringer_pitch": 0.15,
+    "engines.items": [],
+    "properties.rib_web_buckling_fixity": 1,
+    "nonstructural.spar_cap": 0,
+    "properties.rib_stiffener_flange_thickness": 0.002,
+    "nonlinear.displacement_tolerance": 0.000001,
+    "jfem.repo": "",
+    "loads.cases": [],
+    "output.t_aero_shell": 0.0005,
+    "planform.sweep_ref_xc": 0.25,
+    "leading_edge.t_skin": 0.0015,
+    "assessment.strength_safety_factor": 1.5,
+    "nonstructural.rib_stiffener": 0,
+    "planform.twist_tip": -3,
+    "properties.t_skin_lower": 0.0008,
+    "properties.stringer_flange_thickness": 0.002,
+    "mesh.elements_between_ribs": 3,
+    "nonlinear.max_iterations": 25,
+    "fuel.end_rib": 0,
+    "fuel.disabled_bays": "",
+    "mesh.stringer_runout_ratio": 0.75,
+    "aero.density": 1.225,
+    "materials.bars": [
+      {
+        "component": "stringer",
+        "material": 1
+      },
+      {
+        "component": "spar_cap",
+        "material": 1
+      },
+      {
+        "component": "rib_stiffener",
+        "material": 1
+      },
+      {
+        "component": "runout",
+        "material": 1
+      }
+    ],
+    "nonstructural.leading_edge_skin": 0,
+    "stringers.model": "beam",
+    "jfem.output_dir": "output/jfem",
+    "nonstructural.spar_web": 0,
+    "properties.rib_stiffener_web_thickness": 0.002,
+    "leading_edge.t_rib": 0.0015,
+    "sensitivity.settings": "{\"solution\":\"101\",\"case_id\":1,\"objective\":{\"type\":\"displacement\",\"component\":\"magnitude\",\"node_id\":null},\"variables\":[],\"derivative_method\":\"analytic\",\"relative_step\":0.01,\"check_step\":true}",
+    "aero.speed": 70,
+    "material.rho": 2780,
+    "leading_edge.enabled": false,
+    "box.end_eta": 0.9,
+    "stringers.skin_fixity_coefficient": 1,
+    "airfoil.root": "NACA2412",
+    "mesh.elements_spar_height": 3,
+    "airfoil.n_points": 121,
+    "output.buckling_deformation_energy": false,
+    "nonstructural.movable": 0,
+    "loads.label": "Load case 1",
+    "aero.atmosphere": "isa1976",
+    "references.items": [],
+    "properties.stringer_height": 0.032,
+    "mesh.elements_stringer_height": 2,
+    "assessment.migration_note": "Older Study load-case multipliers have been retained. If a multiplier already includes an ultimate safety factor, remove that safety factor from the case loads before using the new separate strength safety factor. Reserve factors now treat the authored case loads as LIMIT loads; no saved physical loads have been divided or rescaled automatically.",
+    "properties.t_spar_web": 0.0015,
+    "fuel.fill_fraction": 1,
+    "output.buckling_compact": false,
+    "mesh.aero_chord_points": 41,
+    "loft.vertical_shift_interpolation": "linear",
+    "fuel.density": 800,
+    "nonstructural.upper_skin": 0,
+    "loads.torque_y": 0,
+    "nonstructural.leading_edge_rib": 0,
+    "properties.rib_stiffeners_enabled": true,
+    "planform.leading_edge_points": [
+      {
+        "eta": 0,
+        "dxc": 0
+      },
+      {
+        "eta": 0.98,
+        "dxc": 0
+      },
+      {
+        "eta": 1,
+        "dxc": 0.5303
+      }
+    ],
+    "properties.spar_web_buckling_fixity": 1,
+    "properties.panels": [],
+    "loads.method": "vortex_lattice",
+    "planform.aspect_ratio": 6,
+    "materials.library": [
+      {
+        "nu": 0.3,
+        "name": "Steel (generic)",
+        "id": 2,
+        "rho": 7850,
+        "E": 210000000000
+      },
+      {
+        "nu": 0.3,
+        "name": "Foam core (effective isotropic)",
+        "id": 3,
+        "rho": 80,
+        "E": 100000000
+      },
+      {
+        "nu": 0.25,
+        "name": "Honeycomb core (effective isotropic)",
+        "id": 4,
+        "rho": 50,
+        "E": 200000000
+      }
+    ],
+    "nonlinear.residual_tolerance": 0.000001,
+    "nonlinear.load_steps": 8,
+    "supports.mode": "root",
+    "properties.rib_stiffener_height": 0.032,
+    "leading_edge.disabled_bays": "",
+    "output.title": "Lifting surface torsion box",
+    "properties.stringer_web_thickness": 0.002,
+    "ribs.masters": [],
+    "aero.altitude_unit": "m",
+    "loads.lift_total": 6000,
+    "box.rib_pitch": 0.6,
+    "planform.twist_axis_xc": 0.25,
+    "loads.fuel_percent": 100,
+    "aero.span_panels": 20,
+    "fuel.start_rib": 1,
+    "material.name": "AL2024",
+    "stringers.euler_fixity_coefficient": 1,
+    "airfoil.tip_profile": "",
+    "planform.root_ref_y": 0,
+    "nonlinear.max_cutbacks": 8,
     "nonstructural.stringer": 0,
     "jfem.output_formats": "jrs",
     "properties.components": [],
     "airfoil.root_profile": "",
-    "planform.area": 108,
+    "planform.area": 121.5,
     "properties.spar_cap_euler_fixity": 1,
     "properties.t_skin_upper": 0.0008,
-    "mass.structural_representation": "distributed",
-    "planform.root_ref_z": 0,
     "loads.aircraft_mass": 1000,
-    "loads.fuel_accel_x": 0,
-    "view.drawings": "",
     "leading_edge.start_rib": 1,
-    "jfem.timeout_minutes": 0,
     "loft.thickness_interpolation": "linear",
     "material.E": 71000000000,
-    "box.stringer_pitch": 0.15,
+    "properties.ribs": [],
     "materials.shells": [
       {
         "core_thickness": 0.01,
@@ -237,71 +305,27 @@
       }
     ],
     "box.front_spar_xc": 0.2,
-    "properties.ribs": [],
     "loads.maneuver_factor": 3,
     "properties.t_rib_web": 0.002,
-    "engines.items": [],
-    "properties.spar_bays": [],
     "airfoil.stations": [],
-    "nonstructural.spar_cap": 0,
-    "properties.rib_web_buckling_fixity": 1,
     "stringers.axis": "z",
-    "properties.rib_stiffener_flange_thickness": 0.002,
     "box.stringer_segment_angles": [],
-    "nonlinear.displacement_tolerance": 0.000001,
-    "jfem.repo": "",
     "aero.altitude": 0,
-    "loads.cases": [],
     "fuel.enabled": false,
     "loads.follower_forces": false,
     "loads.engine_thrust": [],
-    "output.t_aero_shell": 0.0005,
-    "planform.sweep_ref_xc": 0.25,
     "box.rear_spar_xc": 0.55,
     "leading_edge.rib_orientations": [],
     "stringers.axis_cid": 0,
     "properties.rib_stiffener_euler_fixity": 1,
-    "nonstructural.rib_stiffener": 0,
     "leading_edge.chord_elements": 8,
-    "leading_edge.t_skin": 0.0015,
     "loads.match_aircraft_lift": true,
-    "planform.twist_tip": -3,
-    "properties.t_skin_lower": 0.0008,
-    "properties.stringer_flange_thickness": 0.002,
-    "mesh.elements_between_ribs": 3,
     "output.buckling_energy_density": false,
-    "fuel.end_rib": 0,
-    "fuel.disabled_bays": "",
-    "nonlinear.max_iterations": 25,
-    "mesh.stringer_runout_ratio": 0.75,
     "leading_edge.rib_angle": 90,
     "movable_structure.surfaces": [],
-    "aero.density": 1.225,
-    "materials.bars": [
-      {
-        "component": "stringer",
-        "material": 1
-      },
-      {
-        "component": "spar_cap",
-        "material": 1
-      },
-      {
-        "component": "rib_stiffener",
-        "material": 1
-      },
-      {
-        "component": "runout",
-        "material": 1
-      }
-    ],
-    "nonstructural.leading_edge_skin": 0,
-    "stringers.model": "beam",
-    "jfem.output_dir": "output/jfem",
     "box.stringer_angle": 0,
     "airfoil.interpolation": "cosine",
-    "nonstructural.spar_web": 0,
-    "properties.rib_stiffener_web_thickness": 0.002,
+    "output.include_aero_shells": false,
     "loft.twist_interpolation": "linear",
     "box.rear_spar_points": [
       {
@@ -315,7 +339,7 @@
         "stringer_angle": 0
       }
     ],
-    "planform.taper_ratio": 0.6,
+    "planform.taper_ratio": 0.5,
     "nonstructural.rib_web": 0,
     "materials.allowables": [
       {
@@ -327,29 +351,18 @@
     ],
     "aero.alpha": 5,
     "output.solution": "101",
-    "leading_edge.t_rib": 0.0015,
     "output.n_modes": 10,
-    "output.include_aero_shells": false,
     "output.buckling_max_factor": 50,
-    "sensitivity.settings": "{\"solution\":\"101\",\"case_id\":1,\"objective\":{\"type\":\"displacement\",\"component\":\"magnitude\",\"node_id\":null},\"variables\":[],\"derivative_method\":\"analytic\",\"relative_step\":0.01,\"check_step\":true}",
-    "aero.speed": 70,
     "aero.speed_unit": "m/s",
     "loads.fuel_accel_y": 0,
-    "material.rho": 2780,
-    "leading_edge.enabled": false,
-    "box.end_eta": 0.9,
-    "stringers.skin_fixity_coefficient": 1,
-    "airfoil.root": "NACA2412",
-    "airfoil.closed_trailing_edge": true,
-    "planform.sweep": 25,
     "rbe3.enabled": true,
-    "mesh.elements_spar_height": 3,
+    "airfoil.closed_trailing_edge": true,
     "supports.items": [],
+    "planform.sweep": 25,
     "aero.chord_panels": 9,
-    "airfoil.n_points": 121,
     "properties.spar_cap_side": 0.02,
-    "output.buckling_deformation_energy": false,
-    "loads.label": "Load case 1",
+    "assessment.buckling_policy_factor": 1,
+    "material.nu": 0.33,
     "loft.twist_stations": [],
     "box.front_spar_points": [
       {
@@ -361,11 +374,8 @@
         "dxc": 0
       }
     ],
-    "aero.atmosphere": "isa1976",
-    "material.nu": 0.33,
     "output.reference_file": "output/wing_box.bdf",
     "loads.load_factor": 1.5,
-    "references.items": [],
     "fuel.fill_efficiency": 0.9
   },
   "references": [],
@@ -420,6 +430,8 @@
       "show-rib-datums": true,
       "rib-datum-size": "3",
       "vlm-field": "none",
+      "show-aero-wakes": true,
+      "aero-wake-length": "1",
       "vlm-force-scale": "1",
       "show-vlm-panel-forces": false,
       "show-fuel-tank": true,
@@ -446,7 +458,7 @@
       "show-actuator-stiffness": false,
       "show-reference-aero": false,
       "show-deformed-aero": false,
-      "contour-select": "2",
+      "contour-select": "",
       "compare-results": false,
       "auto-mesh": false,
       "auto-save": false,
@@ -1253,7 +1265,7 @@
       "RIB_STIFFENERS_P16000019": true,
       "RIB_STIFFENERS_P16000020": true,
       "RIB_STIFFENERS_P16000021": true,
-      "UNDEFORMED": true,
+      "UNDEFORMED": false,
       "NODES": false,
       "MESH_EDGES": true,
       "RBE3": true,
@@ -1270,15 +1282,13 @@
       "MATERIAL_AXES": false,
       "SHELL_AXES": false,
       "BAR_AXES": false,
-      "MOVABLE_PREVIEW": true,
-      "MOVABLE_PREVIEW_HINGES": true,
+      "AERO_LOADS": true,
+      "AERO_MOMENTS": true,
       "VLM_MESH": false,
       "VLM_PRESSURE": false,
       "VLM_FORCES": false,
-      "AERO_LOADS": true,
-      "AERO_MOMENTS": true,
-      "SUPPORT_FORCES": true,
-      "SUPPORT_MOMENTS": true
+      "MOVABLE_PREVIEW": true,
+      "MOVABLE_PREVIEW_HINGES": true
     },
     "loadLayers": {
       "AERO_LOADS": true,
@@ -1289,22 +1299,22 @@
     "layerGroups": {},
     "camera": {
       "target": [
-        4.265435355798458,
-        0.5912305738123442,
-        2.3699918937261657
+        5.887301640840064,
+        0.466869537773106,
+        2.539948674266597
       ],
-      "alpha": 28.883905112928055,
-      "beta": 1.0846022180315424,
-      "radius": 12.361901098683553,
+      "alpha": 33.87858819979912,
+      "beta": 0.7952658679433091,
+      "radius": 15.19712725776393,
       "mode": 0,
       "fov": 0.8,
-      "minZ": 0.01707537259677646,
-      "maxZ": 170.7537259677646,
+      "minZ": 0.017229026498730746,
+      "maxZ": 172.29026498730747,
       "orthoLeft": -6.592638423880839,
       "orthoRight": 6.592638423880839,
       "orthoTop": 4.379051799804061,
       "orthoBottom": -4.379051799804061,
-      "lowerRadiusLimit": 0.00001707537259677646,
+      "lowerRadiusLimit": 0.000017229026498730745,
       "upperRadiusLimit": 204.90447116131753
     },
     "activeCase": 1,
@@ -1315,6 +1325,10 @@
       "name": "Von Mises stress"
     },
     "realScale": false,
+    "ribBayFilter": {
+      "enabled": false,
+      "rib": 1
+    },
     "fuelTankVisible": true,
     "parameterLocks": {
       "planform": false,
@@ -1335,9 +1349,9 @@
       "pin": null,
       "filledFigures": true,
       "transform": {
-        "x": -88.17391304347828,
-        "y": 67.6086956521739,
-        "scale": 1.4347826086956523
+        "x": -74.03341435565636,
+        "y": 77.24994475750701,
+        "scale": 1.3990742786759
       },
       "viewport": {
         "x": 0,
@@ -1400,9 +1414,9 @@
         "pin": null,
         "filledFigures": true,
         "transform": {
-          "x": 0,
-          "y": 0,
-          "scale": 1
+          "x": 9.855499085451584,
+          "y": 6.719658467353355,
+          "scale": 0.9751123760468395
         },
         "viewport": {
           "x": -1141.2497990979537,
@@ -1496,9 +1510,9 @@
         "pin": null,
         "filledFigures": true,
         "transform": {
-          "x": -285.60241520193483,
-          "y": -11.52173913043481,
-          "scale": 1.4130434782608696
+          "x": -277.25006849461664,
+          "y": -2.0265695570006983,
+          "scale": 1.377876183544447
         },
         "viewport": {
           "x": 0,
@@ -1528,9 +1542,9 @@
         "pin": null,
         "filledFigures": true,
         "transform": {
-          "x": 0,
-          "y": 0,
-          "scale": 1
+          "x": 9.855499085451584,
+          "y": 6.719658467353355,
+          "scale": 0.9751123760468395
         },
         "viewport": {
           "x": 0,
@@ -1560,9 +1574,9 @@
         "pin": null,
         "filledFigures": true,
         "transform": {
-          "x": 0,
-          "y": 0,
-          "scale": 1
+          "x": 9.855499085451584,
+          "y": 6.719658467353355,
+          "scale": 0.9751123760468395
         },
         "viewport": {
           "x": 0,
@@ -1592,9 +1606,9 @@
         "pin": null,
         "filledFigures": true,
         "transform": {
-          "x": 0,
-          "y": 0,
-          "scale": 1
+          "x": 9.855499085451584,
+          "y": 6.719658467353355,
+          "scale": 0.9751123760468395
         },
         "viewport": {
           "x": 0,
@@ -1624,9 +1638,9 @@
         "pin": null,
         "filledFigures": true,
         "transform": {
-          "x": 31.739130434782595,
-          "y": 21.913043478260846,
-          "scale": 0.6521739130434783
+          "x": 38.166629838338,
+          "y": 26.295429435230446,
+          "scale": 0.635942853943591
         },
         "viewport": {
           "x": 0,
@@ -2008,9 +2022,9 @@
         "pin": null,
         "filledFigures": true,
         "transform": {
-          "x": 0,
-          "y": 0,
-          "scale": 1
+          "x": 9.855499085451584,
+          "y": 6.719658467353355,
+          "scale": 0.9751123760468395
         },
         "viewport": {
           "x": 0,
@@ -2077,7 +2091,7 @@
       "settings": {
         "stability_alpha": 0,
         "derivatives": true,
-        "mode": "single",
+        "mode": "sweep",
         "alpha": 1.7,
         "beta": 3.1,
         "p": 0,
@@ -2094,11 +2108,11 @@
         "control_chord_panels": 3,
         "chord_spacing": "cosine",
         "span_spacing": "cosine",
-        "max_panels": 2048,
+        "max_panels": 0,
         "max_strip_twist": 2,
         "max_panel_warp": 8,
         "max_normal_error": 1,
-        "wake_model": "relaxed",
+        "wake_model": "straight",
         "wake_acceleration": "anderson",
         "wake_length": 0.75,
         "wake_rows": 16,
@@ -2121,7 +2135,20 @@
             "left": 30
           }
         },
-        "sweeps": []
+        "sweeps": [
+          {
+            "variable": "alpha",
+            "start": -5,
+            "stop": 10,
+            "count": 15
+          },
+          {
+            "variable": "beta",
+            "start": 0,
+            "stop": 10,
+            "count": 10
+          }
+        ]
       },
       "palette": "coolwarm",
       "colorLimits": {
@@ -2133,11 +2160,12 @@
       "field": "circulation_m2_s",
       "frame": "wind",
       "vectors": true,
+      "vectorQuantity": "pressure",
       "wakes": true,
       "wakeLength": 1,
       "wireframe": true,
       "commonScale": true,
-      "selected": 0,
+      "selected": 100,
       "referenceAxes": true,
       "axisFrame": "body",
       "axisVisibility": {
@@ -2169,7 +2197,9 @@
       },
       "flowAngles": true,
       "sweepFrame": "wind",
-      "sweepVariable": ""
+      "sweepVariable": "",
+      "differenceEnabled": true,
+      "differenceBase": 105
     },
     "potato": {
       "selected": null,
@@ -2188,7 +2218,7 @@
       "gridSpacing": null
     },
     "workspace": {
-      "activeTab": "displaygeometry",
+      "activeTab": "planform",
       "width": 360,
       "collapsed": false,
       "maximizedTab": null,

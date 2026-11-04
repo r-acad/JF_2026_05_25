@@ -4,12 +4,14 @@
 # Geometry iterates at fixed downstream stations using midpoint streamline
 # tangency and under-relaxation. A straight semi-infinite tail closes each strip.
 
+@inline aerodynamic_wake_point(g,i,j)=VortexLattice.SVector(g[1,i,j],g[2,i,j],g[3,i,j])
+
 function aerodynamic_wake_panels(grids, strengths, core)
     [begin
         nw,ns=size(g,2)-1,size(g,3)-1
-        [VortexLattice.WakePanel(VortexLattice.SVector{3}(g[:,i,j]),
-            VortexLattice.SVector{3}(g[:,i,j+1]),VortexLattice.SVector{3}(g[:,i+1,j]),
-            VortexLattice.SVector{3}(g[:,i+1,j+1]),core,strengths[k][j]) for i in 1:nw,j in 1:ns]
+        [VortexLattice.WakePanel(aerodynamic_wake_point(g,i,j),
+            aerodynamic_wake_point(g,i,j+1),aerodynamic_wake_point(g,i+1,j),
+            aerodynamic_wake_point(g,i+1,j+1),core,strengths[k][j]) for i in 1:nw,j in 1:ns]
     end for (k,g) in enumerate(grids)]
 end
 
@@ -76,8 +78,8 @@ function aerodynamic_bound_core_map(system;fraction=.05)
     cores
 end
 
-function aerodynamic_bound_influence!(closed,system,core;bound_fraction=.05)
-    cores=aerodynamic_bound_core_map(system;fraction=bound_fraction)
+function aerodynamic_bound_influence!(closed,system,core;bound_fraction=.05,bound_cores=nothing)
+    cores=bound_cores===nothing ? aerodynamic_bound_core_map(system;fraction=bound_fraction) : bound_cores
     edgecore(a,b)=min(core,cores[aerodynamic_edge_key(a,b)])
     col=0
     for surface in system.surfaces,j in axes(surface,2),i in axes(surface,1)
@@ -96,8 +98,8 @@ function aerodynamic_bound_influence!(closed,system,core;bound_fraction=.05)
     closed
 end
 
-function aerodynamic_bound_core_range(system,core)
-    cores=aerodynamic_bound_core_map(system);used=Float64[]
+function aerodynamic_bound_core_range(system,core;bound_cores=nothing)
+    cores=bound_cores===nothing ? aerodynamic_bound_core_map(system) : bound_cores;used=Float64[]
     for surface in system.surfaces,j in axes(surface,2),i in axes(surface,1)
         p=surface[i,j]
         for (a,b) in ((p.rtl,p.rtr),(p.rtr,p.rbr),(p.rbl,p.rtl))
@@ -108,26 +110,31 @@ function aerodynamic_bound_core_range(system,core)
     collect(extrema(used))
 end
 
-function aerodynamic_coupled_wake!(system,grids,closed,rhs,core)
+function aerodynamic_coupled_wake!(system,grids,closed,rhs,core;bound_data=nothing,threaded=false)
     system.AIC.=closed
-    offset=0
-    for (k,surface) in enumerate(system.surfaces)
-        nc,ns=size(surface);g=grids[k]
-        nodes=[VortexLattice.SVector{3}(g[:,i,j]) for i in axes(g,2),j in axes(g,3)]
-        for j in 1:ns
-            col=offset+nc*j;row=0
-            for receiving in system.surfaces,panel in receiving
-                row+=1;x=VortexLattice.controlpoint(panel);velocity=zero(x)
-                for i in 1:size(nodes,1)-1
-                    velocity-=aerodynamic_core_segment(x,nodes[i,j],nodes[i+1,j],1.,core)
-                    velocity+=aerodynamic_core_segment(x,nodes[i,j+1],nodes[i+1,j+1],1.,core)
-                end
-                velocity-=aerodynamic_core_tail(x,nodes[end,j],1.,core)
-                velocity+=aerodynamic_core_tail(x,nodes[end,j+1],1.,core)
-                system.AIC[row,col]+=dot(velocity,VortexLattice.normal(panel))
+    receivers=bound_data===nothing ? [(VortexLattice.controlpoint(p),VortexLattice.normal(p)) for surface in system.surfaces for p in surface] : bound_data.receivers
+    columns=bound_data===nothing ? aerodynamic_wake_columns(system) : bound_data.columns
+    nodes_by_patch=[[aerodynamic_wake_point(g,i,j) for i in axes(g,2),j in axes(g,3)] for g in grids]
+    function column(index)
+        k,j,col=columns[index];nodes=nodes_by_patch[k]
+        for (row,(x,normal)) in enumerate(receivers)
+            velocity=zero(x)
+            for i in 1:size(nodes,1)-1
+                velocity-=aerodynamic_core_segment(x,nodes[i,j],nodes[i+1,j],1.,core)
+                velocity+=aerodynamic_core_segment(x,nodes[i,j+1],nodes[i+1,j+1],1.,core)
             end
+            velocity-=aerodynamic_core_tail(x,nodes[end,j],1.,core)
+            velocity+=aerodynamic_core_tail(x,nodes[end,j+1],1.,core)
+            system.AIC[row,col]+=dot(velocity,normal)
         end
-        offset+=length(surface)
+    end
+    # Wake columns are disjoint. Keep each receiving point's segment sum in
+    # its original order; only sufficiently large column sets use threads.
+    work=length(receivers)*sum((size(g,2)-1)*(size(g,3)-1) for g in grids)
+    if threaded&&Threads.nthreads()>1&&work>=32768
+        Threads.@threads for index in eachindex(columns);column(index);end
+    else
+        for index in eachindex(columns);column(index);end
     end
     system.w.=rhs;system.Γ.=system.AIC\rhs
     all(isfinite,system.Γ)||error("Nonfinite circulation in coupled free-wake solve")
@@ -159,7 +166,55 @@ function aerodynamic_core_tail(point,a,gamma,core)
     r=point-a;perp=r[2]^2+r[3]^2
     gamma/(4pi)*(1+r[1]/sqrt(sum(abs2,r)+core^2))/(perp+core^2)*VortexLattice.SVector(0.,-r[3],r[2])
 end
-function aerodynamic_bound_filaments(system;streamwise=false,bound_fraction=.05)
+function aerodynamic_wake_columns(system)
+    columns=NTuple{3,Int}[];offset=0
+    for (k,surface) in enumerate(system.surfaces)
+        nc,ns=size(surface)
+        for j in 1:ns;push!(columns,(k,j,offset+nc*j));end
+        offset+=length(surface)
+    end
+    columns
+end
+
+# Geometry, incidence and core radii are fixed throughout one wake solve.
+# Retain incidence order so evaluating a new circulation reproduces the
+# original edge cancellation exactly, without rebuilding its dictionaries.
+function aerodynamic_bound_filament_data(system;bound_fraction=.05)
+    cores=aerodynamic_bound_core_map(system;fraction=bound_fraction)
+    T=NTuple{3,Float64}
+    function geometry(streamwise)
+        edges=Dict{Tuple{T,T},Vector{Tuple{Int,Float64}}}()
+        function edge(a,b,index)
+            a,b=Tuple(a),Tuple(b);sign=1.
+            if isless(b,a);a,b=b,a;sign=-1.;end
+            push!(get!(()->Tuple{Int,Float64}[],edges,(a,b)),(index,sign))
+        end
+        index=0
+        for surface in system.surfaces,j in axes(surface,2),i in axes(surface,1)
+            p=surface[i,j];index+=1
+            streamwise||edge(p.rtl,p.rtr,index)
+            edge(p.rtr,p.rbr,index)
+            !streamwise&&i<size(surface,1)&&edge(p.rbr,p.rbl,index)
+            edge(p.rbl,p.rtl,index)
+        end
+        [(a=VortexLattice.SVector(a),b=VortexLattice.SVector(b),core=cores[(a,b)],terms=terms) for ((a,b),terms) in edges]
+    end
+    (;cores,full=geometry(false),streamwise=geometry(true),columns=aerodynamic_wake_columns(system),
+        receivers=[(VortexLattice.controlpoint(p),VortexLattice.normal(p)) for surface in system.surfaces for p in surface])
+end
+
+function aerodynamic_bound_filaments(system;streamwise=false,bound_fraction=.05,bound_data=nothing)
+    if bound_data!==nothing
+        geometry=streamwise ? bound_data.streamwise : bound_data.full
+        segments=Tuple{VortexLattice.SVector{3,Float64},VortexLattice.SVector{3,Float64},Float64,Float64}[]
+        sizehint!(segments,length(geometry))
+        for e in geometry
+            strength=0.
+            for (index,sign) in e.terms;strength+=sign*system.Γ[index];end
+            iszero(strength)||push!(segments,(e.a,e.b,strength,e.core))
+        end
+        return segments
+    end
     cores=aerodynamic_bound_core_map(system;fraction=bound_fraction)
     T=NTuple{3,Float64};edges=Dict{Tuple{T,T},Float64}()
     function edge(a,b,gamma)
@@ -181,8 +236,8 @@ function aerodynamic_bound_filaments(system;streamwise=false,bound_fraction=.05)
     [(VortexLattice.SVector(a),VortexLattice.SVector(b),v,cores[(a,b)]) for ((a,b),v) in edges if v!=0]
 end
 
-function aerodynamic_wake_filaments(system,grids,strengths;streamwise=false,bound_fraction=.05)
-    segments=aerodynamic_bound_filaments(system;streamwise,bound_fraction)
+function aerodynamic_wake_filaments(system,grids,strengths;streamwise=false,bound_fraction=.05,bound_data=nothing)
+    segments=aerodynamic_bound_filaments(system;streamwise,bound_fraction,bound_data)
     T=NTuple{3,Float64};edges=Dict{Tuple{T,T},Float64}();tails=Dict{T,Float64}()
     function edge(a,b,gamma)
         a,b=Tuple(a),Tuple(b)
@@ -193,8 +248,8 @@ function aerodynamic_wake_filaments(system,grids,strengths;streamwise=false,boun
         gamma=strengths[k];ns=length(gamma)
         for j in 1:ns+1
             strength=(j>1 ? gamma[j-1] : 0.)-(j<=ns ? gamma[j] : 0.)
-            for i in 1:size(g,2)-1;edge(g[:,i,j],g[:,i+1,j],strength);end
-            key=Tuple(g[:,end,j]);tails[key]=get(tails,key,0.)+strength
+            for i in 1:size(g,2)-1;edge(aerodynamic_wake_point(g,i,j),aerodynamic_wake_point(g,i+1,j),strength);end
+            key=Tuple(aerodynamic_wake_point(g,size(g,2),j));tails[key]=get(tails,key,0.)+strength
         end
     end
     append!(segments,[(VortexLattice.SVector(a),VortexLattice.SVector(b),v,Inf) for ((a,b),v) in edges if v!=0])
@@ -220,13 +275,13 @@ end
 # net spanwise bound vortex, prescribed velocity on chordwise legs (as in AVL
 # and VortexLattice). Its induced field is exactly the one used by the AIC and
 # streamline update. Omit the merged host edge explicitly at its midpoint.
-function aerodynamic_wake_properties!(system,ref,known,grids,strengths,speed,core;bound_fraction=.05)
-    segments,rays=aerodynamic_wake_filaments(system,grids,strengths;bound_fraction)
-    streamsegments,streamrays=aerodynamic_wake_filaments(system,grids,strengths;streamwise=true,bound_fraction)
-    aerodynamic_properties_from_field!(system,ref,known,segments,rays,streamsegments,streamrays,speed,core)
+function aerodynamic_wake_properties!(system,ref,known,grids,strengths,speed,core;bound_fraction=.05,bound_data=nothing,velocity_only=false)
+    segments,rays=aerodynamic_wake_filaments(system,grids,strengths;bound_fraction,bound_data)
+    streamsegments,streamrays=velocity_only ? (nothing,nothing) : aerodynamic_wake_filaments(system,grids,strengths;streamwise=true,bound_fraction,bound_data)
+    aerodynamic_properties_from_field!(system,ref,known,segments,rays,streamsegments,streamrays,speed,core;velocity_only)
 end
 
-function aerodynamic_properties_from_field!(system,ref,known,segments,rays,streamsegments,streamrays,speed,core)
+function aerodynamic_properties_from_field!(system,ref,known,segments,rays,streamsegments,streamrays,speed,core;velocity_only=false)
     prescribed(point)=VortexLattice.SVector(speed,0.,0.)+known(point)
     scale=.5ref.V^2*ref.S;offset=0
     for (k,surface) in enumerate(system.surfaces)
@@ -236,6 +291,12 @@ function aerodynamic_properties_from_field!(system,ref,known,segments,rays,strea
             netgamma=gamma-(i>1 ? system.Γ[index-1] : 0.)
             point=VortexLattice.top_center(panel)
             velocity=prescribed(point)+aerodynamic_wake_velocity(point,segments,rays,core;host=(panel.rtl,panel.rtr))
+            if velocity_only
+                all(isfinite,velocity)||error("Nonfinite finite-core force recovery")
+                empty=zero(velocity)
+                system.properties[k][i,j]=VortexLattice.PanelProperties{Float64}(gamma/ref.V,velocity/ref.V,empty,empty,empty,empty)
+                continue
+            end
             streamvelocity=prescribed(point)+aerodynamic_wake_velocity(point,streamsegments,streamrays,core)
             all(isfinite,velocity)&&all(isfinite,streamvelocity)||error("Nonfinite finite-core force recovery")
             cfb=netgamma*cross(velocity,VortexLattice.top_vector(panel))/scale
@@ -245,7 +306,7 @@ function aerodynamic_properties_from_field!(system,ref,known,segments,rays,strea
         end
         offset+=length(surface)
     end
-    system.near_field_analysis[]=true;system.derivatives[]=false
+    system.near_field_analysis[]=!velocity_only;system.derivatives[]=false
 end
 function aerodynamic_shared_wake!(grids,scale)
     groups=Dict{NTuple{3,Int},Vector{Tuple{Int,Int}}}()
@@ -261,9 +322,9 @@ function aerodynamic_shared_wake!(grids,scale)
         for (k,j) in group;grids[k][:,2:end,j].=line;end
     end
 end
-function aerodynamic_wake_targets(system,grids,strengths,known,speed,core;diagnostics=nothing,local_target=false,threaded=false)
+function aerodynamic_wake_targets(system,grids,strengths,known,speed,core;diagnostics=nothing,local_target=false,threaded=false,bound_data=nothing)
     targets=[copy(g) for g in grids];integrated=[copy(g) for g in grids]
-    segments,rays=aerodynamic_wake_filaments(system,grids,strengths)
+    segments,rays=aerodynamic_wake_filaments(system,grids,strengths;bound_data)
     columns=[(k,j) for (k,g) in enumerate(grids) for j in axes(g,3)]
     # Each worker owns one complete column. Reduce summaries in source order
     # so ties and the first failing filament are deterministic. Generic
@@ -274,7 +335,7 @@ function aerodynamic_wake_targets(system,grids,strengths,known,speed,core;diagno
         local alignment,slope_squared,minimum_vx,worst
         alignment=0.;slope_squared=0.;minimum_vx=Inf;worst=nothing
         for i in 1:size(g,2)-1
-            point=VortexLattice.SVector{3}((g[:,i,j]+g[:,i+1,j])/2)
+            point=(aerodynamic_wake_point(g,i,j)+aerodynamic_wake_point(g,i+1,j))/2
             velocity=VortexLattice.SVector(speed,0.,0.)+known(point)+aerodynamic_wake_velocity(point,segments,rays,core)
             minimum_vx=min(minimum_vx,velocity[1]/speed)
             if !all(isfinite,velocity)||velocity[1]<=.05speed
@@ -284,10 +345,10 @@ function aerodynamic_wake_targets(system,grids,strengths,known,speed,core;diagno
                 reason=!all(isfinite,velocity) ? "is nonfinite" : velocity[1]<=0 ? "reverses downstream direction" : "is too slow in the downstream direction for fixed-X marching"
                 throw(ArgumentError("Free-wake convection $reason: patch $k, filament $j, row $i, streamwise velocity/V=$(round(velocity[1]/speed;sigdigits=5)) (required >0.05), nearest other filament distance/core=$(round(distance/core;sigdigits=4)). Refine wake spacing/core or check the incidence/control attached-flow assumptions."))
             end
-            delta=g[:,i+1,j]-g[:,i,j];dx=delta[1];direction=velocity/velocity[1]
-            targets[k][:,i+1,j].=g[:,i,j].+dx.*direction
-            integrated[k][:,i+1,j].=integrated[k][:,i,j].+dx.*direction
-            slope_squared+=sum(abs2,targets[k][:,i+1,j]-g[:,i+1,j])/dx^2
+            delta=aerodynamic_wake_point(g,i+1,j)-aerodynamic_wake_point(g,i,j);dx=delta[1];direction=velocity/velocity[1]
+            targets[k][:,i+1,j].=aerodynamic_wake_point(g,i,j).+dx.*direction
+            integrated[k][:,i+1,j].=aerodynamic_wake_point(integrated[k],i,j).+dx.*direction
+            slope_squared+=sum(abs2,aerodynamic_wake_point(targets[k],i+1,j)-aerodynamic_wake_point(g,i+1,j))/dx^2
             defect=norm(delta/norm(delta)-velocity/norm(velocity))
             if defect>alignment
                 alignment=defect
@@ -317,7 +378,7 @@ function aerodynamic_wake_targets(system,grids,strengths,known,speed,core;diagno
         slope_squared+=summary.slope_squared;count+=summary.count
         if summary.alignment>alignment;alignment=summary.alignment;worst=summary.worst;end
     end
-    displacement=maximum(norm(t[:,i,j]-g[:,i,j]) for (g,t) in zip(grids,integrated) for j in axes(g,3) for i in axes(g,2))
+    displacement=maximum(norm(aerodynamic_wake_point(t,i,j)-aerodynamic_wake_point(g,i,j)) for (g,t) in zip(grids,integrated) for j in axes(g,3) for i in axes(g,2))
     if diagnostics!==nothing
         diagnostics["minimum_streamwise_velocity_over_V"]=min(get(diagnostics,"minimum_streamwise_velocity_over_V",Inf),minimum_vx)
         diagnostics["local_slope_rms"]=sqrt(slope_squared/count)
@@ -395,7 +456,7 @@ function aerodynamic_wake_collision_message(report)
 end
 
 function aerodynamic_free_wake!(system,ref,fs,known,s,w,forward,inverse,origin;
-    seed=nothing,frozen=false,body_grids=nothing,threaded=false,progress=(stage,done,total)->nothing)
+    seed=nothing,frozen=false,body_grids=nothing,threaded=false,velocity_only=false,progress=(stage,done,total)->nothing)
     core=s["wake_core"]*w.mac
     grids=aerodynamic_wake_geometry(system,s,w,forward,origin,seed)
     frozen||aerodynamic_shared_wake!(grids,w.mac)
@@ -412,8 +473,9 @@ function aerodynamic_free_wake!(system,ref,fs,known,s,w,forward,inverse,origin;
         report.count==0||throw(ArgumentError(aerodynamic_wake_collision_message(report)))
         report.count
     end
+    bound_data=aerodynamic_bound_filament_data(system)
     closed=similar(system.AIC)
-    aerodynamic_bound_influence!(closed,system,core)
+    aerodynamic_bound_influence!(closed,system,core;bound_cores=bound_data.cores)
     empty_wakes=[Matrix{VortexLattice.WakePanel{Float64}}(undef,0,size(p,2)) for p in system.surfaces]
     rhs=similar(system.w)
     VortexLattice.normal_velocity!(rhs,system.surfaces,empty_wakes,ref,fs;
@@ -425,14 +487,14 @@ function aerodynamic_free_wake!(system,ref,fs,known,s,w,forward,inverse,origin;
     rejected=0;wake_length=s["wake_length"]*w.span;trial_failures=String[]
     function evaluate(grids)
         check_clearance(grids)
-        _,strengths=aerodynamic_coupled_wake!(system,grids,closed,rhs,core)
+        _,strengths=aerodynamic_coupled_wake!(system,grids,closed,rhs,core;bound_data,threaded)
         diagnostics=Dict{String,Any}()
-        targets,alignment,delta=aerodynamic_wake_targets(system,grids,strengths,known,s["speed"],core;diagnostics,threaded)
+        targets,alignment,delta=aerodynamic_wake_targets(system,grids,strengths,known,s["speed"],core;diagnostics,threaded,bound_data)
         (;targets,alignment,displacement=delta/wake_length,strengths,gamma=copy(system.Γ),diagnostics)
     end
     if frozen
         check_clearance(grids)
-        _,strengths=aerodynamic_coupled_wake!(system,grids,closed,rhs,core)
+        _,strengths=aerodynamic_coupled_wake!(system,grids,closed,rhs,core;bound_data,threaded)
     else
         current=evaluate(grids)
         for iteration in 1:s["wake_iterations"]
@@ -522,7 +584,7 @@ function aerodynamic_free_wake!(system,ref,fs,known,s,w,forward,inverse,origin;
                 accepted&&break
             end
             if !accepted
-                aerodynamic_coupled_wake!(system,grids,closed,rhs,core)
+                aerodynamic_coupled_wake!(system,grids,closed,rhs,core;bound_data,threaded)
                 throw(ArgumentError("Free-wake update could not find a valid step at iteration $iteration (retained residual $(round(residual;sigdigits=4)), tolerance $(s["wake_tolerance"])). Last rejected trial: $last_rejection."*
                     aerodynamic_wake_defect_location(current.diagnostics)*
                     " The last valid wake and previous results were retained; refine the indicated wake region before rerunning."))
@@ -530,7 +592,7 @@ function aerodynamic_free_wake!(system,ref,fs,known,s,w,forward,inverse,origin;
         end
     end
     system.wake_finite_core.=true
-    aerodynamic_wake_properties!(system,ref,known,grids,strengths,s["speed"],core)
+    aerodynamic_wake_properties!(system,ref,known,grids,strengths,s["speed"],core;bound_data,velocity_only)
     physical(v)=collect(inverse(Tuple(v)).+origin)
     sheets=[Dict("patch"=>k,"lines"=>[[physical(g[:,i,j]) for i in axes(g,2)] for j in axes(g,3)],
         "circulation_m2_s"=>strengths[k]) for (k,g) in enumerate(grids)]
@@ -540,7 +602,7 @@ function aerodynamic_free_wake!(system,ref,fs,known,s,w,forward,inverse,origin;
         "trefftz"=>aerodynamic_relaxed_trefftz(grids,strengths,s["speed"],w.area),
         "core_radius_m"=>core,"rejected_trials"=>rejected,"trial_failures"=>trial_failures,"initialization"=>initialization,"final_body_intersections"=>check_clearance(grids),"streamwise_grading"=>"quadratic","first_station_distance_m"=>minimum(g[1,2,j]-g[1,1,j] for g in grids for j in axes(g,3)),"relaxation"=>s["wake_relaxation"],"acceleration"=>get(s,"wake_acceleration","none"),"history"=>history,"sheets"=>sheets,
         "bound_core_distance_fraction"=>.05,
-        "bound_core_radius_range_m"=>aerodynamic_bound_core_range(system,core),
+        "bound_core_radius_range_m"=>aerodynamic_bound_core_range(system,core;bound_cores=bound_data.cores),
         "core_model"=>"Rosenhead line integrals with a mesh-scale bound core (0.05 of the minimum incident collocation distance, capped by half edge length and wake core) and the requested wake core; identical AIC, convection and force-recovery field",
         "method"=>"Steady coupled circulation and midpoint streamline relaxation; incompressible physical space, consistent Rosenhead finite-core bound/wake field, fixed trailing-edge attachment and straight semi-infinite far continuation. Not time-accurate UVLM.")
 end

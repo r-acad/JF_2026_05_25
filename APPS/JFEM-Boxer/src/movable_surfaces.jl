@@ -117,9 +117,9 @@ the axis from the inboard hinge point to the outboard hinge point in BASIC xyz.
 The untouched plan outline is returned separately for the definition drawing.
 No FE model, aerodynamic lattice, active case or server state is modified.
 """
-function movable_surfaces_preview(p::AbstractDict)
+function movable_surfaces_preview(p::AbstractDict;wing=nothing)
     rows=normalize_movable_surfaces(get(p,"movable_surfaces.items",Any[]))
-    w=make_wing(p)
+    w=wing===nothing ? make_wing(p) : wing
     etas=sort!(unique(vcat(collect(range(0.,1.;length=61)),loft_control_etas(w))))
     camber(eta,xc)=section_point(w,eta,xc,(zup(w,eta,xc)+zlo(w,eta,xc))/2)
     outline=vcat([camber(eta,0.) for eta in etas],[camber(eta,1.) for eta in reverse(etas)])
@@ -158,11 +158,12 @@ end
 
 function handle_movable_surfaces(st,req)
     try
-        raw=JSON.parse(String(req.body));raw isa AbstractDict || throw(ArgumentError("Expected geometry parameters"))
+        raw=JSON.parse(String(req.body);dicttype=Dict{String,Any});raw isa AbstractDict || throw(ArgumentError("Expected geometry parameters"))
         # Do not make a preview depend on unfinished load/property form edits.
         geometry=Dict{String,Any}(k=>v for (k,v) in raw if any(prefix->startswith(k,prefix),("planform.","airfoil.","loft.","movable_surfaces.")))
-        p,unknown=normalize_params(geometry)
+        p,unknown=normalize_params(geometry;validate=false)
         isempty(unknown)||throw(ArgumentError("Unknown geometry parameters: "*join(unknown,", ")))
+        apply_point_angle_constraints!(p)
         return json_response(movable_surfaces_preview(p))
     catch error
         return error_response("Movable surfaces: "*describe_error(error))

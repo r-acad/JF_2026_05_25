@@ -28,9 +28,31 @@ function aerodynamic_geometry(flat::AbstractDict)
     return p,w,normalize_movable_surfaces(p["movable_surfaces.items"])
 end
 
+"""Number of sweep stations, retaining legacy evenly spaced count definitions."""
+function aerodynamic_sweep_count(sweep)
+    haskey(sweep,"step") || return vlm_count(sweep["count"],"Sweep count";minimum=2)
+    start,stop,step=Float64(sweep["start"]),Float64(sweep["stop"]),sweep["step"]
+    step isa Real&&!(step isa Bool)&&isfinite(step)&&!iszero(step)||
+        throw(ArgumentError("Sweep step must be finite and nonzero"))
+    start==stop&&return 1
+    ratio=(stop-start)/step
+    isfinite(ratio)&&ratio>0||throw(ArgumentError("Sweep step must advance from Start toward End"))
+    tolerance=32eps(Float64)*max(1.,abs(ratio))
+    intervals=max(1.,ceil(ratio-tolerance))
+    # Match the browser's exact integer capacity; never overflow array indexing.
+    intervals+1<=9007199254740991||throw(ArgumentError("Sweep count exceeds exact integer capacity"))
+    return vlm_count(intervals+1,"Sweep count";minimum=1)
+end
+
+function aerodynamic_sweep_values(sweep)
+    count=aerodynamic_sweep_count(sweep)
+    haskey(sweep,"step") ? range(Float64(sweep["start"]);step=Float64(sweep["step"]),length=count) :
+        range(sweep["start"],sweep["stop"];length=count)
+end
+
 function aerodynamic_settings(raw::AbstractDict,controls)
     raw=aerodynamic_plain(raw)
-    defaults=Dict{String,Any}("stability_alpha"=>0.,"derivatives"=>true,"mode"=>"single","alpha"=>5.,"beta"=>0.,"p"=>0.,"q"=>0.,"r"=>0.,
+    defaults=Dict{String,Any}("stability_alpha"=>0.,"derivatives"=>false,"mode"=>"single","alpha"=>5.,"beta"=>0.,"p"=>0.,"q"=>0.,"r"=>0.,
         "speed"=>70.,"atmosphere"=>"isa1976","altitude"=>0.,"density"=>1.225,"speed_of_sound"=>340.294,"compressibility"=>"prandtl_glauert",
         "chord_panels"=>8,"span_panels"=>16,"control_chord_panels"=>3,
         "chord_spacing"=>"cosine","span_spacing"=>"cosine","max_panels"=>0,
@@ -81,12 +103,18 @@ function aerodynamic_settings(raw::AbstractDict,controls)
     sweeps=s["sweeps"];sweeps isa AbstractVector||throw(ArgumentError("Sweeps must be a list"))
     used=Set{String}()
     for sweep in sweeps
-        sweep isa AbstractDict&&Set(keys(sweep))==Set(["variable","start","stop","count"])||throw(ArgumentError("A sweep needs variable, start, stop and count"))
+        sweep isa AbstractDict&&Set(keys(sweep)) in (Set(["variable","start","stop","count"]),Set(["variable","start","stop","step"]))||
+            throw(ArgumentError("A sweep needs variable, start, stop and either step or legacy count"))
         key=sweep["variable"];key isa AbstractString||throw(ArgumentError("Invalid sweep variable"))
         (key in ("alpha","beta","p","q","r","speed","altitude")||startswith(key,"control:")&&key[9:end] in names||startswith(key,"control_left:")&&key[14:end] in names)||throw(ArgumentError("Unknown sweep variable $key"))
         key in used&&throw(ArgumentError("Each sweep variable may appear once"));push!(used,key)
         all(k->sweep[k] isa Real&&!(sweep[k] isa Bool)&&isfinite(sweep[k]),("start","stop"))||throw(ArgumentError("Sweep bounds must be finite"))
-        sweep["count"]=vlm_count(sweep["count"],"Sweep count";minimum=2)
+        if haskey(sweep,"step")
+            aerodynamic_sweep_count(sweep)
+            sweep["step"]=Float64(sweep["step"])
+        else
+            sweep["count"]=vlm_count(sweep["count"],"Sweep count";minimum=2)
+        end
     end
     s["mode"]=="sweep"&&isempty(sweeps)&&throw(ArgumentError("Add at least one sweep variable"))
     return s
@@ -95,10 +123,10 @@ end
 function aerodynamic_conditions(settings,controls)
     cases=[deepcopy(settings)]
     if settings["mode"]=="sweep"
-        vlm_checked_size("Aerodynamic Cartesian sweep",(sweep["count"] for sweep in settings["sweeps"])...)
+        vlm_checked_size("Aerodynamic Cartesian sweep",(aerodynamic_sweep_count(sweep) for sweep in settings["sweeps"])...)
         for sweep in settings["sweeps"]
             next=Dict{String,Any}[]
-            for c in cases,value in range(sweep["start"],sweep["stop"];length=Int(sweep["count"]))
+            for c in cases,value in aerodynamic_sweep_values(sweep)
                 v=deepcopy(c);key=sweep["variable"]
                 if startswith(key,"control_left:")
                     name=key[14:end];v["controls"][name]["source"]="override";v["controls"][name]["pairing"]="independent";v["controls"][name]["left"]=value
@@ -187,7 +215,45 @@ function aerodynamic_mesh_payload(patches,w,s)
         "max_normal_error_deg"=>maximum(m.control_normal_error_deg for p in patches for m in p.metrics))
 end
 
-function aerodynamic_initialize_system!(system,patches,grids,ref,fs,surface_ids,known,core;relaxed)
+"""Recover only the straight-wake velocity used by physical Kutta-Joukowski recovery.
+
+The package's full recovery also computes an additional streamwise-only induced
+field and its own force coefficients. Independent studies recompute the physical
+forces after the PG pullback, so neither of those fields is consumed here.
+Retain the package's total-field/self-edge kernels and summation order exactly.
+"""
+function aerodynamic_straight_velocities!(system,ref,fs,known)
+    freestream=VortexLattice.freestream_velocity(fs)
+    rotating=any(!iszero,fs.Omega)
+    zero3=zero(freestream)
+    ranges=Any[];offset=0
+    for surface in system.surfaces
+        push!(ranges,view(system.Γ,offset+1:offset+length(surface)));offset+=length(surface)
+    end
+    offset=0
+    for (receiver,surface) in enumerate(system.surfaces)
+        for (index,I) in enumerate(CartesianIndices(surface))
+            point=VortexLattice.top_center(surface[I])
+            velocity=rotating ? freestream+VortexLattice.rotational_velocity(point,fs,ref) : freestream
+            known===nothing||(velocity+=known(point))
+            for (sender,sending) in enumerate(system.surfaces)
+                location=receiver==sender ? I : point
+                velocity+=VortexLattice.induced_velocity(location,sending,ranges[sender];
+                    finite_core=system.surface_id[receiver]!=system.surface_id[sender],
+                    wake_shedding_locations=nothing,symmetric=system.symmetric[sender],
+                    trailing_vortices=system.trailing_vortices[sender],xhat=system.xhat[])
+            end
+            system.properties[receiver][I]=VortexLattice.PanelProperties{Float64}(
+                system.Γ[offset+index]/ref.V,velocity/ref.V,zero3,zero3,zero3,zero3)
+        end
+        offset+=length(surface)
+    end
+    # Native force/streamwise properties were deliberately not recovered.
+    system.near_field_analysis[]=false;system.derivatives[]=false
+    return system.properties
+end
+
+function aerodynamic_initialize_system!(system,patches,grids,ref,fs,surface_ids,known,core;relaxed,velocity_only=false)
     for k in eachindex(system.surfaces)
         VortexLattice.update_surface_panels!(system.surfaces[k],grids[k];ratios=system.ratios[k],fcore=(c,ds)->core)
     end
@@ -208,11 +274,15 @@ function aerodynamic_initialize_system!(system,patches,grids,ref,fs,surface_ids,
             surface_id=system.surface_id,nwake=system.nwake,wake_finite_core=system.wake_finite_core,
             trailing_vortices=system.trailing_vortices,xhat=system.xhat[])
         VortexLattice.circulation!(system.Γ,system.AIC,system.w)
-        VortexLattice.near_field_forces!(system.properties,system.surfaces,system.wakes,ref,fs,system.Γ;
-            dΓdt=nothing,additional_velocity=known,Vh=nothing,Vv=nothing,symmetric=system.symmetric,
-            nwake=system.nwake,surface_id=system.surface_id,wake_finite_core=system.wake_finite_core,
-            wake_shedding_locations=nothing,trailing_vortices=system.trailing_vortices,xhat=system.xhat[])
-        system.near_field_analysis[]=true
+        if velocity_only
+            aerodynamic_straight_velocities!(system,ref,fs,known)
+        else
+            VortexLattice.near_field_forces!(system.properties,system.surfaces,system.wakes,ref,fs,system.Γ;
+                dΓdt=nothing,additional_velocity=known,Vh=nothing,Vv=nothing,symmetric=system.symmetric,
+                nwake=system.nwake,surface_id=system.surface_id,wake_finite_core=system.wake_finite_core,
+                wake_shedding_locations=nothing,trailing_vortices=system.trailing_vortices,xhat=system.xhat[])
+            system.near_field_analysis[]=true
+        end
     end
     conformity
 end
@@ -243,8 +313,9 @@ function aerodynamic_wake_error_context(message,patches)
     isempty(locations) ? message : message*separator*join(locations,"; ")*"."
 end
 
-function aerodynamic_solve(w,patches,s;wake_seed=nothing,frozen_wake=false,progress=(stage,done,total)->nothing)
-    geometry_interference=aerodynamic_body_interference(patches)
+function aerodynamic_solve(w,patches,s;wake_seed=nothing,frozen_wake=false,coefficients_only=false,
+        geometry_interference=nothing,progress=(stage,done,total)->nothing)
+    geometry_interference===nothing&&(geometry_interference=aerodynamic_body_interference(patches))
     geometry_interference["valid"]||throw(ArgumentError(geometry_interference["message"]))
     p=Dict{String,Any}("aero.atmosphere"=>s["atmosphere"],"aero.altitude"=>s["altitude"],"aero.speed"=>s["speed"],
         "aero.density"=>s["density"],"aero.speed_of_sound"=>s["speed_of_sound"])
@@ -253,11 +324,13 @@ function aerodynamic_solve(w,patches,s;wake_seed=nothing,frozen_wake=false,progr
     reference=aerodynamic_reference(w,s);origin=(w.root_ref_x,w.root_ref_y,w.root_ref_z+vertical_shift(w,0.))
     ref_local=reference.-origin
     physfs=VortexLattice.Freestream(speed,deg2rad(s["alpha"]),deg2rad(s["beta"]),deg2rad.([s["p"],s["q"],s["r"]]))
-    R=VortexLattice.body_to_wind(physfs);B=s["compressibility"]=="incompressible" ? 1. : sqrt(1-mach^2)
-    rotate(v)=Tuple(R*collect(v));unrotate(v)=Tuple(transpose(R)*collect(v))
+    R=VortexLattice.body_to_wind(physfs);Rinv=transpose(R);B=s["compressibility"]=="incompressible" ? 1. : sqrt(1-mach^2)
+    rotate(v)=Tuple(R*VortexLattice.SVector{3}(v));unrotate(v)=Tuple(Rinv*VortexLattice.SVector{3}(v))
     forward(v)=begin r=rotate(v);(r[1],B*r[2],B*r[3]);end
     inverse(v)=unrotate((v[1],v[2]/B,v[3]/B))
-    physical_rotation(r)=Tuple(VortexLattice.rotational_velocity(collect(r),physfs, VortexLattice.Reference(w.area,w.mac,w.span,collect(ref_local),speed)))
+    physical_ref=VortexLattice.Reference(w.area,w.mac,w.span,collect(ref_local),speed)
+    rotating=any(!iszero,physfs.Omega);freestream=Tuple(VortexLattice.freestream_velocity(physfs))
+    physical_rotation(r)=rotating ? Tuple(VortexLattice.rotational_velocity(VortexLattice.SVector{3}(r),physfs,physical_ref)) : AERO_ZERO
     known(r)=VortexLattice.SVector{3}(forward(physical_rotation(inverse(r))))
     grids=[similar(p.grid) for p in patches]
     for (grid,patch) in zip(grids,patches),j in axes(grid,3),i in axes(grid,2)
@@ -272,10 +345,11 @@ function aerodynamic_solve(w,patches,s;wake_seed=nothing,frozen_wake=false,progr
     element_ids=Dict{String,Int}();surface_ids=[get!(()->length(element_ids)+1,element_ids,p.element_name) for p in patches]
     relaxed=s["wake_model"]=="relaxed"
     vortex_conformity=aerodynamic_initialize_system!(system,patches,grids,ref,fs,surface_ids,known,
-        relaxed ? s["wake_core"]*w.mac : 1e-3;relaxed)
+        relaxed ? s["wake_core"]*w.mac : 1e-3;relaxed,velocity_only=true)
     wake=if relaxed
         try
-            aerodynamic_free_wake!(system,ref,fs,known,s,w,forward,inverse,origin;seed=wake_seed,frozen=frozen_wake,body_grids=grids,progress,threaded=true)
+            aerodynamic_free_wake!(system,ref,fs,known,s,w,forward,inverse,origin;seed=wake_seed,frozen=frozen_wake,
+                body_grids=grids,progress,threaded=true,velocity_only=true)
         catch error
             error isa ArgumentError||rethrow()
             message=aerodynamic_wake_error_context(error.msg,patches)
@@ -286,43 +360,52 @@ function aerodynamic_solve(w,patches,s;wake_seed=nothing,frozen_wake=false,progr
         nothing
     end
     all(isfinite,system.Γ)||error("VLM returned nonfinite circulation")
-    payload=aerodynamic_mesh_payload(patches,w,s);panels=payload["panels"];force=AERO_ZERO;moment=AERO_ZERO;index=0;offset=0;strips=Any[]
+    payload=coefficients_only ? nothing : aerodynamic_mesh_payload(patches,w,s)
+    panels=coefficients_only ? nothing : payload["panels"];force=AERO_ZERO;moment=AERO_ZERO;index=0;offset=0;strips=Any[]
     for (patchno,patch) in enumerate(patches)
         surface=system.surfaces[patchno];properties=system.properties[patchno];nc,ns=size(surface)
         for j in 1:ns
             stripF=AERO_ZERO;stripM=AERO_ZERO;weightedCp=0.;area=0.;gamma=0.
             for i in 1:nc
-                index+=1;panel=surface[i,j];prop=properties[i,j];record=panels[index]
+                index+=1;panel=surface[i,j];prop=properties[i,j]
                 G=system.Γ[offset+(j-1)*nc+i]/B^2;Gb=i==1 ? G : G-system.Γ[offset+(j-1)*nc+i-1]/B^2
                 center=inverse(VortexLattice.top_center(panel));rotation=physical_rotation(center)
-                solver_known=known(VortexLattice.top_center(panel));v=prop.velocity.*speed
+                solver_known=forward(rotation);v=prop.velocity.*speed
                 disturbance=(v[1]-speed-solver_known[1],v[2]-solver_known[2],v[3]-solver_known[3])
-                velocity=Tuple(VortexLattice.freestream_velocity(physfs)).+rotation.+unrotate((disturbance[1]/B^2,disturbance[2]/B,disturbance[3]/B))
+                velocity=freestream.+rotation.+unrotate((disturbance[1]/B^2,disturbance[2]/B,disturbance[3]/B))
                 F=AERO_ZERO;M=AERO_ZERO
                 for (point,segment,circulation,vel) in (
                     (VortexLattice.top_center(panel),VortexLattice.top_vector(panel),Gb,velocity),
                     (VortexLattice.left_center(panel),VortexLattice.left_vector(panel),G,nothing),
                     (VortexLattice.right_center(panel),VortexLattice.right_vector(panel),G,nothing))
-                    x=inverse(point);u=vel===nothing ? Tuple(VortexLattice.freestream_velocity(physfs)).+physical_rotation(x) : vel
+                    x=inverse(point);u=vel===nothing ? freestream.+physical_rotation(x) : vel
                     f=(rho*circulation).*cross3(u,inverse(segment));F=F.+f;M=M.+cross3(x.-ref_local,f)
                 end
-                metric=patch.metrics[i,j];pressure=sum(F.*metric.normal)/metric.area
-                all(isfinite,(F...,M...,pressure,G))||error("Nonfinite aerodynamic panel recovery")
-                record["force_N"]=collect(F);record["moment_Nm"]=collect(M);windF=rotate(F);record["force_wind_N"]=[-windF[1],windF[2],-windF[3]];record["wind_loads_N"]=collect(windF);record["delta_pressure_Pa"]=pressure;record["delta_cp"]=pressure/q
-                record["circulation_m2_s"]=G;record["velocity_m_s"]=collect(velocity);record["speed_ratio"]=norm3(velocity)/speed
-                force=force.+F;moment=moment.+M;stripF=stripF.+F;stripM=stripM.+M;weightedCp+=pressure/q*metric.area;area+=metric.area;gamma+=G
+                all(isfinite,(F...,M...,G))||error("Nonfinite aerodynamic panel recovery")
+                force=force.+F;moment=moment.+M
+                if !coefficients_only
+                    record=panels[index];metric=patch.metrics[i,j];pressure=sum(F.*metric.normal)/metric.area
+                    isfinite(pressure)||error("Nonfinite aerodynamic panel recovery")
+                    record["force_N"]=collect(F);record["moment_Nm"]=collect(M);windF=rotate(F);record["force_wind_N"]=[-windF[1],windF[2],-windF[3]];record["wind_loads_N"]=collect(windF);record["delta_pressure_Pa"]=pressure;record["delta_cp"]=pressure/q
+                    record["circulation_m2_s"]=G;record["velocity_m_s"]=collect(velocity);record["speed_ratio"]=norm3(velocity)/speed
+                    stripF=stripF.+F;stripM=stripM.+M;weightedCp+=pressure/q*metric.area;area+=metric.area;gamma+=G
+                end
             end
-            eta=(patch.etas[j]+patch.etas[j+1])/2;dy=abs(patch.etas[j+1]-patch.etas[j])*w.semispan;c=chord(w,eta);wind=rotate(stripF)
-            push!(strips,Dict("side"=>patch.side,"region"=>patch.name,"eta"=>eta,"y_m"=>w.root_ref_y+(patch.side=="right" ? 1 : -1)*eta*w.semispan,
-                "width_m"=>dy,"chord_m"=>c,"force_per_m"=>collect(stripF./dy),"moment_per_m"=>collect(stripM./dy),
-                "lift_per_m"=>wind[3]/dy,"drag_per_m"=>wind[1]/dy,"side_force_per_m"=>wind[2]/dy,
-                "cl"=>wind[3]/(q*c*dy),"cdi_near"=>wind[1]/(q*c*dy),"cy"=>wind[2]/(q*c*dy),"mean_delta_cp"=>weightedCp/area,"mean_circulation"=>gamma/nc))
+            if !coefficients_only
+                eta=(patch.etas[j]+patch.etas[j+1])/2;dy=abs(patch.etas[j+1]-patch.etas[j])*w.semispan;c=chord(w,eta);wind=rotate(stripF)
+                push!(strips,Dict("side"=>patch.side,"region"=>patch.name,"eta"=>eta,"y_m"=>w.root_ref_y+(patch.side=="right" ? 1 : -1)*eta*w.semispan,
+                    "width_m"=>dy,"chord_m"=>c,"force_per_m"=>collect(stripF./dy),"moment_per_m"=>collect(stripM./dy),
+                    "lift_per_m"=>wind[3]/dy,"drag_per_m"=>wind[1]/dy,"side_force_per_m"=>wind[2]/dy,
+                    "cl"=>wind[3]/(q*c*dy),"cdi_near"=>wind[1]/(q*c*dy),"cy"=>wind[2]/(q*c*dy),"mean_delta_cp"=>weightedCp/area,"mean_circulation"=>gamma/nc))
+            end
         end
         offset+=length(surface)
     end
     sort!(strips;by=r->r["y_m"])
     coefficients=aerodynamic_coefficients(force,moment,s,q*w.area,w.span,w.mac)
     cdi=wake===nothing ? VortexLattice.far_field_drag(system)/B^4 : wake["trefftz"]["CDi"];cl=coefficients["wind"]["force"][3]
+    efficiency=cdi===nothing ? nothing : inviscid_span_efficiency(cl,cdi,w.span^2/w.area)
+    coefficients_only&&return Dict{String,Any}("flight"=>flight,"coefficients"=>coefficients,"CDi_trefftz"=>cdi,"span_efficiency"=>efficiency)
     residual=maximum(abs,system.AIC*system.Γ-system.w)/speed
     warnings=String[]
     payload["min_panel_aspect_ratio"]<.7-1e-9&&push!(warnings,"True cosine spacing: lower aspect ratio 0.7 is advisory; short interior panels are retained. The 1.5 upper limit is enforced.")
@@ -346,7 +429,7 @@ function aerodynamic_solve(w,patches,s;wake_seed=nothing,frozen_wake=false,progr
             difference>.2&&push!(warnings,"Near-field and terminal-wake Trefftz drag differ by $(round(100difference;digits=1))%; check wing/wake refinement and the wake cutoff.")
         end
     end
-    payload["condition"]=s;payload["flight"]=flight;payload["coefficients"]=coefficients;payload["CDi_trefftz"]=cdi;payload["span_efficiency"]=cdi===nothing ? nothing : inviscid_span_efficiency(cl,cdi,w.span^2/w.area)
+    payload["condition"]=s;payload["flight"]=flight;payload["coefficients"]=coefficients;payload["CDi_trefftz"]=cdi;payload["span_efficiency"]=efficiency
     payload["force_N"]=collect(force);payload["moment_Nm"]=collect(moment);payload["strips"]=strips;payload["residual_over_V"]=residual;payload["warnings"]=warnings
     payload["geometry_interference"]=geometry_interference
     payload["vortex_conformity"]=vortex_conformity
@@ -354,17 +437,27 @@ function aerodynamic_solve(w,patches,s;wake_seed=nothing,frozen_wake=false,progr
 end
 
 function run_aerodynamic_study(flat,raw;mesh_only=false,progress=(stage,done,total)->nothing)
+    started=time()
     progress("Reading aerodynamic geometry",0,1);p,w,controls=aerodynamic_geometry(flat);s=aerodynamic_settings(raw,controls)
     cases=mesh_only ? [s] : aerodynamic_conditions(s,controls);results=Any[];mesh_cache=Dict{String,Any}();meshes=Any[]
+    work=Dict{String,Any}("conditions"=>length(cases),"base_solves"=>0,"derivative_solves"=>0,
+        "derivative_base_reuses"=>0,"inactive_derivative_reuses"=>0,"derivative_variables"=>0,
+        "unavailable_derivative_variables"=>0,"mesh_builds"=>0,"mesh_seconds"=>0.,
+        "base_solve_seconds"=>0.,"derivative_seconds"=>0.)
     for (i,condition) in enumerate(cases)
         progress("Meshing full wing: condition $i / $(length(cases))",i-1,length(cases))
-        patches=get!(()->aerodynamic_mesh(w,controls,condition;progress=progress),mesh_cache,JSON.json(condition["controls"]))
+        patches=get!(mesh_cache,JSON.json(condition["controls"])) do
+            mesh_started=time();value=aerodynamic_mesh(w,controls,condition;progress=progress)
+            work["mesh_builds"]+=1;work["mesh_seconds"]+=time()-mesh_started;value
+        end
         push!(meshes,patches)
     end
     for (i,condition) in enumerate(cases)
         patches=meshes[i]
         progress(mesh_only ? "Preparing mesh preview" : "Solving VLM: condition $i / $(length(cases))",i-1,length(cases))
+        solve_started=time()
         push!(results,mesh_only ? aerodynamic_mesh_payload(patches,w,condition) : aerodynamic_solve(w,patches,condition;progress=(stage,done,total)->progress("Condition $i / $(length(cases)): "*stage,done,total)))
+        if !mesh_only;work["base_solves"]+=1;work["base_solve_seconds"]+=time()-solve_started;end
         if mesh_only
             interference=aerodynamic_body_interference(patches)
             results[end]["geometry_interference"]=interference
@@ -372,12 +465,16 @@ function run_aerodynamic_study(flat,raw;mesh_only=false,progress=(stage,done,tot
         end
         results[end]["condition"]=condition;results[end]["id"]=i
         if !mesh_only&&s["derivatives"]
+            derivatives_started=time()
             results[end]["derivatives"]=aerodynamic_derivatives(w,controls,patches,condition,results[end];
-                progress=(stage,done,total)->progress("Condition $i / $(length(cases)): "*stage,done,total))
+                work,progress=(stage,done,total)->progress("Condition $i / $(length(cases)): "*stage,done,total))
+            work["derivative_seconds"]+=time()-derivatives_started
         end
     end
+    work["total_seconds"]=time()-started
     progress("Complete",length(cases),length(cases))
     return Dict{String,Any}("version"=>AERODYNAMIC_STUDY_VERSION,"mesh_only"=>mesh_only,"settings"=>s,"cases"=>results,
+        "work"=>work,
         "geometry"=>Dict(k=>v for (k,v) in p if aerodynamic_geometry_key(k)),"created_at"=>string(Dates.now(Dates.UTC)),
         "basis"=>"Unscaled full symmetric-wing geometry, both halves solved explicitly; Construction C/BASIC X aft, Y right, Z up. B axes forward/right/down; A follows current alpha; S is fixed at stability_alpha; W-prime is American wind, not gravity-defined trajectory W. No FE model, structural load multiplier or inertia loads. Forces/moments about the displayed reference. Positions, dimensional panel/resultant vectors and their cross products remain in C. Coefficient vectors/moments are rotated dimensionally before normalization. Body/A/S forces are signed CX/CY/CZ; W-prime force displays positive CDi/CY/CL with signed force_components alongside. Axes are translated from the book CG origin to the selected reference (enter CG to use CG moments). Coefficient moments use standard dynamics signs (+roll right wing down, +pitch nose up, +yaw nose right).",
         "limitations"=>"Steady/quasi-steady attached-flow thin mean-camber VLM. Straight wakes support Prandtl-Glauert through Mach 0.5. Relaxed free wakes use incompressible flow, finite-core convection and a straight far continuation; no time-accurate shedding. Their derivatives explicitly freeze or re-relax wake geometry. Relaxed-wake Trefftz drag/span efficiency use the terminal cross-section with straight far continuation, as an approximate discrete wake-sheet integral with terminal-shape sensitivity diagnostics. Refine wake length/spacing/core; convergence of the wake alone does not establish drag accuracy. Control sheets follow authored rigid kinematics about their true 3D hinge. Offset boundaries use separate fixed/control lifting elements and can open gaps; finite thickness and viscous slot flow remain outside thin-sheet VLM. No viscous/profile drag, stall, shocks, hinge-gap leakage, aeroelastic feedback or time-accurate unsteady wake.")
