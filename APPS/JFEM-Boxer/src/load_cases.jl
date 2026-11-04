@@ -86,11 +86,15 @@ function model_for_load_case(m::Model, spec)
 end
 
 function case_loads(m::Model)
-    fingerprint = hash(m.params)
+    fingerprint = physical_parameter_fingerprint(m.params)
     return lock(CASE_LOAD_CACHE_LOCK) do
         cached = CASE_LOAD_CACHE[]
         if cached !== nothing && cached.model === m && cached.fingerprint == fingerprint
-            return cached.cases
+            # Policy edits reuse the expensive physical loads, while their
+            # freshly copied case metadata must reflect the current Study.
+            specs=load_case_specs(m.params)
+            return [(id=c.id,label=c.label,params=spec.params,loads=c.loads)
+                for (c,spec) in zip(cached.cases,specs)]
         end
         cases = [(id = spec.id, label = spec.label, params = spec.params,
                   loads = aerodynamic_loads(model_for_load_case(m, spec)))

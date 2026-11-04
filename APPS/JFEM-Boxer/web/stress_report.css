@@ -1,4 +1,13 @@
 #panel-stressreport{min-width:0}
+.stress-report-load-policy{margin:8px 0 14px;padding:10px 12px;border:1px solid #3c6582;border-radius:6px;background:#112d40;min-width:0}
+.stress-report-load-policy legend{font-weight:600;padding:0 6px;color:#c4e1f5}
+.stress-report-load-policy p{margin:0 0 8px;font-size:13px;line-height:1.5}
+.stress-report-load-policy[data-invalid="true"]{border-color:#ef7272;color:#ffd0d0}
+.buckling-policy-results{overflow-x:auto;min-width:0}
+.buckling-policy-table{width:100%;min-width:300px;border-collapse:collapse;font-size:13px;line-height:1.45}
+.buckling-policy-table.compact{min-width:520px}
+.buckling-policy-table th,.buckling-policy-table td{padding:7px 10px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line,#344b60)}
+.buckling-policy-table th{background:#18394c;color:#d1edff;font-weight:600}
 #tab-stressreport[data-analysis-state="current"]{color:#71e4ad}
 #tab-stressreport[data-analysis-state="stale"]{color:#ff858d}
 #tab-stressreport[data-analysis-state="empty"]{color:#94a3b3}

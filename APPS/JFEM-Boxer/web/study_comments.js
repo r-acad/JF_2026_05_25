@@ -27,8 +27,17 @@
     const dialog=element(doc,"dialog","study-comments-dialog"),heading=element(doc,"h2","",title);heading.id="study-comments-heading";
     dialog.setAttribute("aria-labelledby",heading.id);dialog.append(heading);doc.body.append(dialog);return dialog;
   }
-  function promptSave({document:doc=globalThis.document,notes,draft="",saveAs=false,onSave,onCancel}={}){
+  function locationHeader(doc,location){
+    const source=location&&typeof location==="object"?location:workspace.studyLocation(),section=element(doc,"div","study-save-location"),label=element(doc,"label","",source.fullPath?"Current path and file":"Current Study file"),row=element(doc,"div","study-save-location-row"),input=element(doc,"input"),copy=element(doc,"button","","Copy");
+    input.id="study-save-current-path";input.type="text";input.readOnly=true;input.value=source.value||"";input.placeholder="Not saved yet";input.title=source.description;label.htmlFor=input.id;copy.type="button";copy.disabled=!source.value;copy.title=source.fullPath?"Copy the complete current Study path and filename":"Copy the available filename";
+    const status=element(doc,"small","study-save-location-status",source.description||"");status.setAttribute("role","status");
+    input.addEventListener("click",()=>input.select());copy.onclick=async()=>{input.focus();input.select();try{await doc.defaultView.navigator.clipboard.writeText(input.value);status.textContent=source.fullPath?"Full path copied.":"Filename copied. The browser has not provided its folder path.";}catch(_){const ok=doc.execCommand?.("copy");status.textContent=ok?"Copied.":"Path selected. Press Ctrl+C (Windows/Linux) or Cmd+C (Mac) to copy.";}};
+    row.append(input,copy);section.append(label,row,status);return section;
+  }
+  function promptSave({document:doc=globalThis.document,notes,draft="",saveAs=false,location,onSave,onCancel}={}){
     const saved=workspace.normalizeNotes(notes),dialog=modal(doc,saveAs?"Save Study as":"Save Study"),input=element(doc,"textarea","study-save-comment"),label=element(doc,"label","","Comment about this save (optional)");
+    dialog.append(locationHeader(doc,location));
+    const system=element(doc,"input"),systemLabel=element(doc,"label","study-save-system-dialog");system.type="checkbox";system.id="study-save-system-dialog";system.checked=!location?.value||location?.fullPath===true;systemLabel.append(system,doc.createTextNode("Use system Save dialog · shows full path"));systemLabel.title="Use the app's system dialog when choosing a file so its complete path is available to copy. An existing system-linked file stays linked for a normal Save.";dialog.append(systemLabel);
     input.id="study-save-comment";input.rows=5;input.maxLength=workspace.MAX_NOTE_LENGTH;input.value=draft;input.placeholder="Describe what changed and why…";label.htmlFor=input.id;
     dialog.append(element(doc,"p","study-comments-intro","A new comment is appended to the Study history with the date and time when saved. Earlier comments are retained."),label,input,history(doc,saved));
     const actions=element(doc,"div","study-comments-actions"),cancel=element(doc,"button","study-comments-cancel","Cancel"),save=element(doc,"button","study-comments-save",saveAs?"Save Study as…":"Save Study");
@@ -40,7 +49,7 @@
       cancel.onclick=close;dialog.addEventListener("cancel",event=>{event.preventDefault();close();});
       save.onclick=()=>{if(settled)return;settled=true;const text=input.value;dismiss();try{
         // Call immediately in this click: native file pickers require user activation.
-        resolve(onSave(text));
+        resolve(onSave(text,{preferNative:system.checked}));
       }catch(error){reject(error);}};
       dialog.showModal();input.focus();
     });
@@ -60,5 +69,5 @@
     }catch(error){if(!closed){content.textContent="Cannot read Study comments: "+error.message;content.setAttribute("role","alert");}}
     return result;
   }
-  return {metadata,promptSave,previewFile};
+  return {metadata,promptSave,previewFile,locationHeader};
 });

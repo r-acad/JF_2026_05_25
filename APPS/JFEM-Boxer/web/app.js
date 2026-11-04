@@ -386,7 +386,7 @@ const CASE_FIELDS = [
   ["speed_of_sound", "Speed of sound (m/s)", "aero.speed_of_sound"],
   ["alpha", "Angle of attack (deg)", "aero.alpha", "vortex_lattice"],
   ["torque_y", "Added y torque (N m)", "loads.torque_y"],
-  ["load_factor", "Load multiplier", "loads.load_factor"],
+  ["load_factor", "Limit case multiplier", "loads.load_factor"],
   ["follower_forces", "Follower forces (SOL101 / SOL106)", "loads.follower_forces"],
   ["fuel_percent", "Fuel status (%)", "loads.fuel_percent"],
   ["structure_inertia", "Include structural inertia", "loads.structure_inertia"],
@@ -472,7 +472,7 @@ const HELP_TOPICS = {
     "Each named case is a separate loading condition on the same structural model. Select a case to edit it. Add creates a new case using case 1 as a starting point; Duplicate copies the selected case. All values in new cases are independent.",
     "Prescribed lift: enter the total lift on this half lifting surface and choose its spanwise distribution. Aerodynamic (VLM): enter air speed, density and angle of attack; the solver uses the lifting-surface camber, sweep, twist and dihedral to compute lift and induced drag.",
     "Aircraft lift target: optionally match half-wing lift to complete-aircraft mass × 9.80665 × maneuver load factor n / 2. Prescribed loading replaces its total lift; VLM solves angle of attack at the entered speed and atmosphere. This assumes symmetric flight and main-wing lift carrying the full aircraft demand. The separate Load multiplier still applies once afterward. Fuel fill and inertia accelerations remain explicit case inputs.",
-    "Added y torque is a total couple about global y, distributed to the RBE3 centers. Positive follows the right-hand rule. Load multiplier defaults to 1.5 to convert limit loads to ultimate loads, provided the prescribed lift or VLM flight condition already represents limit loading. It scales forces and moments together; a negative value reverses them. It does not calculate an aircraft maneuver load factor.",
+    "Added y torque is a total couple about global y, distributed to the RBE3 centers. Positive follows the right-hand rule. The limit case multiplier defaults to 1 and defines the physical LIMIT case. Analysis / Sizing load policy applies the separate strength safety factor (default 1.5) and buckling policy factor (default 1) when assessing reserve factors. It scales forces and moments together; a negative value reverses them. It does not calculate an aircraft maneuver load factor.",
     "Aerodynamic forces and moments act at their assigned main-box or movable-surface RBE3 centers. Beyond either structural tip, massless RBE3 references transfer the load to its terminal rib. Prescribed spanwise lift and added torque remain main-box inputs; VLM panel forces are assigned by the control footprint. Fuel and structural inertia act at mid-bay mass RBE3 centers. A transferred force carries its lever-arm moment so the complete force and moment resultant is preserved. Display > Loads&Constraints > Applied moments shows these couples; inspect the RBE3 or its reference GRID for signed source contributions. The Log reports transfer checks and the terminal moment breakdown.",
     "To enable follower forces: open Cases, select the case under Case to edit, and check Follower forces (SOL101 / SOL106). Repeat for other cases as needed. In Analysis choose Linear static (101) or Nonlinear comparison (106 + 101), then Run in JFEM. The checkbox and status below it show the selected case's setting; study and TOML files preserve it.",
     "SOL106 rotates each station's FORCE direction with its rotation vector; SOL101 retains the first-order load stiffness about zero rotation. Mass inertia forces and all applied moments remain fixed in global axes. VLM pressures are generated once on the undeformed lifting surface. Turning Follower forces off keeps all loads fixed. Normal modes (103) ignores applied loads, and follower forces are not supported for Buckling (105).",
@@ -574,6 +574,7 @@ function parameterRow(spec, values) {
     if (["stringers.axis_cid","jfem.timeout_minutes"].includes(spec.key)) input.min = "0";
     if (spec.key === "leading_edge.chord_elements") { input.min = "2"; input.max = "100"; }
     if (spec.key === "fuel.fill_efficiency") { input.min = "0"; input.max = "1"; }
+    if (spec.key.startsWith("assessment.")) { input.min = "0"; input.step = "0.001"; }
     input.value = String(parameterDisplayValue(spec.key, values[spec.key]));
   }
   input.id = "p-" + spec.key; input.title = helpText || "";
@@ -596,7 +597,7 @@ const WORKSPACE_GROUP_TAB = {
   "Planform": "planform", "Airfoils": "airfoils", "Loft": "loft", "Movable surfaces": "movablesurfaces", "Movable structures": "movablestructure", "Torsion box": "box", "Ribs": "ribs", "Fuel tank": "fuel", "Mesh": "mesh", "Material": "material",
   "Shell properties": "shells", "Beam sections": "sections", "RBE3 and supports": "supports", "Weights": "weights", "Leading edge": "leadingedge",
   "Rib properties": "ribproperties", "Spar properties": "sparproperties", "Leading-edge properties": "leproperties", "Materials": "material", "Stringer layout":"stringerlayout",
-  "Load cases": "cases", "VLM settings": "vlmmesh", "Sensitivity":"sensitivity", "Analysis": "analysis", "JFEM solver": "analysis",
+  "Load cases": "cases", "VLM settings": "vlmmesh", "Sensitivity":"sensitivity", "Analysis": "analysis", "Sizing load policy":"analysis", "JFEM solver": "analysis",
   "Mass":"nonstructural", "Non-structural mass":"nonstructural", "Engines":"engines",
 };
 const WORKSPACE_CARD_TAB = { "hud-left": "display", "model-card": "summary", "results-card": "results",
@@ -864,6 +865,8 @@ function buildForm(schema, values) {
   const baseInputs = document.createElement("div"); baseInputs.hidden = true; baseInputs.id = "base-load-inputs";
   const runtimeOptions = document.getElementById("analysis-runtime-options");
   runtimeOptions?.replaceChildren();
+  const policyOptions = document.getElementById("analysis-policy-options");
+  policyOptions?.replaceChildren();
   const byGroup = new Map();
   for (const spec of schema) {
     if (spec.key.startsWith("sensitivity.")) continue;
@@ -873,7 +876,7 @@ function buildForm(schema, values) {
     byGroup.get(name).push(spec);
   }
   host.appendChild(baseInputs);
-  const order = ["Planform", "Airfoils", "Loft", "Movable surfaces", "Torsion box", "Ribs", "Leading edge", "Movable structures", "Fuel tank", "Mesh", "Engines", "Material", "Materials", "Shell properties", "Beam sections", "Rib properties", "Spar properties", "Leading-edge properties", "Mass", "Non-structural mass", "RBE3 and supports", "Weights", "Load cases", "VLM settings", "Analysis", "JFEM solver"];
+  const order = ["Planform", "Airfoils", "Loft", "Movable surfaces", "Torsion box", "Ribs", "Leading edge", "Movable structures", "Fuel tank", "Mesh", "Engines", "Material", "Materials", "Shell properties", "Beam sections", "Rib properties", "Spar properties", "Leading-edge properties", "Mass", "Non-structural mass", "RBE3 and supports", "Weights", "Load cases", "VLM settings", "Analysis", "Sizing load policy", "JFEM solver"];
   const groups = [...byGroup.keys()].sort((a, b) => (order.indexOf(a) < 0 ? 100 : order.indexOf(a)) - (order.indexOf(b) < 0 ? 100 : order.indexOf(b)));
   for (const name of groups) {
     const specs = byGroup.get(name), det = document.createElement("section"); det.className = "group parameter-section workspace-panel";
@@ -889,6 +892,13 @@ function buildForm(schema, values) {
     det.appendChild(sum);
     if (name === "Analysis") {
       const note = document.createElement("p"); note.id = "analysis-solution-note"; note.className = "group-note"; det.appendChild(note);
+    }
+    if (name === "Sizing load policy") {
+      const note=document.createElement("p");note.id="sizing-load-policy-note";note.className="group-note";
+      note.textContent="The solved aerodynamic and inertial cases define LIMIT loads, including their case multipliers. Strength compares material allowables with ULTIMATE demand = LIMIT demand × strength safety factor. Buckling compares critical load with LIMIT demand × buckling policy factor. These shared assessment factors update RFs without changing the applied loads. Review older case multipliers that were used to convert limit loads to ultimate; that conversion now belongs here.";
+      det.append(note);
+      const warning=state.values?.["assessment.migration_note"];
+      if(warning){const legacy=document.createElement("p");legacy.id="sizing-load-policy-legacy";legacy.className="group-note";legacy.textContent=warning;det.append(legacy);}
     }
     if (name === "Mass") {
       const note=document.createElement("p");note.className="group-note";
@@ -913,7 +923,7 @@ function buildForm(schema, values) {
     if (name === "Analysis") {
       const note = document.createElement("div"); note.id = "analysis-eigrl-note"; note.className = "group-note"; note.hidden = true; det.appendChild(note);
     }
-    host.appendChild(det);
+    if(name==="Sizing load policy"&&policyOptions)policyOptions.appendChild(det);else host.appendChild(det);
     if (["Beam sections","Spar properties"].includes(name) && typeof WingSectionEditor !== "undefined") WingSectionEditor.install(det);
     if(name==="Rib properties" && typeof WingSectionEditor!=="undefined") WingSectionEditor.install(det,{definitions:[["T","Default rib T stiffener",["rib_stiffener_flange_width","rib_stiffener_height","rib_stiffener_flange_thickness","rib_stiffener_web_thickness"],"rib-stiffener-editor","rib-stiffener-section",true]]});
     if(["Rib properties","Spar properties"].includes(name) && typeof WingComponentProperties!=="undefined") {
@@ -1232,11 +1242,11 @@ function buildLoadCaseEditor() {
     row.append(caption, input); host.appendChild(row);
     if(key==="maneuver_factor"){
       const preview=document.createElement("output");preview.id="case-aircraft-lift-target";preview.className="case-lift-target";preview.setAttribute("aria-live","polite");host.append(preview);
-      const hint=document.createElement("p");hint.className="case-method-note";hint.textContent="Aircraft mass includes the complete aircraft at this loading status (structure, fuel, payload and other masses). Matching assigns half of n × mass × g to this half-wing, assuming symmetric flight and that the main wing carries the full lift demand. It does not automatically change fuel fill or structural/fuel inertia accelerations; set those consistently in Fuel and inertia. The load multiplier remains a separate final safety factor.";host.append(hint);
+      const hint=document.createElement("p");hint.className="case-method-note";hint.textContent="Aircraft mass includes the complete aircraft at this loading status (structure, fuel, payload and other masses). Matching assigns half of n × mass × g to this half-wing, assuming symmetric flight and that the main wing carries the full lift demand. It does not automatically change fuel fill or structural/fuel inertia accelerations; set those consistently in Fuel and inertia. The limit case multiplier scales this physical case; strength safety and buckling policy factors are separate assessment settings in Analysis.";host.append(hint);
     }
     if (key === "load_factor") {
       const hint = document.createElement("p"); hint.className = "case-method-note"; hint.id = "case-load-multiplier-note";
-      hint.textContent = "Default 1.5 converts limit loads to ultimate loads when the prescribed lift or VLM flight condition already represents limit loading. Scales forces and moments; does not derive the aircraft maneuver load factor.";
+      hint.textContent = "Default 1 preserves the physical LIMIT load case. This scales aerodynamic forces, moments, engine thrust and enabled inertia together. It is not the strength safety factor or the aircraft maneuver factor. Set separate strength and buckling factors in Analysis / Sizing load policy. Older saved multipliers are retained; review any previously used ultimate-only conversion.";
       input.setAttribute("aria-describedby", hint.id); host.appendChild(hint);
     }
     if(key==="structure_inertia") {
@@ -1246,7 +1256,7 @@ function buildLoadCaseEditor() {
       const hint=document.createElement("p");hint.className="case-method-note";hint.textContent="Percentage of usable capacity after the tank Fill efficiency factor. Each bay fills upward by this percentage of its geometric height-volume relation; efficiency scales volume, mass and inertia uniformly. Each bay receives a CONM2 mass with its own CG and inertia, connected by a six-DOF RBE3. Different fuel states use separate solver decks.";host.append(hint);
     }
     if(key==="fuel_accel_z") {
-      const hint=document.createElement("p");hint.className="case-method-note";hint.textContent="Fuel weight: default (0, 0, −1) g acts downward. The case load multiplier also scales this acceleration (−1.5g with the default multiplier). Set all accelerations to zero for mass and inertia only. Fuel forces remain fixed in global axes, independently of aerodynamic follower forces.";host.append(hint);
+      const hint=document.createElement("p");hint.className="case-method-note";hint.textContent="Fuel weight: default (0, 0, −1) g acts downward. The limit case multiplier also scales this acceleration (−1g with the default multiplier of 1). Set all accelerations to zero for mass and inertia only. Fuel forces remain fixed in global axes, independently of aerodynamic follower forces.";host.append(hint);
     }
     if (key === "follower_forces") {
       row.classList.add("case-follower-field");
@@ -1295,7 +1305,7 @@ function affectsModel(key,params) {
     const rows=params?.["movable_structure.surfaces"]??JSON.parse(document.getElementById("p-movable_structure.surfaces")?.value||"[]");
     return rows.some(row=>row.enabled);
   }
-  return !key.startsWith("sensitivity.") && !["output.title", "output.reference_file", "jfem.repo", "jfem.output_dir",
+  return !key.startsWith("sensitivity.") && !key.startsWith("assessment.") && !["output.title", "output.reference_file", "jfem.repo", "jfem.output_dir",
            "jfem.output_formats", "jfem.timeout_minutes", "materials.allowables", "stringers.euler_fixity_coefficient", "stringers.skin_fixity_coefficient",
            "properties.spar_web_buckling_fixity", "properties.rib_web_buckling_fixity", "properties.spar_cap_euler_fixity", "properties.rib_stiffener_euler_fixity"].includes(key);
 }
@@ -1643,6 +1653,17 @@ function syncLeadingEdgeFallbackNotice() {
 }
 
 function parameterEdited(key) {
+  if(key.startsWith("assessment.")){
+    const input=document.getElementById("p-"+key),value=input?.value.trim()?Number(input.value):NaN;
+    const valid=Number.isFinite(value)&&value>0;
+    document.getElementById("row-"+key)?.classList.toggle("invalid",!valid);
+    if(valid)state.values[key]=value;
+    state.rfInspectEvaluator?.cancel();state.rfInspectionPending=null;state.rfInspectionError=null;state.rfInspectionCache=null;
+    markStudyModified();refreshMaterialAssessmentControls();syncAnalysisControls();
+    const compactHost=document.getElementById("buckling-compact-results");
+    if(compactHost&&typeof WingBucklingOutputs!=="undefined")WingBucklingOutputs.render(compactHost,state.results,{format:value=>eng(value,6),assessmentPolicy:readAssessmentPolicy()});
+    return;
+  }
   if(/^(planform|airfoil|loft|movable_surfaces)\./.test(key))state.aerodynamicStudy?.sync();
   if(state.importedDeck && key==="jfem.timeout_minutes") {
     const input=document.getElementById("p-"+key);
@@ -1680,6 +1701,7 @@ function parameterEdited(key) {
   if (key === "leading_edge.rib_orientation") syncLeadingEdgeOrientation();
   if (/^(planform|airfoil|loft|box|ribs|leading_edge|movable_surfaces)\./.test(key)) {state.ribEditor?.refresh();state.leadingEdgeRibEditor?.refresh();}
   if (key.startsWith("planform.")) state.planformInputs?.refresh();
+  if (/^(airfoil|planform)\./.test(key)) state.loftEditor?.refresh();
   if (/^(planform|airfoil|loft|box|ribs|leading_edge|movable_surfaces)\./.test(key)) refreshSurfaceEditors();
   if (/^(planform|box|ribs|leading_edge)\./.test(key)) state.leadingEdgeGaps?.refresh();
   if (/^(planform|airfoil|loft|box|ribs|fuel|leading_edge|movable_surfaces)\./.test(key)) state.planView?.refresh();
@@ -2074,8 +2096,9 @@ function currentMaterialAssessment(){
     (r.convergence&&!(r.convergence.converged===true&&r.convergence.full_load===true&&!r.convergence.partial))||
     (r.signature&&r.signature!==state.modelSignature)||(r.meshIdentity&&r.meshIdentity!==state.meshIdentity))return null;
   const rows=readMaterialAllowables();if(!rows.length)return null;
-  if(r.allowableCache?.rows===rows&&r.allowableCache.meshIdentity===state.meshIdentity)return r.allowableCache.assessment;
-  try{const assessment=WingMaterialAllowables.build(state.elements,r.elementResults,rows);r.allowableCache={rows,meshIdentity:state.meshIdentity,assessment};return assessment;}catch{return null;}
+  const policy=readAssessmentPolicy(),policyStamp=JSON.stringify(policy);
+  if(r.allowableCache?.rows===rows&&r.allowableCache.meshIdentity===state.meshIdentity&&r.allowableCache.policyStamp===policyStamp)return r.allowableCache.assessment;
+  try{const assessment=WingMaterialAllowables.build(state.elements,r.elementResults,rows,{assessmentPolicy:policy,nonlinear:WingStressReportData.analysisNumber(r)===106,analysis:r.analysis});r.allowableCache={rows,meshIdentity:state.meshIdentity,policyStamp,assessment};return assessment;}catch{return null;}
 }
 
 function allowableDisplayValue(value,unit){
@@ -2111,6 +2134,22 @@ function refreshMaterialAssessmentControls(){
 function readBucklingFixity(key){
   const input=document.getElementById('p-'+key);
   return input?(input.value.trim()===''?NaN:Number(input.value)):(state.values?.[key]??1);
+}
+
+function readAssessmentPolicy(){
+  const read=(key,fallback)=>{const input=document.getElementById('p-'+key);return input?(input.value.trim()===''?NaN:Number(input.value)):(state.values?.[key]??fallback);};
+  return{strengthSafetyFactor:read('assessment.strength_safety_factor',1.5),bucklingPolicyFactor:read('assessment.buckling_policy_factor',1)};
+}
+
+function assessmentPolicyWarnings(){
+  const warning=state.values?.['assessment.migration_note'];
+  return typeof warning==='string'&&warning?[warning]:[];
+}
+
+function assessmentPolicyParameters(){
+  const policy=WingAssessmentLoadPolicy.read({assessmentPolicy:readAssessmentPolicy()}),warning=assessmentPolicyWarnings()[0];
+  return{'assessment.strength_safety_factor':policy.strengthSafetyFactor,'assessment.buckling_policy_factor':policy.bucklingPolicyFactor,
+    ...(warning?{'assessment.migration_note':warning}:{})};
 }
 
 async function requestSizingSections(){
@@ -2153,6 +2192,7 @@ async function requestSizingSections(){
 function stressReportContext(){
   const cases=modelCases(),solution=Number(state.importedDeck?WingImportedAnalysis.solution(state.importedDeck):document.getElementById('p-output.solution')?.value||state.values?.['output.solution']);
   const context={nodePositions:state.baseline,nodeIds:state.nodeIds,definitionSignature:formSignature(),studyEpoch:state.studyEpoch,layoutToken:state.data?.stiffened_panels?.layout_token,topologySignature:reserveFactorTopologySignature(state.modelSignature),elements:state.elements,cases:state.resultCases,allowables:readMaterialAllowables(),sourceUnits:!!state.importedDeck,
+    assessmentPolicy:readAssessmentPolicy(),assessmentPolicyWarnings:assessmentPolicyWarnings(),
     panels:state.data?.stiffened_panels?.panels||[],componentGroups:state.data?.groups||[],generated:!!state.data&&!state.importedDeck&&!state.data.imported_deck,
     eulerColumns:state.data?.stiffened_panels?.euler_columns,
     stringerBlades:state.data?.stiffened_panels?.blade_columns,
@@ -2176,7 +2216,8 @@ function stressReportContext(){
 function refreshStressReport(forceInstall=false,{primeOnly=false}={}){
   if(typeof WingStressReport==='undefined'||(!forceInstall&&workspaceUI.activeTab!=='stressreport'&&!state.stressReport))return;
   if(!state.stressReport)state.stressReport=WingStressReport.install({document,host:document.getElementById('panel-stressreport'),readContext:stressReportContext,
-    onShowField:showReserveFactorField,onClearField:clearReserveFactorField,readFieldState:reserveFactorFieldState,onRefresh:()=>{if(state.selectedElement!=null&&!state.buildingScene)showElement(state.selectedElement);},onEditProperty:openReserveFactorPropertyEditor});
+    onShowField:showReserveFactorField,onClearField:clearReserveFactorField,readFieldState:reserveFactorFieldState,onRefresh:()=>{if(state.selectedElement!=null&&!state.buildingScene)showElement(state.selectedElement);},onEditProperty:openReserveFactorPropertyEditor,
+    onEditLoadPolicy:()=>{activateWorkspaceTab('analysis');const input=document.getElementById('p-assessment.strength_safety_factor');input?.scrollIntoView({block:'center'});input?.focus();}});
   if(primeOnly){state.stressReport.prime();return;}
   if(state.rfSizingPending)return;
   state.stressReport.refresh();
@@ -2287,7 +2328,7 @@ function collectParams({includeView = false, allowReserveFactorDraft = false} = 
   if(!allowReserveFactorDraft)assertReserveFactorDraftFinished();
   readMaterialAllowables();
   state.allowablesEditor?.assertValid();
-  if(state.importedDeck)return {model_kind:'reference',"materials.allowables":readMaterialAllowables(),"jfem.timeout_minutes":readRunTimeout(),imported_deck:{token:state.importedDeck.token,signature:state.importedDeck.signature,analysis:WingImportedAnalysis.options(state.importedDeck.source?.analysis)}};
+  if(state.importedDeck)return {model_kind:'reference',...assessmentPolicyParameters(),"materials.allowables":readMaterialAllowables(),"jfem.timeout_minutes":readRunTimeout(),imported_deck:{token:state.importedDeck.token,signature:state.importedDeck.signature,analysis:WingImportedAnalysis.options(state.importedDeck.source?.analysis)}};
   if(state.data?.imported_deck)throw Error('Imported deck identity is unavailable. Read the deck or reopen its Study; a generated lifting surface will not be substituted.');
   state.panelTables?.assertValidDraft?.();
   state.parameterLocks?.enforce();
@@ -2340,7 +2381,7 @@ function collectParams({includeView = false, allowReserveFactorDraft = false} = 
     } else if (spec.kind === "int" || spec.kind === "float") {
       const text = el.value.trim();
       v = Number(text);
-      if (text === "" || !Number.isFinite(v) || (spec.kind === "int" && !Number.isInteger(v))) {
+      if (text === "" || !Number.isFinite(v) || (spec.kind === "int" && !Number.isInteger(v)) || spec.key.startsWith("assessment.")&&v<=0) {
         row.classList.add("invalid");
         if (Number(state.editingCase) === 1) {
           const field = CASE_FIELDS.find((item) => item[2] === spec.key);
@@ -2365,6 +2406,7 @@ function collectParams({includeView = false, allowReserveFactorDraft = false} = 
   if (bad.length) {
     throw new Error("these fields need a value: " + bad.join(", "));
   }
+  Object.assign(out,assessmentPolicyParameters());
   if(typeof WingEngineThrust!=='undefined' && state.schema.some(spec=>spec.kind==='enginethrust')) {
     out['loads.engine_thrust']=WingEngineThrust.normalize(out['loads.engine_thrust']||[],out['engines.items']||[]);
     for(const row of out['loads.cases']||[])if(row.engine_thrust!==undefined)
@@ -3316,11 +3358,11 @@ async function requestStudySave({saveAs=false} = {}) {
   const retain=text=>{state.studyCommentDraft=text.trim()?{epoch,text}:null;};
   state.studyCommentOpen=true;state.autosave?.changed();
   try {
-    const saved=await WingStudyComments.promptSave({document,notes:state.studyNotes,draft,saveAs,onCancel:retain,onSave:text=>{
+    const saved=await WingStudyComments.promptSave({document,notes:state.studyNotes,draft,saveAs,location:WingWorkspace.studyLocation({name:state.studyFile,handle:state.studyFileHandle}),onCancel:retain,onSave:(text,{preferNative=false}={})=>{
       retain(text);
       // A manual comment belongs to this save attempt. Do not expose it to
       // Autosave or replace the Summary note until the write succeeds.
-      return saveModelDefinition({saveAs,noteText:text.trim()?text:note});
+      return saveModelDefinition({saveAs,preferNative,noteText:text.trim()?text:note});
     }});
     if(saved && state.studyCommentDraft?.epoch===epoch)state.studyCommentDraft=null;
     return saved;
@@ -3333,14 +3375,14 @@ async function previewStudyComments(file,context={}) {
   finally {state.studyCommentOpen=false;state.autosave?.changed();}
 }
 
-async function saveModelDefinition({saveAs=false,noteText} = {}) {
+async function saveModelDefinition({saveAs=false,noteText,preferNative=false} = {}) {
   if (!workspaceOperationAvailable()) return false;
   commitStudyNumericEdits();
-  try { state.panelTables?.assertValidDraft?.(); assertReserveFactorDraftFinished(); }
+  try { state.panelTables?.assertValidDraft?.(); assertReserveFactorDraftFinished(); assessmentPolicyParameters(); }
   catch(error) { showOperationError("Study not saved",error.message);log(error.message,"warn");return false; }
   const title=state.importedDeck ? fileBasename(state.importedDeck.source.name).replace(/\.(bdf|dat|nas)$/i,"") : state.values["output.title"];
   const name=state.studyFile || WingWorkspace.filename(title);
-  const requested=WingWorkspace.requestStudyDestination(name,{handle:state.studyFileHandle,saveAs},window);
+  const requested=WingWorkspace.requestStudyDestination(name,{handle:state.studyFileHandle,saveAs,preferNative},window);
   return workspaceOperation(async token => {
     const destination=await requested;
     if (destination.cancelled) return false;
@@ -3348,7 +3390,7 @@ async function saveModelDefinition({saveAs=false,noteText} = {}) {
     activity()?.update(token, {label:"Saving Study", detail:"Embedding reference geometry, background images and display settings…"});
     meshStatus("Saving Study…", "building");
     state.allowablesEditor?.assertValid();
-    const params = state.importedDeck ? {...state.values,"materials.allowables":readMaterialAllowables(),"sensitivity.settings":state.sensitivity?.serialize()||""} : collectParams(); params["references.items"] = [];
+    const params = state.importedDeck ? {...state.values,...assessmentPolicyParameters(),"materials.allowables":readMaterialAllowables(),"sensitivity.settings":state.sensitivity?.serialize()||""} : collectParams(); params["references.items"] = [];
     let validated={parameters:params};
     // Imported GRID/cards are authoritative. Dormant wing-form metadata must
     // not require a valid generated wing just to save the original source.
@@ -3363,7 +3405,7 @@ async function saveModelDefinition({saveAs=false,noteText} = {}) {
     const view = WingWorkspace.captureView(document, state, workspaceUI);
     const savedRevision = state.studyRevision;
     const savedAt=new Date().toISOString(),notes=WingWorkspace.notesForSave(state.studyNotes,noteText===undefined?document.getElementById("study-note")?.value || "":noteText,savedAt);
-    const data = await WingWorkspace.snapshot(validated.parameters, state.reference, view,{notes,savedAt,createdAt:state.studyCreatedAt,modelSource:state.importedDeck?.source});
+    const data = await WingWorkspace.snapshot(validated.parameters, state.reference, view,{notes,savedAt,createdAt:state.studyCreatedAt,modelSource:state.importedDeck?.source,identification:state.studyWatermark?.capture()});
     const text = JSON.stringify(data,null,2);
     await WingWorkspace.writeDestination(destination,text,"application/json",document);
     state.studyFileHandle=destination.handle || null;
@@ -3395,13 +3437,13 @@ async function autosaveStudy(stamp) {
   assertReserveFactorDraftFinished();
   // Freeze parameters, view, notes and source before any server/file awaits.
   state.allowablesEditor?.assertValid();
-  const parameters=JSON.parse(JSON.stringify(state.importedDeck?{...state.values,"materials.allowables":readMaterialAllowables(),"sensitivity.settings":state.sensitivity?.serialize()||""}:collectParams()));parameters["references.items"]=[];
+  const parameters=JSON.parse(JSON.stringify(state.importedDeck?{...state.values,...assessmentPolicyParameters(),"materials.allowables":readMaterialAllowables(),"sensitivity.settings":state.sensitivity?.serialize()||""}:collectParams()));parameters["references.items"]=[];
   const view=WingWorkspace.captureView(document,state,workspaceUI),savedAt=new Date().toISOString();
-  const notes=WingWorkspace.notesForSave(state.studyNotes,document.getElementById("study-note")?.value||"",savedAt),createdAt=state.studyCreatedAt,source=state.importedDeck?.source;
+  const notes=WingWorkspace.notesForSave(state.studyNotes,document.getElementById("study-note")?.value||"",savedAt),createdAt=state.studyCreatedAt,source=state.importedDeck?.source,identification=state.studyWatermark?.capture();
   let validated=parameters;
   if(!source){const response=await postParams("/api/validate_workspace",parameters);if(!response.ok)throw Error(await readError(response));validated=(await response.json()).parameters;}
   if(!current())return false;
-  const data=await WingWorkspace.snapshot(validated,state.reference,view,{notes,savedAt,createdAt,modelSource:source});
+  const data=await WingWorkspace.snapshot(validated,state.reference,view,{notes,savedAt,createdAt,modelSource:source,identification});
   if(!current())return false;
   const text=JSON.stringify(data,null,2),destination={method:WingWorkspace.nativeHandle(handle)?"native":disk?"picker":"browser",name,handle};
   if(disk)await WingWorkspace.writeDestination(destination,text,"application/json",document);
@@ -3423,6 +3465,7 @@ function installAutosave(){
     read:()=>({enabled:control.checked,dirty:state.studyDirty||resultsHavePendingDrafts(),revision:state.studyRevision,epoch:state.studyEpoch,
       blocked:!state.autoMeshReady?"Autosave waits for a Study.":state.studyRestoring||state.loadingInput||state.workspaceBusy||state.studyCommentOpen?"Autosave waits for the Study operation.":
         resultsHavePendingDrafts()?"Autosave waits for unfinished property-table edits.":
+        state.loftEditor?.isInteracting()?"Autosave waits for the loft control-point edit.":
         state.reference?.loading||state.reference?.saving||state.reference?.isInteracting()?"Autosave waits for reference editing.":
         state.meshRequestInFlight||state.busy||state.exportBusy||state.polling||state.solverStarting||state.sensitivityBusy?"Autosave waits for the active model or analysis operation.":""}),
     save:autosaveStudy,
@@ -3622,7 +3665,13 @@ async function loadModelDefinition(file, options = {}) {
       staged = await state.reference.stagePortable(items, definition.view.reference, {linked:parametersOnly});
       const importRequest=options.importRequest || definition.model_source;
       const geometryOnly=!importRequest&&definition.view.controls?.["auto-mesh"]!==true;
-      const response = await postParams(importRequest ? "/api/import_reference" : geometryOnly ? "/api/validate_workspace" : "/api/prepare_workspace", importRequest ? {...importRequest,"materials.allowables":options.importDeck?[]:definition.parameters["materials.allowables"]||[]} : definition.parameters, token);
+      const importPolicy=importRequest?WingAssessmentLoadPolicy.read(definition.parameters):null;
+      if(importPolicy){
+        const hadPolicy=['assessment.strength_safety_factor','assessment.buckling_policy_factor'].every(key=>Object.hasOwn(definition.parameters,key));
+        Object.assign(definition.parameters,{'assessment.strength_safety_factor':importPolicy.strengthSafetyFactor,'assessment.buckling_policy_factor':importPolicy.bucklingPolicyFactor});
+        if(!options.importDeck&&!hadPolicy&&!definition.parameters['assessment.migration_note'])definition.parameters['assessment.migration_note']='This older imported Study did not record its sizing load policy. Confirm that its analyzed source preload represents LIMIT loads rather than an existing ULTIMATE conversion before applying the separate strength safety factor. The source deck loads have been preserved.';
+      }
+      const response = await postParams(importRequest ? "/api/import_reference" : geometryOnly ? "/api/validate_workspace" : "/api/prepare_workspace", importRequest ? {...importRequest,"assessment.strength_safety_factor":importPolicy.strengthSafetyFactor,"assessment.buckling_policy_factor":importPolicy.bucklingPolicyFactor,"assessment.migration_note":definition.parameters['assessment.migration_note']||'',"materials.allowables":options.importDeck?[]:definition.parameters["materials.allowables"]||[]} : definition.parameters, token);
       if (response.status === 404) throw new Error("Portable model files need the updated server. Restart JFEM-Boxer and refresh.");
       // A Study with a poor mesh must remain editable. Load its validated
       // definition without a FEM; never publish the rejected geometry or
@@ -3653,7 +3702,7 @@ async function loadModelDefinition(file, options = {}) {
       // Keep one authoritative reference to the portable source; it is not
       // geometry data and need not travel through renderer/export snapshots.
       if(data)delete data.model_source;
-      previous = { diskResults:state.diskResults, importedDeck:state.importedDeck, data:state.data, values:state.values, signature:state.modelSignature, lastEditedSignature:state.lastEditedSignature, dirty:state.modelDirty,
+      previous = { identification:state.studyWatermark?.capture(), diskResults:state.diskResults, importedDeck:state.importedDeck, data:state.data, values:state.values, signature:state.modelSignature, lastEditedSignature:state.lastEditedSignature, dirty:state.modelDirty,
         pending:state.autoMeshPending, resultCases:state.resultCases, results:state.results,
         activeMode:state.activeMode, contourIdx:state.contourIdx, transfer:state.lastTransfer,
         selectedElement:state.selectedElement, selectedNode:state.selectedNode, fuelIsolation:state.fuelIsolation,
@@ -3698,6 +3747,7 @@ async function loadModelDefinition(file, options = {}) {
       ensureGeometryPreview();state.geometryPreview?.request(0);
       state.rfPropertyEditor?.close();state.panelTables?.resetDrafts?.();
       state.studyNotes=parametersOnly ? {text:"",history:[]} : definition.notes;
+      state.studyWatermark?.restore(parametersOnly ? options.identification||null : definition.identification);
       state.studyCreatedAt=parametersOnly ? null : definition.created_at || null;
       state.studySavedAt=parametersOnly ? null : definition.saved_at || definition.created_at || null;
       syncStudyNotes();
@@ -3734,6 +3784,7 @@ async function loadModelDefinition(file, options = {}) {
     } catch (error) {
       staged?.rollback();
       if (commitStarted && previous) {
+        state.studyWatermark?.restore(previous.identification);
         state.diskResults=previous.diskResults;
         state.importedDeck=previous.importedDeck;
         state.values = previous.values; state.data = previous.data;
@@ -3756,7 +3807,11 @@ async function loadModelDefinition(file, options = {}) {
   },options.importDeck ? (options.importRequest?.format==="abaqus"?"Reading Abaqus":"Reading Nastran") : "Preparing Study file");
 }
 
-function newStudy() { return loadModelDefinition({name:"New Study"},{newStudy:true}); }
+async function newStudy(options={}) {
+  const identification=Object.hasOwn(options,'identification')?options.identification:await WingStartupStudy.identify({document});
+  if(identification===null)return false;
+  return loadModelDefinition({name:"New Study"},{newStudy:true,identification});
+}
 function loadTomlDefinition(file) { return loadModelDefinition(file,{toml:true}); }
 
 function resetImportedModelMenus() {
@@ -3843,7 +3898,7 @@ async function loadDiskResults(file,{choose}={}) {
   return workspaceOperation(async token=>{
     const prepared=await WingDiskResults.read(file,{choose,onProgress:detail=>activity()?.update(token,{detail})});
     if(!prepared)return false;
-    const {mesh,results}=prepared,previous={diskResults:state.diskResults,importedDeck:state.importedDeck,data:state.data,values:state.values,allowableInput:document.getElementById("p-materials.allowables")?.value,signature:state.modelSignature,jobSignature:state.jobSignature,resultCases:state.resultCases,results:state.results,activeCase:state.activeCase,view:WingWorkspace.captureView(document,state,workspaceUI)};
+    const {mesh,results}=prepared,previous={identification:state.studyWatermark?.capture(),diskResults:state.diskResults,importedDeck:state.importedDeck,data:state.data,values:state.values,allowableInput:document.getElementById("p-materials.allowables")?.value,signature:state.modelSignature,jobSignature:state.jobSignature,resultCases:state.resultCases,results:state.results,activeCase:state.activeCase,view:WingWorkspace.captureView(document,state,workspaceUI)};
     const wasBuilding=state.buildingScene;state.buildingScene=true;
     try{
       const view=WingWorkspace.newModelView(document);WingWorkspace.applyControls(document,view.controls);
@@ -3857,7 +3912,7 @@ async function loadDiskResults(file,{choose}={}) {
       state.resultCases=new Map(results.load_cases.map(c=>{const r=decodeResultCase(c,results,prepared.signature);if(c.variants?.length){r.variants=new Map(c.variants.map(v=>[v.id,decodeResultCase(v,results,prepared.signature)]));r.defaultVariant=c.default_variant;}return[Number(c.id),r];}));
       state.resultsLoadCaseIndependent=false;state.modelDirty=false;state.activeCase=mesh.load_cases[0].id;
       state.studyFile=null;state.studyFileHandle=null;state.studyRecentId=null;state.studyDirty=false;state.studyEpoch++;
-      state.studyNotes={text:'',history:[]};state.studyCreatedAt=state.studySavedAt=null;syncStudyNotes();
+      state.studyNotes={text:'',history:[]};state.studyCreatedAt=state.studySavedAt=null;state.studyWatermark?.restore(null);syncStudyNotes();
       showDeck('$ Archived JFEM results: '+file.name+'\n$ The original input deck is not embedded in this binary. Open the source Study or deck to inspect the solver input.\n',file.name,{disk_results:true},{open:false});
       document.getElementById('auto-save').checked=false;state.autosave?.changed();
       // References belong to a Study and must never remain attached to an
@@ -3867,7 +3922,7 @@ async function loadDiskResults(file,{choose}={}) {
       updateFileStatus();showStats(mesh,file.size,0);activateWorkspaceTab('results');
       log('Opened '+file.name+': '+mesh.nodes.count+' GRID nodes; '+results.load_cases.length+' result case(s). '+mesh.imported_deck.warnings.join(' '),'good');
       meshStatus('Stored results: '+file.name,'current');return true;
-    }catch(error){const input=document.getElementById('p-materials.allowables');if(input&&previous.allowableInput!==undefined)input.value=previous.allowableInput;state.allowablesEditor?.destroy();state.allowablesEditor=null;state.diskResults=previous.diskResults;state.importedDeck=previous.importedDeck;state.data=previous.data;state.values=previous.values;state.modelSignature=previous.signature;state.jobSignature=previous.jobSignature;if(previous.data)buildModel(previous.data,{preserveView:true,resetIsolation:true});else disposeModel();state.resultCases=previous.resultCases;state.results=previous.results;state.activeCase=previous.activeCase;restoreWorkspaceView(previous.view);if(state.results)showResults();throw error;
+    }catch(error){state.studyWatermark?.restore(previous.identification);const input=document.getElementById('p-materials.allowables');if(input&&previous.allowableInput!==undefined)input.value=previous.allowableInput;state.allowablesEditor?.destroy();state.allowablesEditor=null;state.diskResults=previous.diskResults;state.importedDeck=previous.importedDeck;state.data=previous.data;state.values=previous.values;state.modelSignature=previous.signature;state.jobSignature=previous.jobSignature;if(previous.data)buildModel(previous.data,{preserveView:true,resetIsolation:true});else disposeModel();state.resultCases=previous.resultCases;state.results=previous.results;state.activeCase=previous.activeCase;restoreWorkspaceView(previous.view);if(state.results)showResults();throw error;
     }finally{state.buildingScene=wasBuilding;}
   },'Opening JFEM results');
 }
@@ -6355,7 +6410,7 @@ function showResults() {
   document.getElementById("mode-list-wrap").hidden = r.modes.length === 0;
   let compactHost=document.getElementById("buckling-compact-results");
   if(!compactHost){compactHost=document.createElement("div");compactHost.id="buckling-compact-results";document.getElementById("results-summary").after(compactHost);}
-  if(typeof WingBucklingOutputs!=="undefined")WingBucklingOutputs.render(compactHost,r,{format:value=>eng(value,6)});
+  if(typeof WingBucklingOutputs!=="undefined")WingBucklingOutputs.render(compactHost,r,{format:value=>eng(value,6),assessmentPolicy:readAssessmentPolicy()});
 
   if (r.modes.length) {
     const buckling = r.modeKind === "buckling";
@@ -7644,6 +7699,9 @@ function resultTable(value) {
 function inspectReserveFactor(eid){
   if(typeof WingRFFieldData==='undefined'||typeof WingStressReportData==='undefined')return null;
   try{
+    // A retained solved context can still contain the previous valid factors.
+    // Invalid live input must never launch or reuse an assessment from it.
+    WingAssessmentLoadPolicy.read({assessmentPolicy:readAssessmentPolicy()});
     // Inspect is also called by contour rendering. Updating an already active
     // report here could recursively request a field while it is being drawn.
     if(!state.stressReport)refreshStressReport(true);
@@ -7651,7 +7709,7 @@ function inspectReserveFactor(eid){
     if(state.rfSizingPending||controller?.pending||!context)return {reason:'Calculating reserve factors. Recovering internal loads and evaluating failure checks; please wait.'};
     if(controller.report?.stale&&!controller.report.estimated)return{reason:controller.report.staleMessage||'The retained reserve factors describe the previous model; update its sizing estimate or rerun analysis.',sourceContext:controller.sourceContext};
     const request={...controller.getFieldRequest(),kind:'minimum_rf',failureMode:'minimum_rf',onlyBelowOne:false};
-    const previous=state.rfInspectionCache,requestKey=JSON.stringify(request),validityKey=JSON.stringify([context.studyEpoch,context.modelDirty,context.pendingDrafts,context.running,context.estimated]);
+    const previous=state.rfInspectionCache,requestKey=JSON.stringify(request),validityKey=JSON.stringify([context.studyEpoch,context.modelDirty,context.pendingDrafts,context.running,context.estimated,context.assessmentPolicy,context.assessmentPolicyWarnings]);
     const cached=controller.report?.failureMode==='minimum_rf'?controller.report:previous?.contour.report;
     const input={...context,...request,report:cached};
     let contour;
@@ -7766,7 +7824,7 @@ function showElement(eid) {
   }
   const allowable=currentMaterialAssessment()?.details.get(eid);
   if(allowable){
-    const shown=allowable.reason?{Status:allowable.reason}: {Criterion:allowable.criterion,Material:allowable.material_id,...(allowable.ply?{Ply:allowable.ply}:{}),Face:allowable.face,...(allowable.component?{Component:allowable.component}:{}),Demand:allowableDisplayValue(allowable.demand,allowable.unit),Allowable:allowableDisplayValue(allowable.allowable,allowable.unit),Utilization:allowable.utilization,"Reserve factor":allowable.reserve_factor??"Unbounded (zero demand)","Margin (reserve factor - 1)":allowable.margin??"Unbounded (zero demand)",Status:allowable.utilization>1?"Limit exceeded":"Within the specified limit"};
+    const shown=allowable.reason?{Status:allowable.reason}: {Criterion:allowable.criterion,Material:allowable.material_id,...(allowable.ply?{Ply:allowable.ply}:{}),Face:allowable.face,...(allowable.component?{Component:allowable.component}:{}),"LIMIT demand":allowableDisplayValue(allowable.limit_demand??allowable.demand,allowable.unit),"ULTIMATE strength demand":allowableDisplayValue(allowable.ultimate_demand??allowable.demand,allowable.unit),"Strength safety factor":allowable.assessment_factor??1.5,Allowable:allowableDisplayValue(allowable.allowable,allowable.unit),Utilization:allowable.utilization,"Reserve factor":allowable.reserve_factor??"Unbounded (zero demand)","Margin (reserve factor - 1)":allowable.margin??"Unbounded (zero demand)",Status:allowable.utilization>1?"Limit exceeded":"Within the specified limit"};
     html+='<details open><summary>Material allowable check</summary>'+resultTable(shown)+'</details>';
   }
   const shape = activeShape();
@@ -8403,6 +8461,7 @@ function showStartupStudyNotice(notice) {
   const graphics=await JFEMGraphics.create({canvas:document.getElementById("render"),vendorBase:"vendor/",requireFullPrecisionTransparency:true,
     onStatus:status=>{JFEMGraphics.statusElement()(status);activity()?.update(startup,{detail:status.message+(status.backend==='starting'?'':status.detail?' · '+status.detail:'')});}});
   initScene(graphics.engine);
+  if(typeof WingStudyWatermark!=='undefined')state.studyWatermark=WingStudyWatermark.create({document,host:document.getElementById('study-watermark-controls'),onChange:({textChanged})=>{if(textChanged)markStudyModified();else markStudyViewModified();state.planView?.refresh();}});
   log("Babylon.js " + BABYLON.Engine.Version + " ready · " + graphics.backend +
     (graphics.fallbackReason?" fallback: "+graphics.fallbackReason:""),graphics.fallbackReason?"warn":"good");
   await loadInput({deferModel:true,deferReferences:true});
@@ -8410,8 +8469,9 @@ function showStartupStudyNotice(notice) {
   meshStatus("Choose a Study to start", "pending");
   let loaded=false,choiceMessage="";
   while(!loaded){
-    let openRequest;
-    const choice=await WingStartupStudy.choose({recentStudies:state.recentStudies,message:choiceMessage,onChoose:value=>{
+    let openRequest,newIdentification;
+    const choice=await WingStartupStudy.choose({recentStudies:state.recentStudies,message:choiceMessage,onChoose:(value,identification)=>{
+      if(value==='new')newIdentification=identification;
       // Keep the native file dialog inside the originating user gesture.
       state.startupChoiceCancelled=false;
       if(value==="open")openRequest=state.recentStudies?.choose()||new Promise(resolve=>{state.startupFileComplete=resolve;document.getElementById("model-file").click();});
@@ -8420,7 +8480,7 @@ function showStartupStudyNotice(notice) {
       if(value==="results")openRequest=new Promise(resolve=>{state.startupResultsComplete=resolve;document.getElementById('results-file').click();});
     }});
     choiceMessage="";
-    if(choice==="new")loaded=await newStudy()===true;
+    if(choice==="new")loaded=await newStudy({identification:newIdentification})===true;
     else if(choice==="open"){loaded=await openRequest;if(!loaded)state.startupChoiceCancelled=true;}
     else if(choice==="reference"){loaded=await openRequest;if(!loaded)state.startupChoiceCancelled=true;}
     else if(choice==="abaqus"){loaded=await openRequest;if(!loaded)state.startupChoiceCancelled=true;}

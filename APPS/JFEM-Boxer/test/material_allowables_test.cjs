@@ -2,7 +2,10 @@
 // Independent postprocessing checks: absolute physical stresses/engineering
 // ply strains, signed allowables, complete recovery, and mesh coverage.
 const assert=require('node:assert/strict');
-const A=require('../web/material_allowables.js');
+// Unit-factor fixtures isolate the existing material/recovery tests.
+// assessment_load_policy_test.cjs separately verifies the new default safety.
+const rawA=require('../web/material_allowables.js'),unitPolicy={assessmentPolicy:{strengthSafetyFactor:1,bucklingPolicyFactor:1}};
+const A={...rawA,assessElement:(p,r,rows)=>rawA.assessElement(p,r,rows,unitPolicy),build:(e,r,rows)=>rawA.build(e,r,rows,unitPolicy)};
 const mat1={id:1,type:'MAT1',name:'Metal'},mat8={id:8,type:'MAT8',name:'UD ply'};
 const stressLimit={material_id:1,mode:'stress',stress:250e6};
 const strainLimits={material_id:8,mode:'strain',strain_tension:.01,strain_compression:.006};

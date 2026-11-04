@@ -135,6 +135,10 @@ function load_payload(loads; model::Union{Nothing,Model} = nothing)
     result["load_application_version"]=APPLIED_LOAD_VERSION
     result["structure_inertia"]=model!==nothing&&structure_inertia_enabled(model.params)
     result["structure_inertia_migration_note"]=model===nothing ? "" : get(model.params,"structure_inertia_migration_note","")
+    if model!==nothing
+        result["load_basis"]="limit"
+        result["assessment_policy"]=assessment_policy_payload(model.params)
+    end
     model === nothing || (result["spanwise"] = spanwise_load_data(model,loads))
     if !isempty(loads.panels)
         xyz = Float64[v for p in loads.panels for corner in p.corners for v in corner]
@@ -429,6 +433,7 @@ function mesh_payload(m::Model; progress = stage -> nothing)
                   "connectivity is zero-based into nodes.xyz",
         "title" => String(m.params["output.title"]),
         "model_params" => copy(m.params),
+        "assessment_policy" => assessment_policy_payload(m.params),
         "geometry_warnings" => planform_endpoint_warnings(m.params,m.wing),
         "mesh_quality" => deepcopy(m.mesh_quality),
         "stiffened_panels" => stiffened_panels_payload(m),

@@ -1,7 +1,7 @@
 /* Local elastic instability of a PBARL T stringer's free web. The supported
  * web edge follows the attached flange; the opposite longitudinal edge is
  * free. This is a plate check, independent of the column's Euler end fixity. */
-(function(root,factory){const api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.WingStringerBladeData=api;})(globalThis,function(){
+(function(root,factory){const api=factory(typeof module==='object'&&module.exports?require('./assessment_load_policy.js'):root.WingAssessmentLoadPolicy);if(typeof module==='object'&&module.exports)module.exports=api;else root.WingStringerBladeData=api;})(globalThis,function(policy){
  'use strict';
  const finite=n=>typeof n==='number'&&Number.isFinite(n),positive=n=>finite(n)&&n>0,validID=n=>Number.isSafeInteger(Number(n))&&Number(n)>0;
  const COEFFICIENT=.425;
@@ -48,7 +48,8 @@
   if(!['upper','lower'].includes(skin)||!validID(bay)||!validID(stringer))return[];
   return[{group:skin,rowKey:'stringer:'+stringer,rowLabel:(skin==='upper'?'U':'L')+stringer,index:bay,columnLabel:'R'+bay+'–R'+(bay+1),key:blade.key,cellLabel:'Stringer blade'+(Number(blade.segment)>1?' · segment '+blade.segment:''),part:'stringer_blade',ribs:false,segment:blade.segment??1,stringer,panelId:blade.panel_id,panelKey:blade.key}];
  }
- function assessBlade(blade,cases){
+ function assessBlade(blade,cases,input={}){
+  const bucklingPolicy=policy.read(input).bucklingPolicyFactor;
   const bars=Array.isArray(blade.bars)?blade.bars:[],reasons=[],caseResults=[],seen=new Set();
   let baseReason=blade.reason||(!bars.length?'No actual bar elements are available for this stringer blade.':''),critical=null;
   for(const bar of bars){
@@ -71,9 +72,9 @@
    const complete=!baseReason&&samples.length===bars.length&&bars.length>0,mean=complete?signedMean(samples.map(s=>s.value)):failure('Incomplete bar-stress coverage.');
    if(complete&&!mean.reason){mean.tolerance=Math.max(mean.tolerance,signedMean(samples.map(s=>s.tolerance)).value);mean.compression=mean.value < -mean.tolerance?-mean.value:0;}
    const compression=mean.compression??null;
-   const ratio=complete&&compression>0?critical.value/compression:null;
+   const ratio=complete&&compression>0?critical.value/compression/bucklingPolicy:null;
    if(complete&&compression>0&&!positive(ratio))reasons.push({reason:'The blade reserve factor exceeds the numeric range.',count:1,caseLabel:item.label});
-   const row={caseKey:item.caseKey,caseId:item.caseId,label:item.label,solution:item.solution,total:Math.max(1,bars.length),recovered:samples.length,averageStress:mean.value??null,compressionDemand:compression,reserveFactor:positive(ratio)?ratio:null,criticalStress:critical?.value??null,criticalEid:critical?.eid??null};
+   const row={caseKey:item.caseKey,caseId:item.caseId,label:item.label,solution:item.solution,total:Math.max(1,bars.length),recovered:samples.length,averageStress:mean.value??null,compressionDemand:compression,assessmentCompressionDemand:compression===null?null:compression*bucklingPolicy,limitReserveFactor:compression>0?critical.value/compression:null,reserveFactor:positive(ratio)?ratio:null,criticalStress:critical?.value??null,criticalEid:critical?.eid??null};
    caseResults.push(row);
    if(complete&&compression>0){allNonCompressive=false;if(positive(ratio)&&(!governing||ratio<governing.reserveFactor))governing=row;}
   }
@@ -90,8 +91,8 @@
  }
  const NOTE='Stringer blade instability: elastic long-outstand plate stress σcr = 0.425 × π² E / [12 (1 − ν²)] × (tw / h)², with clear web height h = overall T height minus attached-flange thickness. One longitudinal edge is simply supported at the attached flange and the other is free. The conservative long-plate coefficient includes no finite-length stabilizing correction and is independent of Euler column end fixity. Actual isotropic PBARL T bars and rectangular blade-only BAR stringers are assessed. A blade-only BAR uses its full height, with its attached skin edge supported. Each bar contributes its signed axial stress (tension positive); if two signed axial endpoint stresses are present, their mean is used first. The bay or segment demand is the arithmetic mean of these element stresses with equal element weights, not length or area weights. Bending peaks, equivalent stress and skin stress are not substituted. The lowest local critical stress is used if bar section or material varies. RF is critical stress divided by the magnitude of compressive mean stress, then the lowest ratio across current SOL101 and fully converged SOL106 cases governs. RF 99 means no average compression in any fully recovered included case; individual elements may still be compressed. Missing, stale or incomplete recovery is unassessed. This is an elastic local plate screening check, not a prediction of plastic crippling, coupled local/global buckling or nonlinear failure load. Stress percentile trimming and Euler fixity do not apply.';
  function build(input,cases){
-  const blades=Array.isArray(input.stringerBlades)?input.stringerBlades:[],rows=blades.map(blade=>assessBlade(blade,cases));
-  return{failureMode:'stringer_blade',rows,includedCases:cases.included.map(({result,...item})=>item),excludedCases:cases.excluded.map(({result,...item})=>item),missingCases:cases.missing,method:'mean',percentile:100,stressUnit:'MPa',stressFactor:1e-6,lengthUnit:'m',complete:cases.complete&&rows.length>0&&rows.every(row=>row.complete),coverage:{recovered:rows.reduce((a,r)=>a+r.coverage.recovered,0),total:rows.reduce((a,r)=>a+r.coverage.total,0),properties:rows.length},note:NOTE+(!blades.length?' No generated PBARL stringer-blade geometry is available for the current model.':'')};
+  const blades=Array.isArray(input.stringerBlades)?input.stringerBlades:[],rows=blades.map(blade=>assessBlade(blade,cases,input));
+  return policy.annotate({failureMode:'stringer_blade',rows,includedCases:cases.included.map(({result,...item})=>item),excludedCases:cases.excluded.map(({result,...item})=>item),missingCases:cases.missing,method:'mean',percentile:100,stressUnit:'MPa',stressFactor:1e-6,lengthUnit:'m',complete:cases.complete&&rows.length>0&&rows.every(row=>row.complete),coverage:{recovered:rows.reduce((a,r)=>a+r.coverage.recovered,0),total:rows.reduce((a,r)=>a+r.coverage.total,0),properties:rows.length},note:NOTE+(!blades.length?' No generated PBARL stringer-blade geometry is available for the current model.':'')},input,'buckling');
  }
  return{COEFFICIENT,criticalStress,signedMean,axialStress,bladeLocations,assessBlade,build,NOTE};
 });

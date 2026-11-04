@@ -11,9 +11,9 @@
  const fail=reason=>({reason}),near=(a,b,tol=1e-9)=>finite(a)&&finite(b)&&Math.abs(a-b)<=tol*Math.max(Math.abs(a),Math.abs(b),Number.MIN_VALUE);
  const sectionCertificates=new WeakMap(),certificates=new WeakMap(),cache=new WeakMap(),laminateCache=new WeakMap();
  const NOTE='Model and results are not in sync. Estimated reserve factors use the edited sections with the last solved element forces and moments held fixed. They ignore load redistribution, changes in mass loads, aeroelastic loads and nonlinear equilibrium. Rerun the FE analysis to confirm the design.';
- const ALLOWED=/^(properties\.|material\.|materials\.)|^stringers\.(euler_fixity_coefficient|skin_fixity_coefficient)$/;
+ const ALLOWED=/^(properties\.|material\.|materials\.)|^assessment\.(strength_safety_factor|buckling_policy_factor)$|^stringers\.(euler_fixity_coefficient|skin_fixity_coefficient)$/;
  const geometryKeys=['elements','nodeIds','nodePositions','panels','componentGroups','eulerColumns','stringerBlades','skinBucklingPanels','componentBuckling'];
- const certifiedKeys=[...geometryKeys,'cases','signature','meshIdentity','studyEpoch','topologySignature','definitionSignature','allowables','componentFixities','eulerFixityCoefficient','skinFixityCoefficient','generated','sourceUnits','expectedCases'];
+ const certifiedKeys=[...geometryKeys,'cases','signature','meshIdentity','studyEpoch','topologySignature','definitionSignature','allowables','assessmentPolicy','assessmentPolicyWarnings','componentFixities','eulerFixityCoefficient','skinFixityCoefficient','generated','sourceUnits','expectedCases'];
  function signatureRows(signature){try{const rows=JSON.parse(signature);return Array.isArray(rows)&&rows.every(r=>Array.isArray(r)&&r.length===2&&typeof r[0]==='string')?new Map(rows):null;}catch{return null;}}
  function compatibility(base,current){
   if(!base||!current||base.generated!==true||current.generated!==true||base.sourceUnits||current.sourceUnits)return{compatible:false,reason:'Sizing estimates require a generated SI model.'};
@@ -171,7 +171,7 @@
   if(!check.compatible)return reject(check.reason);
   if(current.pendingDrafts||current.running)return reject(current.running?'An FE analysis is running; sizing estimates resume after completion.':'Apply or cancel the current edit before updating sizing estimates.');
   if((current.modelDirty||current.signature!==(current.definitionSignature??current.signature))&&!hasSections(base,current))return reject('Updating sections for the sizing estimate.');
-  const small=json({allowables:current.allowables,componentFixities:current.componentFixities,euler:current.eulerFixityCoefficient,skin:current.skinFixityCoefficient,expected:current.expectedCases,labels:entries(current.caseLabels)}),refs=[current.signature,current.meshIdentity,current.studyEpoch,...geometryKeys.map(key=>current[key]),small],old=cache.get(base);
+  const small=json({allowables:current.allowables,assessmentPolicy:current.assessmentPolicy,assessmentPolicyWarnings:current.assessmentPolicyWarnings,componentFixities:current.componentFixities,euler:current.eulerFixityCoefficient,skin:current.skinFixityCoefficient,expected:current.expectedCases,labels:entries(current.caseLabels)}),refs=[current.signature,current.meshIdentity,current.studyEpoch,...geometryKeys.map(key=>current[key]),small],old=cache.get(base);
   if(old&&old.refs.length===refs.length&&old.refs.every((x,i)=>Object.is(x,refs[i])))return old.value;
   const why=topologyReason(base,current);if(why)return reject(why);
   const sourceElements=new Map(entries(base.elements).map(([id,e])=>[Number(id),e])),properties=new Map(),changed=new Set(),compared=new WeakMap();
@@ -191,7 +191,7 @@
     }out.elementResults=records;delete out.element_results;}
    if(item.variants)out.variants=new Map(entries(item.variants).map(([key,variant])=>[key,recordCase(variant)]));return out;
   }
-  const context={...base,...current,modelDirty:false,pendingDrafts:false,running:false,estimated:true,allowables:clone(current.allowables),componentFixities:clone(current.componentFixities),cases:new Map(entries(base.cases).map(([key,item])=>[key,recordCase(item)])),estimateMessage:NOTE,estimateSource:{studyEpoch:base.studyEpoch,signature:base.signature,meshIdentity:base.meshIdentity},estimateCertificate:{}};
+  const context={...base,...current,modelDirty:false,pendingDrafts:false,running:false,estimated:true,allowables:clone(current.allowables),assessmentPolicy:clone(current.assessmentPolicy),assessmentPolicyWarnings:clone(current.assessmentPolicyWarnings),componentFixities:clone(current.componentFixities),cases:new Map(entries(base.cases).map(([key,item])=>[key,recordCase(item)])),estimateMessage:NOTE,estimateSource:{studyEpoch:base.studyEpoch,signature:base.signature,meshIdentity:base.meshIdentity},estimateCertificate:{}};
   certificates.set(context.estimateCertificate,Object.fromEntries(certifiedKeys.map(key=>[key,context[key]])));
   const value={context,estimated:true,changedPropertyIds:[...changed].sort((a,b)=>a-b),diagnostics,message:NOTE+(diagnostics.length?' Some edited-property stress checks remain unassessed; see assessment details.':'')};cache.set(base,{refs,value});return value;
  }

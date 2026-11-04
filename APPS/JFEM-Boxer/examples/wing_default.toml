@@ -84,7 +84,7 @@ items                 = []                      # Select a physical rib (root is
 label                 = "Load case 1"           # Name of the first load case in the deck and results selector
 method                = "analytic"              # Prescribed lift distribution, or aerodynamic forces and moments from VortexLattice.jl
 lift_total            = 6000.0                  # N, Unscaled prescribed lift carried by the modelled half lifting surface; define the intended base load level before applying the load multiplier
-load_factor           = 1.5                     # dimensionless, Dimensionless multiplier applied once to prescribed lift, VLM forces and moments, and prescribed torque. A value of 1.5 converts limit loads to ultimate only when the defined case already represents limit loads; it is not an additional n-g conversion. Negative values reverse forces and moments.
+load_factor           = 1.0                     # Physical LIMIT-case multiplier for aero, thrust, torque and inertia. Keep the strength safety factor and buckling policy separate below. Negative values reverse forces and moments.
 distribution          = "elliptical"            # elliptical, proportional to the local chord, or constant
 torque_y              = 0.0                     # N m, Unscaled prescribed couple at RBE3 centers; right-hand +y, distributed by tributary strips and scaled once by the same load multiplier
 follower_forces       = false                   # OpenJFEM FORCE directions follow RBE3 station rotation. SOL101 uses a first-order load linearization at zero rotation; SOL106 rotates forces during every equilibrium trial. MOMENT vectors, including prescribed global-y torque, remain fixed. This does not recompute aerodynamic pressures.
@@ -119,11 +119,11 @@ shells                = [{component = "upper_skin", core_material = 3, core_thic
 bars                  = [{component = "stringer", material = 1}, {component = "spar_cap", material = 1}, {component = "rib_stiffener", material = 1}, {component = "runout", material = 1}]  # Select an isotropic material for stringers, spar caps, rib stiffeners and fixed-area runout connectors
 
 [properties]
-t_skin_upper          = 0.0025                  # m
-t_skin_lower          = 0.0022                  # m
+t_skin_upper          = 0.0015                  # m
+t_skin_lower          = 0.0015                  # m
 panels                = []                      # Physical panel key and layout token, with sparse skin and stringer properties. Blank values inherit shared defaults. Reset overrides before changing the geometry or rib/stringer/runout layout
-t_spar_web            = 0.003                   # m, Default for both spars. Individual physical rib bays can override either web thickness below
-t_rib_web             = 0.002                   # m, Default main-box rib thickness; override individual physical ribs below
+t_spar_web            = 0.0015                   # m, Default for both spars. Individual physical rib bays can override either web thickness below
+t_rib_web             = 0.0015                   # m, Default main-box rib thickness; override individual physical ribs below
 rib_stiffeners_enabled= true                    # Vertical T bars at physical stringer columns of each main-box rib. Skin mesh subdivisions do not add stiffeners
 rib_stiffener_flange_width= 0.03                # m
 rib_stiffener_height  = 0.032                   # m
@@ -133,8 +133,8 @@ ribs                  = []                      # Overrides by physical rib numb
 spar_bays             = []                      # Optional front/rear web thickness overrides. Bay b spans physical ribs b and b+1; unset values inherit the default thickness
 stringer_flange_width = 0.03                    # m, PBARL T DIM1. Flange lies against the skin; the web points into the box
 stringer_height       = 0.032                   # m, PBARL T DIM2, including flange thickness. The centroid offset is included in the CBAR
-stringer_flange_thickness= 0.002                # m, PBARL T DIM3; must be less than the overall height
-stringer_web_thickness= 0.002                   # m, PBARL T DIM4; must be less than the flange width
+stringer_flange_thickness= 0.0015                # m, PBARL T DIM3; must be less than the overall height
+stringer_web_thickness= 0.0015                   # m, PBARL T DIM4; must be less than the flange width
 spar_cap_side         = 0.02                    # m, PBARL BAR with equal DIM1 and DIM2. One face lies against the skin; the square extends into the box
 
 [output]
@@ -144,7 +144,7 @@ solution              = "103"                   # 103 normal modes, 101 linear s
 n_modes               = 10                      # Eigenvalues requested for SOL 103 and SOL 105
 buckling_max_factor   = 50.0                    # x load, SOL 105 looks for load factors between 0 and this. Raise it if the run finds no roots
 include_aero_shells   = false                   # Also write the aerodynamic loft as CQUAD4 elements
-t_aero_shell          = 0.0005                  # m
+t_aero_shell          = 0.0015                  # m
 
 [nonlinear]
 load_steps            = 8                       # SOL106 nominal increments to the full selected load; native JFEM can cut back failed increments
@@ -152,6 +152,10 @@ max_iterations        = 25                      # SOL106 maximum equilibrium ite
 displacement_tolerance= 1.0e-6                  # SOL106 relative displacement-correction tolerance (JFEM NLTOL)
 residual_tolerance    = 1.0e-6                  # SOL106 relative force-residual tolerance (JFEM NLRESTOL)
 max_cutbacks          = 8                       # SOL106 cutback attempts before reporting incomplete convergence. If full load fails, the last verified accepted state is compared with SOL101 scaled to the same load, with a red warning
+
+[assessment]
+strength_safety_factor = 1.5                    # ULTIMATE strength demand = safety factor * LIMIT case demand; does not alter FE loads
+buckling_policy_factor= 1.0                    # Buckling RF = critical buckling load / (policy factor * LIMIT load); independent of strength safety factor
 
 [sensitivity]
 settings              = ""                      # Saved sensitivity objective and property selections; evaluated only when a sensitivity job is started

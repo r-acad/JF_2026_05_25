@@ -40,14 +40,14 @@
  }
  function snapshot(context){
   const result={...context,elements:copyElements(context.elements),cases:copyCases(context.cases),modelDirty:false,pendingDrafts:false,running:false};
-  for(const key of ['allowables','componentFixities','expectedCases','caseLabels'])result[key]=copy(context[key]);
+  for(const key of ['allowables','assessmentPolicy','assessmentPolicyWarnings','componentFixities','expectedCases','caseLabels'])result[key]=copy(context[key]);
   // Generated panel/column metadata are replaced, not edited, during mesh
   // generation. Retain those immutable objects to avoid duplicating the mesh.
   return result;
  }
  const same=(a,b)=>!!a&&a.length===b.length&&a.every((item,index)=>Object.is(item,b[index]));
  function stamp(context){
-  const small=JSON.stringify({allowables:context.allowables,componentFixities:context.componentFixities,expectedCases:context.expectedCases,
+  const small=JSON.stringify({allowables:context.allowables,assessmentPolicy:context.assessmentPolicy,assessmentPolicyWarnings:context.assessmentPolicyWarnings,componentFixities:context.componentFixities,expectedCases:context.expectedCases,
    caseLabels:entries(context.caseLabels),eulerFixity:context.eulerFixityCoefficient,eulerEndFactor:context.eulerEndFactor,skinFixity:context.skinFixityCoefficient,
    generated:context.generated,sourceUnits:context.sourceUnits,layoutToken:context.layoutToken??context.layout_token},(_,value)=>typeof value==='number'&&!Number.isFinite(value)?String(value):value);
   const values=[context.studyEpoch,context.signature,context.meshIdentity,context.elements,context.cases,context.panels,context.componentGroups,

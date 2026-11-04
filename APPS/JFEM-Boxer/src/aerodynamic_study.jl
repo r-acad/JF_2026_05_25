@@ -217,6 +217,32 @@ function aerodynamic_initialize_system!(system,patches,grids,ref,fs,surface_ids,
     conformity
 end
 
+# Resolve solver-local patch IDs back to the authored aerodynamic components.
+# Keep the numerical message intact, including its residual and validity reason.
+function aerodynamic_wake_error_context(message,patches)
+    separator="\nAerodynamic mesh locations: "
+    occursin(separator,message)&&return message
+    locations=String[];seen=Set{Tuple{Int,Union{Nothing,Int}}}()
+    for hit in eachmatch(r"\b(?:wake |body )?patch (\d+)(?:, filament (\d+))?",message)
+        index=tryparse(Int,hit.captures[1]);index===nothing&&continue
+        1<=index<=length(patches)||continue
+        filament=hit.captures[2]===nothing ? nothing : tryparse(Int,hit.captures[2])
+        key=(index,filament);key in seen&&continue;push!(seen,key)
+        patch=patches[index]
+        component=String(patch.element_name);side=uppercasefirst(String(patch.side))
+        label=side*" "*component
+        if component=="fixed wing"&&!isempty(patch.active)
+            label*=" beside "*join([String(row["name"]) for row in patch.active]," / ")
+        end
+        lo,hi=extrema(patch.etas)
+        station=filament!==nothing&&1<=filament<=length(patch.etas) ?
+            " at eta $(round(patch.etas[filament];sigdigits=5))" : ""
+        range="eta $(round(lo;sigdigits=5))–$(round(hi;sigdigits=5))"
+        push!(locations,"$(hit.match) = $label$station ($range)")
+    end
+    isempty(locations) ? message : message*separator*join(locations,"; ")*"."
+end
+
 function aerodynamic_solve(w,patches,s;wake_seed=nothing,frozen_wake=false,progress=(stage,done,total)->nothing)
     geometry_interference=aerodynamic_body_interference(patches)
     geometry_interference["valid"]||throw(ArgumentError(geometry_interference["message"]))
@@ -247,7 +273,18 @@ function aerodynamic_solve(w,patches,s;wake_seed=nothing,frozen_wake=false,progr
     relaxed=s["wake_model"]=="relaxed"
     vortex_conformity=aerodynamic_initialize_system!(system,patches,grids,ref,fs,surface_ids,known,
         relaxed ? s["wake_core"]*w.mac : 1e-3;relaxed)
-    wake=s["wake_model"]=="relaxed" ? aerodynamic_free_wake!(system,ref,fs,known,s,w,forward,inverse,origin;seed=wake_seed,frozen=frozen_wake,body_grids=grids,progress) : nothing
+    wake=if relaxed
+        try
+            aerodynamic_free_wake!(system,ref,fs,known,s,w,forward,inverse,origin;seed=wake_seed,frozen=frozen_wake,body_grids=grids,progress,threaded=true)
+        catch error
+            error isa ArgumentError||rethrow()
+            message=aerodynamic_wake_error_context(error.msg,patches)
+            message==error.msg&&rethrow()
+            throw(ArgumentError(message))
+        end
+    else
+        nothing
+    end
     all(isfinite,system.Γ)||error("VLM returned nonfinite circulation")
     payload=aerodynamic_mesh_payload(patches,w,s);panels=payload["panels"];force=AERO_ZERO;moment=AERO_ZERO;index=0;offset=0;strips=Any[]
     for (patchno,patch) in enumerate(patches)

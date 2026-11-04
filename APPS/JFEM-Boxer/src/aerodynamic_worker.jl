@@ -13,6 +13,7 @@ try
     request=JSON.parsefile(input)
     result=WingFEGen.run_aerodynamic_study(request["parameters"],request["settings"];mesh_only=request["mesh_only"],progress=write_progress)
     result["signature"]=request["signature"]
+    result["runtime"]=Dict("julia_threads"=>Threads.nthreads(),"blas_threads"=>BLAS.get_num_threads())
     SensitivityFileIO.write_text(joinpath(folder,"result.json"),JSON.json(result))
 catch error
     SensitivityFileIO.write_text(joinpath(folder,"error.json"),JSON.json(Dict("error"=>sprint(showerror,error))))

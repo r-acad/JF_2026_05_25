@@ -43,7 +43,7 @@ function handle_aerodynamic_study(st,req;action="run")
                 job=AerodynamicJob(id,"running",nothing,folder,time(),"Starting independent aerodynamic worker",String(signature));jobs[id]=job
                 repo=normpath(joinpath(st.root,"..",".."));exe=joinpath(Sys.BINDIR,Base.julia_exename())
                 script=joinpath(st.root,"src","aerodynamic_worker.jl")
-                cmd=`$exe --startup-file=no --threads=1 --project=$repo -O1 $script $input`
+                cmd=`$exe --startup-file=no --threads=auto --project=$repo -O1 $script $input`
                 log=open(joinpath(folder,"worker.log"),"w")
                 try;job.process=run(pipeline(cmd;stdout=log,stderr=log);wait=false)
                 catch e;job.state="failed";job.message=sprint(showerror,e);rethrow()

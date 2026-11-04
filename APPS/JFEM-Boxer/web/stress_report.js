@@ -1,17 +1,28 @@
 /* Results / Stress Report: property statistics across physical load cases. */
 (function(root){
  'use strict';
- function install({document,host,readContext,onEditProperty,onShowField,onClearField,readFieldState,onRefresh}){
+ function install({document,host,readContext,onEditProperty,onShowField,onClearField,readFieldState,onRefresh,onEditLoadPolicy}){
   const data=root.WingStressReportData,tableData=root.WingReserveFactorTableData,finite=Number.isFinite;
   const modeInfo=mode=>tableData.modeInfo(mode),rfFormat=value=>tableData.formatRF(value),rfDisplay=row=>rfFormat(row.reserveFactor)+(row.governingApproximation?' (100-term approx.)':row.approximation?' (includes approx.)':'');
   const evaluator=root.WingRFCompute?.create();let lastBuildInput=null;
   let report=null,cache=null,table='stress',page=0,lastContext=null,liveContext=null,sourceContext=null,validationError='';
+  let pending=null,refreshAgain=false,destroyed=false,lastRequest=null,requested=null;
   const snapshots=root.WingStressReportSnapshot.create();const palettes={stress:'viridis',reserve:'signed'};
   const pageSize=100;
   function el(tag,text,cls){const node=document.createElement(tag);if(text!==undefined)node.textContent=text;if(cls)node.className=cls;return node;}
   function select(id,items){const node=el('select');node.id=id;for(const[value,text]of items){const option=el('option',text);option.value=value;node.append(option);}return node;}
   function field(text,input){const label=el('label',undefined,'stress-report-field');label.append(el('span',text),input);return label;}
   const introduction=el('p','Compare property regions across current SOL101 and converged, full-load SOL106 cases. Use Maximize for wider tables.','pick-note');
+  const loadPolicy=el('fieldset',undefined,'stress-report-load-policy');loadPolicy.id='stress-report-load-policy';loadPolicy.append(el('legend','Load levels for sizing'));
+  const policySummary=el('p');policySummary.id='stress-report-policy-summary';policySummary.setAttribute('aria-live','polite');
+  const editPolicy=el('button','Edit sizing load policy','mini');editPolicy.id='stress-report-edit-policy';editPolicy.type='button';editPolicy.hidden=typeof onEditLoadPolicy!=='function';editPolicy.onclick=()=>onEditLoadPolicy?.();
+  editPolicy.title='Open Analysis / Sizing load policy. The shared factors change assessments without rerunning the finite-element solution.';
+  loadPolicy.append(policySummary,editPolicy);
+  function syncPolicy(context){
+   try{const p=root.WingAssessmentLoadPolicy.read(context);policySummary.textContent='Strength: ULTIMATE = '+p.strengthSafetyFactor+' × LIMIT. Buckling assessment = '+p.bucklingPolicyFactor+' × LIMIT. The case multiplier is already included in the recovered LIMIT demands.';loadPolicy.dataset.invalid='false';
+    for(const warning of context.assessmentPolicyWarnings||[])policySummary.textContent+=' '+warning;
+   }catch(error){policySummary.textContent=error.message;loadPolicy.dataset.invalid='true';}
+  }
   const controls=el('div',undefined,'stress-report-controls');
   const scope=select('stress-report-case',[['all','All eligible load cases']]);
   const failureMode=select('stress-report-failure-mode',[['minimum_rf','Minimum RF'],['von_mises','Von Mises stress'],['principal_strain','Laminate principal strain'],['euler_column','Euler column buckling'],['stringer_blade','Stringer blade instability'],['skin_buckling','Skin panel buckling'],...['spar_web_buckling','rib_web_buckling','spar_cap_buckling','rib_stiffener_buckling','rib_stiffener_blade'].map(mode=>[mode,modeInfo(mode).label])]);
@@ -27,12 +38,12 @@
   const search=el('input');search.id='stress-report-search';search.type='search';search.placeholder='Property ID, name or material';
   controls.append(field('Assessment',failureMode),field('Load cases',scope),field('Stress envelope',method),percentileField);
   const switcher=el('div',undefined,'stress-report-tabs');switcher.setAttribute('role','group');switcher.setAttribute('aria-label','Stress report tables');
-  const stressButton=el('button','Stress values'),reserveButton=el('button','RF values');stressButton.id='stress-report-stress';reserveButton.id='stress-report-reserve';
-  stressButton.title='Show the recovered stress envelope in MPa.';reserveButton.title='Switch this table to reserve factors: allowable stress divided by the stress envelope. This changes presentation only and does not run a solver. Choose Minimum RF in Assessment to combine all implemented failure checks.';for(const button of[stressButton,reserveButton])button.type='button';switcher.append(stressButton,reserveButton);
+  const stressButton=el('button','LIMIT stress values'),reserveButton=el('button','RF values');stressButton.id='stress-report-stress';reserveButton.id='stress-report-reserve';
+  stressButton.title='Show the recovered physical LIMIT stress envelope in MPa. Strength reserve factors use this demand multiplied by the strength safety factor.';reserveButton.title='Switch this table to reserve factors: allowable stress divided by the ULTIMATE stress envelope (strength safety factor times recovered LIMIT stress). This changes presentation only and does not run a solver. Choose Minimum RF in Assessment to combine all implemented failure checks.';for(const button of[stressButton,reserveButton])button.type='button';switcher.append(stressButton,reserveButton);
   const actions=el('div',undefined,'stress-report-actions');
   for(const[format,title,mime]of[['csv','CSV','text/csv'],['markdown','Markdown','text/markdown'],['html','HTML','text/html']]){
    const button=el('button','Export '+title,'mini');button.type='button';button.id='stress-report-export-'+format;
-   button.onclick=()=>{refresh();if(!report||['von_mises','minimum_rf'].includes(failureMode.value)&&method.value==='trimmed_mean'&&!percentile.checkValidity())return;const shown=filteredReport(),blob=new Blob([data[format](shown,table)],{type:mime+';charset=utf-8'}),url=URL.createObjectURL(blob),link=el('a');link.href=url;link.download='property-'+(table==='reserve'?'reserve-factors':'stress-report')+'.'+(format==='markdown'?'md':format);link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};actions.append(button);
+   button.onclick=async()=>{await refresh();if(pending||validationError||!report||['von_mises','minimum_rf'].includes(failureMode.value)&&method.value==='trimmed_mean'&&!percentile.checkValidity())return;const shown=filteredReport(),blob=new Blob([data[format](shown,table)],{type:mime+';charset=utf-8'}),url=URL.createObjectURL(blob),link=el('a');link.href=url;link.download='property-'+(table==='reserve'?'reserve-factors':'stress-report')+'.'+(format==='markdown'?'md':format);link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};actions.append(button);
   }
   const fields3D=el('fieldset',undefined,'stress-report-field-controls');fields3D.id='stress-report-3d-fields';fields3D.hidden=typeof onShowField!=='function';fields3D.append(el('legend','3D model fields'));
   // A single assessment controls both tables and the numerical 3D field.
@@ -55,7 +66,7 @@
   function setOnlyBelowOne(value){onlyFailing.checked=value===true;page=0;render();requestField(true);}
   function getFieldRequest(){const value=fieldMode.value;return{kind:value.startsWith('rf:')?'failure_rf':value,...(value.startsWith('rf:')?{failureMode:value.slice(3)}:{}),caseId:scope.value==='all'?'all':Number(scope.value),method:method.value,percentile:Number(percentile.value),palette:palettes.reserve,onlyBelowOne:onlyFailing.checked};}
   function fieldState(){return readFieldState?.()||localFieldState;}
-  function fieldBlockReason(){return validationError||(!report?'Create a current Stress Report first.':report.stale||(liveContext?.modelDirty&&!report.estimated)||liveContext?.pendingDrafts?'The model and results are not in sync. Tables retain the last analysed model; run a current analysis before showing an RF field.':liveContext?.running?'An analysis is running. RF fields are withheld until current results are available.':!report.includedCases.length?'No eligible current SOL101 or full-load SOL106 result is available.':'');}
+  function fieldBlockReason(){return validationError||(pending?'Reserve factors are updating; wait for the current assessment.':!report?'Create a current Stress Report first.':report.stale||(liveContext?.modelDirty&&!report.estimated)||liveContext?.pendingDrafts?'The model and results are not in sync. Tables retain the last analysed model; run a current analysis before showing an RF field.':liveContext?.running?'An analysis is running. RF fields are withheld until current results are available.':!report.includedCases.length?'No eligible current SOL101 or full-load SOL106 result is available.':'');}
   function syncFieldState(next){if(next&&typeof next==='object')localFieldState={...localFieldState,...next};const current=fieldState(),blocked=fieldBlockReason();showField.disabled=fieldPending||!!blocked;clearField.disabled=!current.active&&!fieldPending;showField.setAttribute('aria-pressed',String(!!current.active));fieldStatus.textContent=fieldPending?'Preparing the 3D field…':blocked||fieldActionError||(current.message||(!current.active?'Choose a field to color the full model.':'Field shown in the 3D model.'));fieldStatus.dataset.active=String(!!current.active);fieldStatus.dataset.blocked=String(!!blocked||!!fieldActionError);}
   function requestField(refresh=false){
    if(typeof onShowField!=='function'||refresh&&!fieldState().active)return;
@@ -70,7 +81,7 @@
   onlyFailing.onchange=()=>setOnlyBelowOne(onlyFailing.checked);
   const status=el('p',undefined,'stress-report-status');status.id='stress-report-status';status.setAttribute('role','status');status.setAttribute('aria-live','polite');
   const staleNotice=el('p',undefined,'stress-report-stale');staleNotice.id='stress-report-stale';staleNotice.hidden=true;staleNotice.setAttribute('role','status');
-  const detached=root.WingReserveFactorTables?.connect({readSnapshot:()=>({report,requestedFailureMode:failureMode.value,onlyBelowOne:onlyFailing.checked,error:validationError,panels:lastContext?.panels||[],componentGroups:lastContext?.componentGroups||[],generated:!!lastContext?.generated,caseScopeLabel:scope.selectedOptions[0]?.textContent||'All eligible load cases'}),onEditProperty:(pid,doc,hooks)=>onEditProperty?.(pid,doc,{...hooks,sourceContext}),onOnlyBelowOne:setOnlyBelowOne,onFailureMode:async value=>{failureMode.value=value;alignFieldToAssessment();if(value!=='von_mises')table='reserve';await refresh(true);if(report?.failureMode!==value)throw new Error(validationError||'The selected assessment is unavailable.');},onError:message=>{status.textContent=message;status.dataset.complete='false';}});
+  const detached=root.WingReserveFactorTables?.connect({readSnapshot:()=>({report:pending?null:report,requestedFailureMode:failureMode.value,onlyBelowOne:onlyFailing.checked,error:pending?'Updating reserve factors for the current assessment and load policy.':validationError,panels:lastContext?.panels||[],componentGroups:lastContext?.componentGroups||[],generated:!!lastContext?.generated,caseScopeLabel:scope.selectedOptions[0]?.textContent||'All eligible load cases'}),onEditProperty:(pid,doc,hooks)=>onEditProperty?.(pid,doc,{...hooks,sourceContext}),onOnlyBelowOne:setOnlyBelowOne,onFailureMode:async value=>{failureMode.value=value;alignFieldToAssessment();if(value!=='von_mises')table='reserve';await refresh(true);if(report?.failureMode!==value)throw new Error(validationError||'The selected assessment is unavailable.');},onError:message=>{status.textContent=message;status.dataset.complete='false';}});
   detached?.installButton(actions);
   const legend=el('div',undefined,'stress-report-legend');
   const viewport=el('div',undefined,'stress-report-table-scroll');viewport.tabIndex=0;viewport.setAttribute('role','region');viewport.setAttribute('aria-label','Property results table');
@@ -81,7 +92,7 @@
   const presentation=el('div',undefined,'stress-report-presentation');presentation.append(field('Color scale',palette),field('Find in table',search));
   const assessment=el('fieldset',undefined,'stress-report-assessment');assessment.append(el('legend','Assessment and load cases'),controls);
   const tableSection=el('section',undefined,'stress-report-table-section');tableSection.setAttribute('aria-label','Assessment table');tableSection.append(switcher,presentation,actions,legend,viewport,paging);
-  host.replaceChildren(assessment,staleNotice,status,fields3D,tableSection,details,help);
+  host.replaceChildren(loadPolicy,assessment,staleNotice,status,fields3D,tableSection,details,help);
   help.insertBefore(introduction,helpText);
   function filteredReport(){const term=search.value.trim().toLowerCase();return{...report,palette:palettes[table],rows:report.rows.filter(row=>(!onlyFailing.checked||tableData.isBelowOne(tableData.reserveValue(row).value))&&(!term||[row.label,row.pid,...(row.propertyIds||[]),...(row.names||[]),...(row.materialIds||[]).map(mid=>'MID '+mid)].join(' ').toLowerCase().includes(term)))};}
   function recoveryMethods(row){const found=new Map();for(const item of[...(row.recoveryMethods||[]),...(row.combined?.assessments||[]).flatMap(a=>a.recoveryMethods||[])]){const description=item.description||item.method;if(description)found.set((item.method||'')+'|'+description,{...item,description});}return[...found.values()];}
@@ -160,7 +171,9 @@
   }
   details.ontoggle=()=>{if(details.open&&report)showCoverage();};
   async function refreshNow(force=false){
-   liveContext=readContext();const retained=snapshots.select(liveContext);sourceContext=retained.context;
+   const buildStamp=requestStamp();liveContext=readContext();
+   try{root.WingAssessmentLoadPolicy.read(liveContext);}catch(error){syncPolicy(liveContext);return withholdReport(error.message);}
+   const retained=snapshots.select(liveContext);sourceContext=retained.context;
    const estimate=retained.stale&&root.WingRFSizingEstimate?root.WingRFSizingEstimate.project(sourceContext,liveContext):null;
    const estimated=!!estimate?.estimated,context=estimated?estimate.context:retained.context;lastContext=context;
    // Results normally replace the whole map. Also detect individual case updates
@@ -170,8 +183,8 @@
     records.push(id,parent,parent.analysis,parent.modeKind);
     for(const[key,r]of parent.variants?.size?parent.variants:[['default',parent]])records.push(key,r,r.elementResults,r.static,r.signature,r.meshIdentity,r.matches,r.available,r.historical,r.status,r.analysis,r.loadScale,r.convergence?.converged,r.convergence?.full_load,r.convergence?.partial,JSON.stringify(r.validationIssues));
    }
-   const deps=[estimated,estimate?.message,retained.stale,retained.message,context.studyEpoch,context.elements,context.cases,context.allowables,context.sourceUnits,context.signature,context.meshIdentity,context.modelDirty,context.pendingDrafts,context.running,context.panels,context.componentGroups,context.generated,context.eulerColumns,context.eulerFixityCoefficient,context.stringerBlades,context.skinBucklingPanels,context.skinFixityCoefficient,context.componentBuckling,JSON.stringify(context.componentFixities),JSON.stringify(context.expectedCases),JSON.stringify([...(context.caseLabels||[])]),failureMode.value,scope.value,method.value,percentile.value,...records];
-   if(!force&&cache&&deps.length===cache.length&&deps.every((v,i)=>v===cache[i]))return report;
+   const deps=[JSON.stringify(context.assessmentPolicy),JSON.stringify(context.assessmentPolicyWarnings),estimated,estimate?.message,retained.stale,retained.message,context.studyEpoch,context.elements,context.cases,context.allowables,context.sourceUnits,context.signature,context.meshIdentity,context.modelDirty,context.pendingDrafts,context.running,context.panels,context.componentGroups,context.generated,context.eulerColumns,context.eulerFixityCoefficient,context.stringerBlades,context.skinBucklingPanels,context.skinFixityCoefficient,context.componentBuckling,JSON.stringify(context.componentFixities),JSON.stringify(context.expectedCases),JSON.stringify([...(context.caseLabels||[])]),failureMode.value,scope.value,method.value,percentile.value,...records];
+   if(!force&&cache&&deps.length===cache.length&&deps.every((v,i)=>v===cache[i])){syncPolicy(context);if(retained.stale&&!estimated)policySummary.textContent='Retained assessment policy. '+policySummary.textContent;return report;}
    const selected=scope.value;scope.replaceChildren();const all=el('option','All eligible load cases');all.value='all';scope.append(all);
    for(const c of context.expectedCases||[]){const option=el('option',c.label||'Load case '+c.id);option.value=String(c.id);scope.append(option);}
    // Imported result sets can carry cases not present in older Study metadata.
@@ -183,18 +196,22 @@
    validationError='';
    try{const input={...context,failureMode:failureMode.value,caseId:scope.value==='all'?'all':Number(scope.value),method:method.value,percentile:percentileValue};
      const built=evaluator?await evaluator.evaluate(input,report,lastBuildInput):root.WingRFIncremental&&estimated?root.WingRFIncremental.build(input,report,lastBuildInput):data.build(input);
-     if(destroyed||refreshAgain||readContext().definitionSignature!==liveContext.definitionSignature)return report;lastBuildInput=input;
+     const currentStamp=requestStamp();
+     if(destroyed||refreshAgain||!sameRequest(buildStamp,currentStamp)){
+      if(!destroyed&&!sameRequest(buildStamp,currentStamp)){requested=currentStamp;refreshAgain=true;}
+      return report;
+     }lastBuildInput=input;
     const source=retained.source?Object.fromEntries(['studyEpoch','signature','meshIdentity','capturedAt'].map(key=>[key,retained.source[key]])):null;
     const notice=estimated?estimate.message:retained.message+(estimate?.message?' '+estimate.message:'');
     report=Object.assign(built,{stale:retained.stale&&!estimated,staleMessage:retained.stale&&!estimated?notice:'',estimated,estimateMessage:estimated?notice:'',source,note:(retained.stale?notice+' ':'')+built.note});}
    catch(error){if(error?.name==='AbortError')return report;return withholdReport('Cannot calculate the Stress Report: '+(error?.message||String(error)));}
+   syncPolicy(context);if(retained.stale&&!estimated)policySummary.textContent='Retained assessment policy. '+policySummary.textContent;
    cache=deps;page=0;render();requestField(true);return report;
   }
-  let pending=null,refreshAgain=false,destroyed=false,lastRequest=null,requested=null;
   const sameRequest=(a,b)=>!!a&&!!b&&a.length===b.length&&a.every((v,i)=>Object.is(v,b[i]));
   function requestStamp(){
    const c=readContext(),stamp=[c.studyEpoch,c.signature,c.definitionSignature,c.meshIdentity,c.sectionUpdateCertificate,c.elements,c.cases,c.panels,c.eulerColumns,c.stringerBlades,c.skinBucklingPanels,c.componentBuckling,
-    c.modelDirty,c.pendingDrafts,c.running,JSON.stringify([c.allowables,c.componentFixities,c.eulerFixityCoefficient,c.skinFixityCoefficient,c.expectedCases]),failureMode.value,scope.value,method.value,percentile.value];
+    c.modelDirty,c.pendingDrafts,c.running,JSON.stringify([c.assessmentPolicy,c.assessmentPolicyWarnings,c.allowables,c.componentFixities,c.eulerFixityCoefficient,c.skinFixityCoefficient,c.expectedCases]),failureMode.value,scope.value,method.value,percentile.value];
    for(const[id,r]of c.cases||[])stamp.push(id,r,r.elementResults,r.matches,r.available,r.status,r.signature,r.meshIdentity,r.variants,JSON.stringify(r.convergence));
    return stamp;
   }
@@ -216,8 +233,10 @@
       if(!destroyed){await refreshNow(force);lastRequest=stamp;}
      }while(refreshAgain&&!destroyed);
      return report;
-    }finally{if(token)root.WingActivity?.end(token);pending=null;if(!destroyed)onRefresh?.();}
-   })();return pending;
+    }finally{if(token)root.WingActivity?.end(token);pending=null;if(!destroyed){for(const button of actions.querySelectorAll('[id^="stress-report-export-"]'))button.disabled=!report||!!validationError||!report.includedCases?.length||!filteredReport().rows.length;detached?.refresh(true);syncFieldState();requestField(true);onRefresh?.();}}
+   })();
+   for(const button of actions.querySelectorAll('[id^="stress-report-export-"]'))button.disabled=true;
+   detached?.refresh(true);syncFieldState();return pending;
   }
   scope.onchange=method.onchange=percentile.onchange=()=>refresh(true);search.oninput=()=>{page=0;render();};
   failureMode.onchange=()=>{alignFieldToAssessment();if(failureMode.value!=='von_mises')table='reserve';refresh(true);};palette.onchange=()=>{palettes[table]=palette.value;render();if(table==='reserve')requestField(true);};

@@ -142,12 +142,14 @@ checks=@testset "Global minimum gauges and actual generated-property metadata" b
     @test all(row["applicable"]===false&&!isempty(row["member_element_ids"]) for row in W.stringer_blade_payload(sm))
     runout=deepcopy(p);merge!(runout,Dict("planform.taper_ratio"=>.55,"planform.sweep"=>35.,"mesh.elements_between_ribs"=>4))
     rm=gauge_build(runout)
-    failed=filter(row->row["status"]!="ready",W.stringer_euler_payload(rm))
-    @test !isempty(failed)
-    @test all(row["applicable"]&&row["membership_complete"]===true&&row["end_restraints_complete"]===false&&!isempty(row["member_element_ids"]) for row in failed)
-    failedskin=filter(row->row["status"]!="ready",W.skin_buckling_payload(rm))
-    @test !isempty(failedskin)
-    @test all(!isempty(row["member_element_ids"]) for row in failedskin)
+    # Rib-datum run-outs retain complete physical column/panel membership.
+    # This fixture is assessable with either the old or current gauge defaults.
+    columns=W.stringer_euler_payload(rm)
+    @test !isempty(columns)
+    @test all(row["status"]=="ready"&&row["applicable"]&&row["membership_complete"]===true&&row["end_restraints_complete"]===true&&!isempty(row["member_element_ids"]) for row in columns)
+    panels=W.skin_buckling_payload(rm)
+    @test !isempty(panels)
+    @test all(row["status"]=="ready"&&!isempty(row["member_element_ids"]) for row in panels)
     blade=deepcopy(shell);blade["properties.stringer_flange_width"]=0.;blade["properties.stringer_flange_thickness"]=0.
     bm=gauge_build(blade)
     for property in W.model_property_definitions(bm)

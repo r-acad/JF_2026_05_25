@@ -30,7 +30,7 @@
  function constrainPointRows(rows,key,params){
   if(!rows.some(p=>Object.hasOwn(p,"incoming_angle_deg")))return rows;
   const result=endpointRows(rows,key,params),span=Math.sqrt(params["planform.area"]*params["planform.aspect_ratio"]),semispan=span/2,taper=params["planform.taper_ratio"],rootChord=2*params["planform.area"]/(span*(1+taper)),nominal=nominalPointXc(key,params),reference=params["planform.sweep_ref_xc"],slope=Math.tan(params["planform.sweep"]*RAD),chord=eta=>rootChord*(1-(1-taper)*eta),base=eta=>eta*semispan*slope+(nominal-reference)*chord(eta);
-  for(let i=result.length-1;i>0;i--){const point=result[i],previous=result[i-1];if(!Object.hasOwn(point,"incoming_angle_deg"))continue;previous.dxc=(base(point.eta)+point.dxc*chord(point.eta)-(point.eta-previous.eta)*semispan*Math.tan(point.incoming_angle_deg*RAD)-base(previous.eta))/chord(previous.eta);if(!Number.isFinite(previous.dxc))throw Error(key+": the incoming angle cannot be represented at these dimensions.");}
+  for(let i=result.length-1;i>0;i--){const point=result[i],previous=result[i-1];if(!Object.hasOwn(point,"incoming_angle_deg"))continue;previous.dxc=(base(point.eta)+point.dxc*chord(point.eta)-(point.eta-previous.eta)*semispan*Math.tan(point.incoming_angle_deg*RAD)-base(previous.eta))/chord(previous.eta);if(Math.abs(previous.dxc)<=64*Number.EPSILON)previous.dxc=0;if(!Number.isFinite(previous.dxc))throw Error(key+": the incoming angle cannot be represented at these dimensions.");}
   return result;
  }
  function normalizePointParams(params){const out={...params};for(const key of [...POINT_KEYS,"box.front_spar_points","box.rear_spar_points"])if(Object.hasOwn(params,key))out[key]=normalizePointRows(params[key],key,params);return out;}

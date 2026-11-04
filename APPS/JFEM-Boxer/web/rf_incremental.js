@@ -1,5 +1,5 @@
 /* Reuse unaffected physical checks during certified fixed-load sizing. */
-(function(root,factory){const api=factory(typeof module==='object'&&module.exports?require('./stress_report_data.js'):root.WingStressReportData,typeof module==='object'&&module.exports?require('./minimum_rf_data.js'):root.WingMinimumRFData);if(typeof module==='object'&&module.exports)module.exports=api;else root.WingRFIncremental=api;})(globalThis,function(data,minimum){
+(function(root,factory){const api=factory(typeof module==='object'&&module.exports?require('./assessment_load_policy.js'):root.WingAssessmentLoadPolicy,typeof module==='object'&&module.exports?require('./stress_report_data.js'):root.WingStressReportData,typeof module==='object'&&module.exports?require('./minimum_rf_data.js'):root.WingMinimumRFData);if(typeof module==='object'&&module.exports)module.exports=api;else root.WingRFIncremental=api;})(globalThis,function(policy,data,minimum){
  'use strict';
  const entries=value=>value instanceof Map?[...value]:Object.entries(value||{}),json=value=>JSON.stringify(value);
  const COMPONENTS={spar_web_buckling:['web_panels','spar_web'],rib_web_buckling:['web_panels','rib_web'],spar_cap_buckling:['columns','spar_cap'],rib_stiffener_buckling:['columns','rib_stiffener'],rib_stiffener_blade:['blades','rib_stiffener']};
@@ -23,7 +23,7 @@
  }
  function build(input,previous,prior){
   const fallback=()=>data.build(input);
-  if(!previous||!prior||!input.estimated||input.meshIdentity!==prior.meshIdentity||input.studyEpoch!==prior.studyEpoch||input.failureMode!==prior.failureMode||['caseId','method','percentile'].some(k=>(input[k]??null)!==(prior[k]??null))||json(input.expectedCases)!==json(prior.expectedCases))return fallback();
+  if(!previous||!prior||!input.estimated||input.meshIdentity!==prior.meshIdentity||input.studyEpoch!==prior.studyEpoch||input.failureMode!==prior.failureMode||['caseId','method','percentile'].some(k=>(input[k]??null)!==(prior[k]??null))||json(input.expectedCases)!==json(prior.expectedCases)||json(input.assessmentPolicy)!==json(prior.assessmentPolicy)||json(input.assessmentPolicyWarnings)!==json(prior.assessmentPolicyWarnings))return fallback();
   const sources=input.failureMode==='minimum_rf'?data.criteria(previous):{[input.failureMode]:previous};if(!sources)return fallback();
   const changed=changedProperties(input,prior),index=new Map(entries(input.elements).map(([eid,e])=>[Number(eid),Number(e.group?.pid)])),reports={},counts={properties:[...changed].filter(Number.isFinite).sort((a,b)=>a-b),evaluatedRows:0,reusedRows:0,modes:{}};
   for(const[mode,oldReport]of Object.entries(sources)){
@@ -44,7 +44,7 @@
    }
    reports[mode]=merge(oldReport,fresh,key,replace);counts.evaluatedRows+=fresh.rows.length;counts.reusedRows+=oldReport.rows.filter(row=>!replace.has(key(row))).length;counts.modes[mode]=fresh.rows.length;
   }
-  const result=input.failureMode==='minimum_rf'?minimum.build(input,reports):reports[input.failureMode];
+  const result=input.failureMode==='minimum_rf'?policy.annotate(minimum.build(input,reports),input):reports[input.failureMode];
   result.incremental=counts;data.rememberCriteria(result,reports);return data.bindContext(result,input);
  }
  return{build,changedProperties,members};

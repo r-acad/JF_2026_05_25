@@ -8,7 +8,7 @@
     const token=Array.from(root.crypto.getRandomValues(new Uint32Array(4)),n=>n.toString(16).padStart(8,"0")).join("");
     let saved=api.validateState(), child=null, ready=false, revision=0;
     const copy=()=>({...saved,image:saved.image&&{...saved.image},pin:saved.pin?{image:{...saved.pin.image},drawing:{...saved.pin.drawing}}:null,transform:{...saved.transform},viewport:{...saved.viewport},grid:{...saved.grid},snap:{...saved.snap},measurements:saved.measurements.map(row=>({type:row.type,points:row.points.map(point=>({...point})),...(row.label?{label:{...row.label}}:{})}))});
-    const send=(type,payload={})=>{if(child&&!child.closed&&ready)child.postMessage({channel:CHANNEL,token,type,revision,...payload},origin);};
+    const send=(type,payload={})=>{if(child&&!child.closed&&ready)child.postMessage({channel:CHANNEL,token,type,revision,identification:root.WingStudyWatermark?.current()||null,...payload},origin);};
     const receive=event=>{
       const data=event.data;
       if(event.origin!==origin||event.source!==child||!data||data.channel!==CHANNEL||data.token!==token)return;
@@ -23,6 +23,7 @@
     const disconnect=()=>send("disconnected");
     const resume=event=>{if(event.persisted)send("initialize",{values:options.readValues(),saved:copy(),sharedReference:images.getSharedReference()});};
     const unsubscribe=images.subscribeSharedReference((value,meta)=>{saved=api.applySharedReference(saved,options.readValues(),value,meta);send('shared-reference',{sharedReference:value,replaceAll:meta.replaceAll});});
+    const unsubscribeIdentification=root.WingStudyWatermark?.subscribe(()=>send("identification"))||(()=>{});
     root.addEventListener("message",receive);
     root.addEventListener("pagehide",disconnect);
     root.addEventListener("pageshow",resume);
@@ -38,7 +39,7 @@
       refresh(){saved=api.applySharedReference(saved,options.readValues(),images.getSharedReference());send("values",{values:options.readValues()});},
       capture(){const result=copy();if(result.imageScope==='shared'&&images.getSharedReference()){result.image=null;result.pin=null;}return result;},
       restore(value){const values=options.readValues();saved=api.applySharedReference(api.seedLegacyReference(value,values),values,images.getSharedReference());revision++;send("restore",{saved:copy(),sharedReference:images.getSharedReference()});},
-      destroy(){unsubscribe();root.removeEventListener("message",receive);root.removeEventListener("pagehide",disconnect);root.removeEventListener("pageshow",resume);disconnect();child=null;}
+      destroy(){unsubscribe();unsubscribeIdentification();root.removeEventListener("message",receive);root.removeEventListener("pagehide",disconnect);root.removeEventListener("pageshow",resume);disconnect();child=null;}
     };
   }
   root.WingPlanViewWindow={connect,CHANNEL};

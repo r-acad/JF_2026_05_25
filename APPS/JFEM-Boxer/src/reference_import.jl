@@ -375,6 +375,7 @@ function imported_mesh_payload(m)
     parsed_card_count=source_card_count-sum(row["count"] for row in unprocessed if row["status"]=="unprocessed";init=0)
     publicparams=Dict(k=>v for (k,v) in params if !startswith(k,"imported."))
     return Dict{String,Any}("ok"=>true,"format"=>"wingfegen-mesh-1","title"=>source["name"],"model_params"=>publicparams,"mesh_quality"=>deepcopy(m.mesh_quality),
+        "assessment_policy"=>assessment_policy_payload(params),
         "materials"=>Dict{String,Any}("library"=>[material_cache[id] for id in sort!(collect(keys(material_cache)))],
             "allowables"=>deepcopy(get(params,"materials.allowables",Any[])),
             "note"=>"Elastic material data comes from the imported model. Study allowables are editable assessment criteria and do not modify the source deck."),

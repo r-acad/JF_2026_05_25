@@ -6,7 +6,7 @@ const stress=(a,b=a)=>({stress:{z1:{von_mises:a},z2:{von_mises:b}}});
 const element=(pid=10,property=shell,kind='quad',name='SKIN')=>({group:{pid,properties:property,kind,name}});
 const result=(records,extra={})=>({analysis:'SOL101_STATIC',available:true,status:'complete',matches:true,static:{},signature:'model',meshIdentity:4,elementResults:records,...extra});
 const nonlinear=records=>result(records,{analysis:'SOL106_NONLINEAR',convergence:{converged:true,full_load:true,partial:false},loadScale:1});
-const context=(cases,elements=new Map([[1,element()],[2,element()],[3,element()]]))=>({cases,elements,allowables:[limit],signature:'model',meshIdentity:4});
+const context=(cases,elements=new Map([[1,element()],[2,element()],[3,element()]]))=>({assessmentPolicy:{strengthSafetyFactor:1,bucklingPolicyFactor:1},cases,elements,allowables:[limit],signature:'model',meshIdentity:4});
 const samples=values=>values.map((value,i)=>({value,eid:i+1,face:'z2'}));
 const near=(actual,expected)=>assert(Math.abs(actual-expected)<=1e-12*Math.max(1,Math.abs(expected)),`${actual} != ${expected}`);
 let passed=0,failed=0;

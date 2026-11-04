@@ -104,7 +104,7 @@ end
     # One bound panel is sufficient to verify real AIC/Gamma/wake rollback.
     # The deterministic callback makes the initial wake valid and every later
     # trial invalid; no large model or fragile convergence timing is involved.
-    grid=safeguard_grid([0.,1.],[-1.,1.]);system=WSV.System([grid])
+    grid=safeguard_grid([0.,1.],[-1.,1.]);system=WSV.System([grid];ratios=[reshape([.5,.75],2,1,1)])
     speed=20.;reference=WSV.Reference(2.,1.,2.,[0.,0.,0.],speed)
     fs=WSV.Freestream(speed,0.,0.,[0.,0.,0.])
     baseline_velocity(point)=WSV.SVector(0.,0.,1.)
@@ -177,4 +177,68 @@ end
     @test velocity[1]>.05speed&&delta[1]>0
     @test norm(cross(delta,velocity))/(norm(delta)*norm(velocity))<.002
     @test alignment>1.99999
+end
+
+@testset "Integrated and local fallback defects have identical fixed points" begin
+    g=safeguard_grid([0.,.2,1.],[0.,1.]);g[3,2,:].=.03;g[3,3,:].=.02
+    system=(surfaces=Matrix{Any}[],Γ=Float64[])
+    known(point)=WSV.SVector(0.,1.,2.)
+    integrated,_,_=WS.aerodynamic_wake_targets(system,[g],[zeros(1)],known,10.,.02)
+    local_targets,_,_=WS.aerodynamic_wake_targets(system,[g],[zeros(1)],known,10.,.02;local_target=true)
+    defect=WS.aerodynamic_wake_local_defect([g],integrated)
+    @test reshape(defect,size(g))≈local_targets[1]-g atol=1e-15
+    @test all(iszero,reshape(defect,size(g))[:,1,:])
+    aligned=safeguard_grid([0.,.2,1.],[0.,1.]);aligned[2,:,:].+=.1aligned[1,:,:];aligned[3,:,:].+=.2aligned[1,:,:]
+    fixed,_,_=WS.aerodynamic_wake_targets(system,[aligned],[zeros(1)],known,10.,.02)
+    @test maximum(abs,WS.aerodynamic_wake_local_defect([aligned],fixed))<1e-15
+end
+
+@testset "Stiff convection finds admissible steps below the former ten-trial limit" begin
+    # A resolved coupled circulation solve with zero circulation isolates the
+    # geometric iteration. A steep but finite restoring velocity requires a
+    # smaller step than 1/512; physical X convection stays positive throughout.
+    grid=safeguard_grid([0.,1.],[-1.,1.]);system=WSV.System([grid];ratios=[reshape([.5,.75],2,1,1)])
+    speed=20.;reference=WSV.Reference(2.,1.,2.,[0.,0.,0.],speed)
+    fs=WSV.Freestream(speed,0.,0.,[0.,0.,0.])
+    known(point)=WSV.SVector(0.,0.,point[1]>1. ? 1. - 4e6*point[3] : 0.)
+    WSV.steady_analysis!(system,reference,fs;symmetric=false,derivatives=false,
+        additional_velocity=known,surface_id=[1],xhat=[1.,0.,0.],fcore=(c,ds)->.02)
+    settings=Dict{String,Any}("wake_core"=>.02,"wake_length"=>1.,"wake_rows"=>2,
+        "wake_iterations"=>100,"wake_tolerance"=>1e-7,"wake_relaxation"=>.25,
+        "wake_acceleration"=>"anderson","speed"=>speed)
+    wake=WS.aerodynamic_free_wake!(system,reference,fs,known,settings,(span=2.,mac=1.,area=2.),
+        identity,identity,(0.,0.,0.))
+    @test wake["converged"]
+    @test wake["residual"]<=settings["wake_tolerance"]
+    @test wake["iterations"]<=10
+    accepted=[h["accepted_step_fraction"] for h in wake["history"] if haskey(h,"accepted_step_fraction")]
+    @test !isempty(accepted)
+    @test minimum(accepted)<1/512
+    @test all(h["minimum_streamwise_velocity_over_V"]>.05 for h in wake["history"])
+    @test all(isfinite,system.Γ)
+    @test norm(system.Γ)<1e-12
+    @test maximum(abs,system.AIC*system.Γ-system.w)<1e-12
+end
+
+@testset "Stationary coupled wake confirms circulation without spurious motion" begin
+    grid=safeguard_grid([0.,1.],[-1.,1.]);system=WSV.System([grid];ratios=[reshape([.5,.75],2,1,1)])
+    speed=20.;reference=WSV.Reference(2.,1.,2.,[0.,0.,0.],speed)
+    fs=WSV.Freestream(speed,0.,0.,[0.,0.,0.]);known(point)=WSV.SVector(0.,0.,0.)
+    WSV.steady_analysis!(system,reference,fs;symmetric=false,derivatives=false,
+        additional_velocity=known,surface_id=[1],xhat=[1.,0.,0.],fcore=(c,ds)->.02)
+    system.Γ.=1. # Deliberately stale initial circulation, not a geometric error.
+    settings=Dict{String,Any}("wake_core"=>.02,"wake_length"=>1.,"wake_rows"=>2,
+        "wake_iterations"=>2,"wake_tolerance"=>1e-8,"wake_relaxation"=>.25,
+        "wake_acceleration"=>"anderson","speed"=>speed)
+    wake=WS.aerodynamic_free_wake!(system,reference,fs,known,settings,(span=2.,mac=1.,area=2.),
+        identity,identity,(0.,0.,0.))
+    @test wake["converged"]
+    @test wake["iterations"]==2
+    @test wake["rejected_trials"]==0
+    @test all(h["alignment"]==0. && h["displacement"]==0. for h in wake["history"])
+    @test WS.aerodynamic_wake_defect_location(Dict{String,Any}())==""
+    message=WS.aerodynamic_wake_defect_location(Dict("worst_tangent"=>Dict(
+        "patch"=>2,"filament"=>7,"row"=>16,"rows"=>16,"streamwise_step_over_core"=>157.8)))
+    @test occursin("wake patch 2, filament 7, row 16/16",message)
+    @test occursin("terminal finite-wake segment",message)
 end

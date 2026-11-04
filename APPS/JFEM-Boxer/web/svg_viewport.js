@@ -368,6 +368,7 @@
     clone.style.backgroundColor=options.backgroundColor||options.background||(options.theme==="white"?"#ffffff":"#0c1520");
     const background=doc.createElementNS(NS,"rect");background.setAttribute("x",String(box.x));background.setAttribute("y",String(box.y));background.setAttribute("width",String(box.width||rect.width));background.setAttribute("height",String(box.height||rect.height));background.setAttribute("fill",options.backgroundColor||options.background||(options.theme==="white"?"#ffffff":"#0c1520"));background.setAttribute("data-export-background","true");
     clone.insertBefore(background,clone.firstChild);
+    win.WingStudyWatermark?.stampSVG(clone);
     return '<?xml version="1.0" encoding="UTF-8"?>\n'+new win.XMLSerializer().serializeToString(clone);
   }
   function downloadSVG(svg,options={}) {

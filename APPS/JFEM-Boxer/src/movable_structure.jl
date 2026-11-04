@@ -1,12 +1,12 @@
 # Optional load-carrying shells and fittings for the defined movable surfaces.
 const MOVABLE_STRUCTURE_DEFAULTS=Dict{String,Any}("surface"=>"","enabled"=>true,
     "skin_material"=>1,"web_material"=>1,"rib_material"=>1,
-    "upper_thickness"=>.001,"lower_thickness"=>.001,"web_thickness"=>.002,"rib_thickness"=>.0015,
+    "upper_thickness"=>.0015,"lower_thickness"=>.0015,"web_thickness"=>.0015,"rib_thickness"=>.0015,
     "span_bays"=>4,"span_elements"=>2,"chord_elements"=>4,"height_elements"=>2,
     "secondary_spar"=>.5,"mesh_deflected"=>false,"end_eta"=>0.,"max_rib_pitch_ratio"=>1.5)
 const MOVABLE_ATTACHMENT_DEFAULTS=Dict{String,Any}("surface"=>"","eta"=>.5,"rib"=>1,"spar"=>"rear",
     "kind"=>"hinge","translation_stiffness"=>1e9,"tilt_stiffness"=>1e6,"hinge_stiffness"=>1e4,
-    "fitting"=>"idealized","lug_material"=>1,"lug_thickness"=>.003,"actuator"=>false,"actuator_stiffness"=>1e7,
+    "fitting"=>"idealized","lug_material"=>1,"lug_thickness"=>.0015,"actuator"=>false,"actuator_stiffness"=>1e7,
     "box_lateral_stay"=>true,"movable_lateral_stay"=>false)
 is_movable_pid(pid)=31<=pid÷1_000_000<=35 || pid÷1_000_000==37
 movable_structural_end(row,s)=get(row,"end_eta",0.)==0 ? s["eta_end"] : row["end_eta"]

@@ -15,7 +15,7 @@ const project=(input,r,kind='failure_rf',more={})=>F.project(input,r,{kind,failu
 const rgb=css=>css.match(/[\d.]+/g).slice(0,3).map(v=>+v/255);
 const vm=v=>({stress:{z1:{von_mises:v},z2:{von_mises:v}}});
 const current=(records,extra={})=>({analysis:'SOL101_STATIC',available:true,status:'complete',matches:true,static:{},signature:'A',meshIdentity:1,elementResults:records,...extra});
-const context=()=>({elements:elements(),cases:new Map([[1,current({1:vm(10),2:vm(20),3:vm(30),4:vm(40)})]]),allowables:[{material_id:1,mode:'stress',stress:300}],signature:'A',meshIdentity:1,generated:false});
+const context=()=>({assessmentPolicy:{strengthSafetyFactor:1,bucklingPolicyFactor:1},elements:elements(),cases:new Map([[1,current({1:vm(10),2:vm(20),3:vm(30),4:vm(40)})]]),allowables:[{material_id:1,mode:'stress',stress:300}],signature:'A',meshIdentity:1,generated:false});
 function sizingFixture(project=true){
  const signature=t=>JSON.stringify([['planform.span',4],['properties.skin_thickness',t]]),shell=t=>({type:'PSHELL',thickness_m:t,material_id:1,material:{id:1,type:'MAT1',E_Pa:70e9,nu:.33}});
  const oldElement={...element(10,shell(.002),'quad','GENERIC_SHELL'),nodes:[0,1,2,3]},newElement={...element(10,shell(.006),'quad','GENERIC_SHELL'),nodes:[0,1,2,3]};

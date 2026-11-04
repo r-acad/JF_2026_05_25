@@ -18,6 +18,9 @@ These retain the authored geometry, controls and analysis settings; mesh and
 solver results are created locally. Run the repository-root setup first.
 The [Python sizing example](../../utils/python_client/README.md) demonstrates
 repeated property updates through a warm JFEM process.
+The [illustrated RF methods report](../../Reference_documentation/06_JFEM-Boxer/Structures/JFEM_Boxer_Reserve_Factor_Methods.pdf)
+explains internal-load recovery, strength and buckling calculations, load
+policy, mathematical assumptions and worked examples.
 
 Real-valued numeric edits use at most three decimal places and five significant
 figures. Engineering notation keeps small dimensions, section inertias and
@@ -31,9 +34,10 @@ loaded numeric values are not quantized by the edit policy. Numeric arrows
 retain the field's configured increment, including valid values between those
 increments.
 
-New skin minimum gauges are **1 mm** for the upper/lower main box, leading edge,
-movable surfaces and aerodynamic shell export. Web and rib gauges have their
-own inputs. In **Properties / Mass**, non-structural shell densities use kg/m²
+New shell minimum gauges are **1.5 mm** for the main-box and leading-edge
+skins, spar/rib webs, movable-surface shells and attachment ribs. Shell-stringer
+flange/web thicknesses and aerodynamic shell export use the same default.
+In **Properties / Mass**, non-structural shell densities use kg/m²
 and bar densities use kg/m. **Movable shells** covers the movable skins, webs,
 ribs and hinge lugs; its added mass and inertia are included in the generated
 model and maneuver body loads.
@@ -388,10 +392,11 @@ edge circulation; the curved wake changes the loads, rather than being a
 display-only sketch. **Wake iteration method** defaults to safeguarded Anderson
 acceleration; **Plain under-relaxation** remains available for comparison.
 Acceleration uses recent shape residuals and bounds each update. Invalid or
-poor trial steps are halved and retried; backtracking or fallback to plain
-relaxation restarts its history. The requested relaxation factor is retained.
-It changes the
-iteration, not the wake equations or the convergence tolerance. The method
+poor trial steps are halved and retried down to numerical coordinate resolution.
+Accepted shortened steps retain their valid history. A fallback to the plain
+or local midpoint-defect direction restarts that history. An already valid
+unchanged shape receives a circulation-confirmation iteration. The requested
+relaxation factor and physical convergence tolerance remain in use. The method
 follows the fixed-point approach of
 [Walker and Ni (2011)](https://doi.org/10.1137/10078356X).
 Each sweep condition converges independently. Preview
@@ -423,6 +428,14 @@ previous completed results. Its residual is the maximum of segment/velocity
 unit-direction difference, displacement scaled by computed wake length,
 relative circulation change and the body boundary-equation residual scaled by
 airspeed. Shared trailing-edge streamlines remain joined.
+Clearance initialization and subsequent updates use the same tolerance when
+identifying shared trailing-edge vertices, including vertices that differ only
+by floating-point roundoff. Failure messages identify the physical left/right
+wing or control surface, the affected filament's eta and its patch's eta range,
+alongside the numerical patch, row and residual diagnostics.
+The aerodynamic worker uses available Julia threads for independent wake-column
+convection. Diagnostics reduce in a fixed order, and results record the Julia
+and BLAS thread counts for reproducibility.
 The circulation matrix, wake convection and force recovery use the same
 Rosenhead finite-segment velocity law with consistent source-edge radii.
 Wake filaments use **Vortex core radius / MAC**. Bound edges use a smaller
@@ -840,8 +853,8 @@ minimum flange width is zero. Disabled stiffeners do not impose dormant bounds.
 Movable-surface structures likewise define four minimum skin/web/rib thicknesses;
 their current bay properties directly inherit the corresponding surface minimum.
 
-New Studies start with **0.8 mm** upper and lower main-box skins and **1.5 mm**
-spar webs (the global inputs use metres: `0.0008` and `0.0015`). Explicit gauges
+New Studies start with **1.5 mm** shell minimum gauges (the global inputs use
+metres: `0.0015`). Explicit gauges
 saved in an existing Study or TOML remain in effect when it is opened.
 
 **Materials → Material library** groups each material definition with its
@@ -880,6 +893,47 @@ directional ply-failure or progressive-damage model. Earlier Studies containing
 five directional strain limits remain loadable, but those limits are never
 converted: enter the two principal-strain limits explicitly before assessment.
 
+### LIMIT loads, ULTIMATE strength and buckling policy
+
+Set the two shared factors in **Analysis > Sizing load policy**. Stress Report
+shows their current values and provides a button to edit them. They are saved
+with the Study and TOML. Changing a policy updates assessments, tables, RF
+fields, inspection and exports without changing the physical loads or requiring
+a new FE solution.
+
+The aerodynamic and enabled structural, engine and fuel inertia loads define
+the **LIMIT** case. The case multiplier defaults to **1** and scales the whole
+physical case once, including forces and moments. It is separate from the
+maneuver load factor and both assessment factors.
+
+- **Strength safety factor**, default **1.5**: ULTIMATE demand is this factor
+  times recovered LIMIT stress or strain. Material strength RF is allowable
+  divided by ULTIMATE demand. For example, 100 MPa at LIMIT with a 300 MPa
+  allowable gives RF = 300 / (1.5 × 100) = 2.
+- **Buckling policy factor**, default **1**: buckling RF is critical load
+  divided by (policy factor × LIMIT demand). This applies to stringer columns
+  and blades, skin panels, spar/rib webs, spar caps and rib stiffeners. If a
+  component buckles at LIMIT its RF is 1; buckling at 1.5 × LIMIT gives RF 1.5.
+  With policy 1.2, that second example gives RF 1.5 / 1.2 = 1.25. The strength
+  safety factor does not enter these checks. The physical stresses and forces
+  displayed alongside an RF remain on the LIMIT basis.
+
+SOL105 retains its raw eigenvalue λ, which multiplies the complete analyzed
+LIMIT preload. Results also shows **Buckling-policy RF = λ / policy factor**;
+the policy does not change the eigensolver, root ordering or raw sensitivities.
+
+For linear SOL101 this proportional demand scaling is exact. For SOL106,
+factoring the recovered LIMIT stress/strain or internal forces is an explicitly
+identified engineering estimate: nonlinear redistribution is not recalculated
+at ULTIMATE load, and the RF is not a predicted nonlinear failure multiplier.
+
+Existing saved case multipliers are preserved. Older files may already use
+1.5 to convert LIMIT to ULTIMATE; review those cases and remove that conversion
+from the case multiplier before using the new strength safety factor. The
+program does not silently reinterpret authored loading. Imported decks and
+result archives use their complete analyzed preload as the LIMIT reference;
+the source loading must be defined consistently with that convention.
+
 Checks apply to current SOL101, converged full-load SOL106 and SOL105 static
 preload results. Eigenmode amplitudes are arbitrary and are not assessed. For
 nonlinear results the reserve ratio is a demand ratio, not a predicted load
@@ -894,7 +948,7 @@ If they suppress strain output, choose an explicit solution in **Analysis of
 imported model** and rerun to obtain laminate strain checks.
 
 **Results → Stress Report** uses one **Assessment** selector for the tables and
-the 3D model. For Von Mises, choose **Stress values** or **RF values**;
+the 3D model. For Von Mises, choose **LIMIT stress values** or **RF values**;
 this switches the table presentation, without running another analysis.
 other assessments present their reserve-factor table. It includes current SOL101 and converged, full-load
 SOL106 physical solutions; modal solutions and SOL105, including its static
@@ -1150,7 +1204,8 @@ invalid; they are not replaced by the default.
 
 At each mesh cross-section, signed stringer axial force and projected shell
 membrane resultants are added over the tributary section. Consecutive elements
-along the span are not added together. Compression gives `RF = Pcr / Ncompression`;
+along the span are not added together. Compression gives
+`RF = Pcr / (buckling_policy_factor × Ncompression_LIMIT)`;
 the smallest ratio across the section cuts and selected SOL101/SOL106 cases
 governs. Stress averaging and percentile trimming do not apply to this mode.
 If all selected cases and section cuts have complete recovery and none is in
@@ -1201,7 +1256,8 @@ demand is `max(0, −mean stress)`; neither von Mises stress nor the largest ben
 fiber stress replaces it. Thus tensile and compressive samples can cancel in
 the requested average, and this does not assess localized peak compression.
 
-`RF = σcr / average compression`; the smallest RF across the selected load cases
+`RF = σcr / (buckling_policy_factor × average LIMIT compression)`;
+the smallest RF across the selected load cases
 governs. If section dimensions or materials vary within a segment, its lowest
 local critical stress is used. Complete coverage with no average compression
 gives **99**, even if an individual element is compressive. Missing stresses,
@@ -2088,6 +2144,17 @@ optional external-resource details.
 
 ## First study
 
+For a new Study, **Short text** accepts an optional name, assignment ID or
+classification such as `CONFIDENTIAL`. Enable its watermark immediately or
+change the text and visibility later in **Display / Axes & labels**. The
+identifier is saved with the Study and appears in 2D/3D views and SVG exports.
+The Save study form shows the linked filename and, when available, its full
+path with a **Copy** action. Use the system Save dialog to select a file with
+an accessible full path; browser file pickers expose only the filename.
+
+New shell minimum gauges start at **1.5 mm**. Saved Studies keep their
+explicit property values and local sizing overrides.
+
 1. In **Study Options**, choose **Start new study**, **Load last study**,
    **Open existing study**, or **Read Reference file**.
    **Open existing study** shows the same newest-first catalogue as
@@ -2436,6 +2503,14 @@ and [exporting a flat input without parts and assemblies](https://docs.software.
 These describe the upstream format; JFEM implements the subset listed here.
 
 ## Display and editing
+
+**Geometry / Loft** plots thickness, twist and vertical shift against eta.
+Each curve includes the selected interpolation method. Without a schedule,
+the plots show the blended airfoil thickness, original root-to-tip twist and
+zero vertical shift. Add stations to obtain draggable control points. Drag
+vertically to change a station value, or focus a point and use the arrow keys.
+Eta remains fixed during a drag; edit its numeric field to move the station.
+Escape cancels a drag. The edited schedule is saved with the Study.
 
 Every left pane collapses with **−** and restores with **+**. Drawing panes
 retain a separate Maximize action while expanded. **Collapse all trees / Expand all trees** changes the entity-list layout without

@@ -90,6 +90,7 @@
       const notes=spec.source==='distribution'?[card.querySelector('.plot-aero-performance .plot-explanation')?.textContent,data.distribution?.note,data.distribution?.elliptical_note,summary?.span_efficiency_note]:[mode==='fe'?'Exact deck point loads: jumps occur at the FE application nodes.':'Distributed aerodynamic and inertia sources integrated along the span.',data.reference_note,data.sign_note,data.resultant_note];
       for(const note of new Set([card.querySelector(".plot-definition")?.textContent,...notes].filter(Boolean)))paragraph(note);
       svg.setAttribute('height',Math.ceil(y+pad));svg.setAttribute('viewBox',`0 0 ${width} ${Math.ceil(y+pad)}`);
+      root.WingStudyWatermark?.stampSVG(svg);
       return '<?xml version="1.0" encoding="UTF-8"?>\n'+new doc.defaultView.XMLSerializer().serializeToString(svg)+'\n';
     }
     function plot(data,spec,width,summary,{exporting=false,caseLabel=''}={}) {

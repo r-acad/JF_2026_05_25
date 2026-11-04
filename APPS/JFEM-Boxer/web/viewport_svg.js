@@ -163,7 +163,7 @@
    else{flush();pending={key,primitive:p,attributes,d:[d]};}
    if(i%4096===0)await progress(.87+.1*i/primitives.length,"Writing compact SVG paths");
   }flush();
-  append(`</g><g font-family="system-ui,sans-serif">${legend.body}</g></svg>`);await progress(1,"Viewport SVG ready");stats.outputCharacters=parts.reduce((sum,part)=>sum+part.length,0);return{text:parts.join(""),stats,warnings:[...warnings]};
+  append(`</g>${root.WingStudyWatermark?.svgMarkup(width,height)||""}<g font-family="system-ui,sans-serif">${legend.body}</g></svg>`);await progress(1,"Viewport SVG ready");stats.outputCharacters=parts.reduce((sum,part)=>sum+part.length,0);return{text:parts.join(""),stats,warnings:[...warnings]};
  }
  return{exportScene,clipPolygon,clipSegment};
 });

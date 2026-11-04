@@ -15,7 +15,7 @@ function request_imported_model(raw)
     signature=get(value,"signature",nothing)
     signature===nothing||signature==model.params["imported.source"]["signature"]||throw(ArgumentError("The imported deck handle belongs to a different source. Read the deck again."))
     model=imported_analysis_model(model,get(value,"analysis",nothing))
-    if haskey(parameters,"jfem.timeout_minutes")||haskey(parameters,"materials.allowables")
+    if haskey(parameters,"jfem.timeout_minutes")||haskey(parameters,"materials.allowables")||any(is_assessment_parameter,keys(parameters))
         params=copy(model.params)
         if haskey(parameters,"jfem.timeout_minutes")
             params["jfem.timeout_minutes"]=coerce_value(SCHEMA_BY_KEY["jfem.timeout_minutes"],parameters["jfem.timeout_minutes"])
@@ -23,6 +23,7 @@ function request_imported_model(raw)
         if haskey(parameters,"materials.allowables")
             params["materials.allowables"]=normalize_material_allowables(parameters["materials.allowables"])
         end
+        apply_assessment_policy!(params,parameters)
         solver_timeout_seconds(params)
         model=Model((field===:params ? params : getfield(model,field) for field in fieldnames(Model))...)
     end
@@ -199,6 +200,9 @@ function handle_import_reference(st::AppState,req)
         # A new deck may reuse MID numbers for entirely different materials.
         # Only explicit Study restoration may carry its assessment limits in.
         importparams["materials.allowables"]=normalize_material_allowables(get(raw,"materials.allowables",Any[]))
+        # A fresh imported deck starts at the standard sizing policy. Saved
+        # Study restoration may explicitly restore its policy and review note.
+        apply_assessment_policy!(importparams,raw;reset=true)
         t=time();Serialization.serialize(joinpath(dir,"input.jls"),(source,importparams));capture_seconds=time()-t
         wait_timings=imported_run_worker(st,repo,dir,progress)
         progress("Loading imported geometry into the viewer")

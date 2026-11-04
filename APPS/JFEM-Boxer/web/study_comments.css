@@ -10,4 +10,11 @@
 .study-comments-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}
 .study-comments-dialog button{padding:8px 13px;border:1px solid #587995;border-radius:5px;background:#243c52;color:#eff6ff;font:inherit;cursor:pointer}
 .study-comments-dialog .study-comments-save,.study-comments-dialog .study-comments-open{background:#2568a7}
+.study-save-location{margin:0 0 16px;padding:10px 12px;border:1px solid #3d5871;border-radius:6px;background:#0c1926}
+.study-comments-dialog .study-save-location label{margin:0 0 6px;font-size:12px;font-weight:600;color:#b5cbe0}
+.study-save-location-row{display:flex;gap:8px;align-items:center}
+.study-save-location-row input{box-sizing:border-box;min-width:0;flex:1;padding:9px;border:1px solid #4a6680;border-radius:4px;background:#14283a;color:#f1f7fc;font:13px/1.4 ui-monospace,monospace;user-select:text}
+.study-save-location-row button{flex:none}
+.study-save-location-status{display:block;margin-top:6px;color:#b4c9db;line-height:1.4;overflow-wrap:anywhere}
+.study-comments-dialog .study-save-system-dialog{display:flex;gap:8px;align-items:center;color:#c4d5e5;font-size:13px;margin:0 0 14px}
 .study-comments-dialog button:disabled{opacity:.5;cursor:default}.study-comments-dialog button:focus-visible,.study-comments-dialog textarea:focus-visible{outline:2px solid #83c4ff;outline-offset:2px}

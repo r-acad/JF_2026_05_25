@@ -2,7 +2,7 @@
 const assert=require('node:assert/strict'),Snapshot=require('../web/stress_report_snapshot.js'),Data=require('../web/stress_report_data.js');
 const recovery=(value=100e6)=>({1:{stress:{z1:{von_mises:value},z2:{von_mises:value/2}}}});
 const record=(extra={})=>({analysis:'SOL101',static:{},available:true,status:'complete',matches:true,signature:'model-a',meshIdentity:'mesh-a',elementResults:recovery(),...extra});
-function context(extra={}){return{studyEpoch:1,signature:'model-a',meshIdentity:'mesh-a',modelDirty:false,pendingDrafts:false,running:false,
+function context(extra={}){return{assessmentPolicy:{strengthSafetyFactor:1,bucklingPolicyFactor:1},studyEpoch:1,signature:'model-a',meshIdentity:'mesh-a',modelDirty:false,pendingDrafts:false,running:false,
  elements:new Map([[1,{id:1,group:{pid:10,name:'SKIN',kind:'quad',properties:{type:'PSHELL',material_id:1,material:{id:1,type:'MAT1'},thickness:.002}}}]]),
  cases:new Map([[1,record()]]),allowables:[{material_id:1,mode:'stress',stress:300e6}],caseLabels:new Map([[1,'Original case']]),expectedCases:[{id:1,solution:101,label:'Original case'}],
  generated:true,panels:[{key:'upper:bay1:stringer1:segment1',shell_pid:10}],componentGroups:[{pid:10,name:'SKIN'}],layoutToken:'layout-a',

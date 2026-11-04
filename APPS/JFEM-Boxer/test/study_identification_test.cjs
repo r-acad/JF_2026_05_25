@@ -1,0 +1,26 @@
+"use strict";
+const assert=require("node:assert/strict"),W=require("../web/workspace.js"),I=require("../web/study_watermark.js");
+(async()=>{
+ assert.deepEqual(I.normalize(),{text:"",visible:false});
+ assert.deepEqual(I.normalize({text:"  CONFIDENTIAL  ",visible:true}),{text:"CONFIDENTIAL",visible:true});
+ for(const invalid of [{text:"x"}, {text:"x",visible:"yes"},{text:"x\ny",visible:true},{text:"x".repeat(121),visible:true},{text:"x",visible:true,html:true}])assert.throws(()=>I.normalize(invalid),/identification/);
+ const text='<img src=x onerror="alert(1)"> & student',identification={text,visible:true},view=W.newModelView(null);
+ const saved=await W.snapshot({"output.title":"Identity fixture"},null,view,{identification});
+ assert.deepEqual(W.parse(JSON.stringify(saved)).data.identification,identification);
+ const legacy=JSON.parse(JSON.stringify(saved));delete legacy.identification;assert.deepEqual(W.parseObject(legacy).data.identification,{text:"",visible:false});
+ assert(!Object.hasOwn(saved.parameters,"identification"),"Identification must not affect FE parameters/signatures");
+ const markup=I.svgMarkup(1000,600,identification);assert(markup.includes("&lt;img"));assert(!markup.includes("<img"));assert(markup.includes("&amp; student"));assert(markup.includes("pointer-events=\"none\""));
+ assert.equal(I.svgMarkup(1000,600,{text:"hidden",visible:false}),"");assert.equal(I.svgMarkup(1000,600,{text:"",visible:true}),"");
+ const native={kind:"native-save",token:"safe",name:"Wing.wingfem.json",path:"C:\\Course\\Wing.wingfem.json"};
+ assert.deepEqual(W.studyLocation({name:native.name,handle:native}),{value:native.path,fullPath:true,description:"Current Study file on this computer."});
+ assert.equal(W.studyLocation({name:"Wing.wingfem.json",handle:{name:"Wing.wingfem.json"}}).fullPath,false);
+ assert.match(W.studyLocation({name:"Wing.wingfem.json"}).description,/does not expose/);assert.equal(W.studyLocation().value,"");
+ let nativeCalls=0,browserCalls=0;
+ const host={isSecureContext:true,showSaveFilePicker:()=>{browserCalls++;return {name:"Browser.wingfem.json"};},fetch:async()=>{nativeCalls++;return{status:200,ok:true,json:async()=>({ok:true,handle:native})};}};
+ const chosen=await W.requestStudyDestination(native.name,{preferNative:true},host);assert.equal(chosen.method,"native");assert.equal(chosen.path,native.path);assert.equal(browserCalls,0);
+ const linked=await W.requestStudyDestination(native.name,{handle:native,preferNative:true},host);assert.equal(linked.handle,native);assert.equal(nativeCalls,1,"Normal Save retains the linked native file");
+ const fallback=await W.requestStudyDestination(native.name,{preferNative:true},{...host,fetch:async()=>({status:404})});assert.equal(fallback.method,"picker");assert.equal(browserCalls,1);
+ let calls=[];const ctx={save(){calls.push("save");},restore(){calls.push("restore");},translate(){},rotate(){},fillText(text){calls.push(text);}};
+ I.paintCanvas(ctx,1000,600,{text:"A123",visible:true});assert.deepEqual(calls,["save","A123","restore"]);
+ console.log("Study identification: strict metadata, legacy migration, literal-text exports, FE independence and full-path/native Save behavior passed.");
+})().catch(error=>{console.error(error);process.exitCode=1;});

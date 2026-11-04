@@ -1,7 +1,7 @@
 /* Elastic column checks for actual stringer/tributary-skin cross-sections.
  * Geometry, material axes and force ownership come from the generated mesh.
  * Nothing is inferred from a property number or from a von Mises contour. */
-(function(root,factory){const api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.WingEulerColumnData=api;})(globalThis,function(){
+(function(root,factory){const api=factory(typeof module==='object'&&module.exports?require('./assessment_load_policy.js'):root.WingAssessmentLoadPolicy);if(typeof module==='object'&&module.exports)module.exports=api;else root.WingEulerColumnData=api;})(globalThis,function(policy){
  'use strict';
  const finite=n=>typeof n==='number'&&Number.isFinite(n),positive=n=>finite(n)&&n>0;
  const failure=reason=>({reason});
@@ -91,7 +91,8 @@
   if(!['upper','lower'].includes(skin)||!Number.isSafeInteger(bay)||bay<=0||!Number.isSafeInteger(stringer)||stringer<=0)return[];
   return[{group:skin,rowKey:'stringer:'+stringer,rowLabel:(skin==='upper'?'U':'L')+stringer,index:bay,columnLabel:'R'+bay+'–R'+(bay+1),key:column.key,cellLabel:'P'+column.panel_id+' · Stringer column',part:'stringer_column',ribs:false,segment:column.segment??1,stringer,panelId:column.panel_id,panelKey:column.key}];
  }
- function assessColumn(column,cases,{endFactor}={}){
+ function assessColumn(column,cases,input={}){
+  const {endFactor}=input,bucklingPolicy=policy.read(input).bucklingPolicyFactor;
   const length=column.length_m,c=endFactor??column.fixity_coefficient??1,stations=Array.isArray(column.stations)?column.stations:[],reasons=[],caseResults=[];
   const baseReason=column.reason||(!positive(c)?'The Euler end-fixity coefficient must be a finite positive number.':'')||(!positive(length)?'A positive full rib-to-rib unbraced length is required.':'')||(!stations.length?'No physical cross-section cuts are available.':'');
   const prepared=stations.map((station,index)=>{const stiffness=section(station.parts),critical=stiffness.reason?stiffness:criticalLoad(stiffness.weakestEI,length,c);return{station,index,stiffness,critical,reason:station.reason||critical.reason||''};});
@@ -102,8 +103,8 @@
     const force=baseReason||p.reason?failure(baseReason||p.reason):axialForce(p.station.force_terms,records);
     if(force.reason){reasons.push({reason:force.reason,count:1,caseLabel:item.label,station:p.station.id??p.index+1});continue;}
     recovered++;maximumCompression=Math.max(maximumCompression,force.compression);allNonCompressive&&=force.compression===0;
-    const rf=force.compression>0?p.critical.value/force.compression:null;
-    const sample={station:p.station.id??p.index+1,stationIndex:p.index,criticalLoad:p.critical.value,compressionDemand:force.compression,signedForce:force.signedForce,reserveFactor:finite(rf)?rf:null,weakestEI:p.stiffness.weakestEI,area:p.stiffness.area,centroidY:p.stiffness.centroidY,centroidZ:p.stiffness.centroidZ};
+    const rf=force.compression>0?p.critical.value/force.compression/bucklingPolicy:null;
+    const sample={station:p.station.id??p.index+1,stationIndex:p.index,criticalLoad:p.critical.value,compressionDemand:force.compression,assessmentCompressionDemand:force.compression*bucklingPolicy,limitReserveFactor:force.compression>0?p.critical.value/force.compression:null,signedForce:force.signedForce,reserveFactor:finite(rf)?rf:null,weakestEI:p.stiffness.weakestEI,area:p.stiffness.area,centroidY:p.stiffness.centroidY,centroidZ:p.stiffness.centroidZ};
     if(force.compression>0&&!positive(rf)){reasons.push({reason:'The Euler reserve factor exceeds the numeric range.',count:1,caseLabel:item.label,station:sample.station});recovered--;continue;}
     samples.push(sample);if(rf!==null&&(!caseGoverning||rf<caseGoverning.reserveFactor))caseGoverning=sample;
    }
@@ -123,8 +124,8 @@
  }
  const NOTE='Euler stringer-column check: Pcr = c × π² × (EI)min / L², with c = 1 for pinned ends. Each actual mesh cut includes the stringer and half of the neighboring skin panel on each side, using current thickness and section offsets. Isotropic parts use their Young moduli. Validated laminate strip laws retain the rotated membrane/bending coupling: the complete section stiffness is assembled, free axial extension is eliminated by a Schur complement, and the weakest principal bending stiffness is used. Oblique sheets use the stated axial-energy projection approximation. Signed beam axial force and projected shell membrane resultants are combined at the same section; consecutive elements along the span are never summed. The lowest Pcr / compressive resultant across cuts and SOL101/SOL106 load cases governs. Local stiffness with the full rib-to-rib length is an approximate elastic column check for a varying or curved member, not a local plate, crippling or nonlinear buckling solution. Unsupported or nonpositive section laws are unassessed. RF 99 means every included case was fully recovered and none was compressive; missing or stale results never receive 99. This mode does not apply stress averaging or percentile trimming.';
  function build(input,cases){
-  const columns=Array.isArray(input.eulerColumns)?input.eulerColumns:[],rows=columns.map(column=>assessColumn(column,cases,{endFactor:input.eulerFixityCoefficient??input.eulerEndFactor}));
-  return{failureMode:'euler_column',rows,includedCases:cases.included.map(({result,...item})=>item),excludedCases:cases.excluded.map(({result,...item})=>item),missingCases:cases.missing,method:'maximum',percentile:100,stressUnit:input.sourceUnits?'source stress units':'MPa',stressFactor:input.sourceUnits?1:1e-6,forceUnit:input.sourceUnits?'source force units':'N',forceFactor:1,lengthUnit:input.sourceUnits?'source length units':'m',complete:cases.complete&&rows.length>0&&rows.every(row=>row.complete),coverage:{recovered:rows.reduce((a,r)=>a+r.coverage.recovered,0),total:rows.reduce((a,r)=>a+r.coverage.total,0),properties:rows.length},note:NOTE+(!columns.length?' No generated stringer-column geometry is available for the current model.':'')};
+  const columns=Array.isArray(input.eulerColumns)?input.eulerColumns:[],rows=columns.map(column=>assessColumn(column,cases,{...input,endFactor:input.eulerFixityCoefficient??input.eulerEndFactor}));
+  return policy.annotate({failureMode:'euler_column',rows,includedCases:cases.included.map(({result,...item})=>item),excludedCases:cases.excluded.map(({result,...item})=>item),missingCases:cases.missing,method:'maximum',percentile:100,stressUnit:input.sourceUnits?'source stress units':'MPa',stressFactor:input.sourceUnits?1:1e-6,forceUnit:input.sourceUnits?'source force units':'N',forceFactor:1,lengthUnit:input.sourceUnits?'source length units':'m',complete:cases.complete&&rows.length>0&&rows.every(row=>row.complete),coverage:{recovered:rows.reduce((a,r)=>a+r.coverage.recovered,0),total:rows.reduce((a,r)=>a+r.coverage.total,0),properties:rows.length},note:NOTE+(!columns.length?' No generated stringer-column geometry is available for the current model.':'')},input,'buckling');
  }
  return{matrixPart,section,criticalLoad,forceTerm,axialForce,columnLocations,assessColumn,build,NOTE};
 });

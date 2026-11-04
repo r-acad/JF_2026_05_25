@@ -2,6 +2,7 @@
   "use strict";
   const CHANNEL="WingFEGen.plan-view.v1",token=location.hash.slice(1),parent=window.opener,origin=location.origin;
   const status=document.getElementById("plan-window-status");
+  const identification=window.WingStudyWatermark?.create({document});
   let view=null,values={},connected=false,revision=0,lastSeen=Date.now();
   const send=(type,payload={})=>{if(parent&&!parent.closed)parent.postMessage({channel:CHANNEL,token,type,revision,...payload},origin);};
   function refreshModel(){
@@ -15,6 +16,7 @@
     const data=event.data;
     if(event.source!==parent||event.origin!==origin||!data||data.channel!==CHANNEL||data.token!==token)return;
     lastSeen=Date.now();
+    if(Object.hasOwn(data,"identification"))identification?.restore(data.identification);
     if(data.type==="initialize"){
       revision=data.revision;
       values=data.values;

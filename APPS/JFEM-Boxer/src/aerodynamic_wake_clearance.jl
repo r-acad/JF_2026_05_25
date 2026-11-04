@@ -141,20 +141,55 @@ function aerodynamic_wake_section_points(triangle,y,tolerance)
     points
 end
 
+# Match the identity used by every constrained wake trial. Roundoff at patch
+# boundaries must not split one physical origin into disconnected seed graphs.
+function aerodynamic_wake_origin_key(point,scale)
+    spacing=1e-9*abs(Float64(scale))
+    isfinite(spacing)&&spacing>0||throw(ArgumentError("Wake sharing scale must be finite and positive"))
+    Tuple(round.(Int,point./spacing))
+end
+
+# A clearance seed uses the requested upper/lower envelope, never the mean of
+# two differently raised copies. Reconcile X/Y exactly as the trial projector,
+# then verify the complete candidate against the body before accepting it.
+function aerodynamic_coalesce_wake_seed!(grids,side,scale)
+    groups=Dict{NTuple{3,Int},Vector{Tuple{Int,Int}}}()
+    for (k,g) in enumerate(grids),j in axes(g,3)
+        push!(get!(()->Tuple{Int,Int}[],groups,aerodynamic_wake_origin_key(g[:,1,j],scale)),(k,j))
+    end
+    for group in values(groups)
+        length(group)>1||continue
+        rows=size(grids[first(group)[1]],2)
+        all(size(grids[k],2)==rows for (k,_) in group)||
+            throw(ArgumentError("Shared wake seeds require matching downstream station counts"))
+        for i in 2:rows
+            for axis in 1:2
+                firstvalue=grids[first(group)[1]][axis,i,first(group)[2]]
+                value=all(grids[k][axis,i,j]==firstvalue for (k,j) in group) ? firstvalue :
+                    sum(grids[k][axis,i,j] for (k,j) in group)/length(group)
+                for (k,j) in group;grids[k][axis,i,j]=value;end
+            end
+            value=side*maximum(side*grids[k][3,i,j] for (k,j) in group)
+            for (k,j) in group;grids[k][3,i,j]=value;end
+        end
+    end
+    nothing
+end
+
 # Max-envelope dilation along connected TE polylines. Only existing patch
-# adjacency and identical TE vertices connect rays; nearby detached flaps never
+# adjacency and shared TE vertices connect rays; nearby detached flaps never
 # become neighbors merely because they are close in space. Attenuation along a
 # chain multiplies, giving exp(-TE arclength/distance) from each seed source.
-function aerodynamic_smooth_wake_seed!(grids,side,distance)
+function aerodynamic_smooth_wake_seed!(grids,side,distance;scale=1.)
     isempty(grids)&&return
     rows=size(first(grids),2)
     all(size(g,2)==rows for g in grids)||throw(ArgumentError("Wake seed smoothing requires matching downstream station counts"))
-    lookup=Dict{NTuple{3,Float64},Int}();points=VortexLattice.SVector{3,Float64}[]
+    lookup=Dict{NTuple{3,Int},Int}();points=VortexLattice.SVector{3,Float64}[]
     indices=Vector{Int}[]
     for g in grids
         ids=Int[]
         for j in axes(g,3)
-            p=Tuple(g[:,1,j]);index=get!(lookup,p) do
+            p=Tuple(g[:,1,j]);index=get!(lookup,aerodynamic_wake_origin_key(g[:,1,j],scale)) do
                 push!(points,VortexLattice.SVector{3,Float64}(p));length(points)
             end
             push!(ids,index)
@@ -216,12 +251,11 @@ function aerodynamic_seed_clear_wake!(grids,triangles,scale;core,side=1,span_smo
     clearance=max(abs(Float64(core)),abs(Float64(scale))*1e-5,1e-8)
     candidate=deepcopy(grids)
     obstructed=Set((hit.patch,hit.filament) for hit in before.samples)
-    # Patch boundaries may duplicate one physical TE vertex. Use the same seed
-    # for every copy so the initialization does not tear shared wake filaments.
-    starts=Set(Tuple(grids[k][:,1,j]) for (k,j) in obstructed)
+    # Use the same tolerant physical identity as smoothing and trial projection.
+    starts=Set(aerodynamic_wake_origin_key(grids[k][:,1,j],scale) for (k,j) in obstructed)
     modified=0;maxoffset=0.
     for (k,g) in enumerate(candidate),j in axes(g,3)
-        Tuple(g[:,1,j]) in starts||continue
+        aerodynamic_wake_origin_key(g[:,1,j],scale) in starts||continue
         origin=VortexLattice.SVector{3,Float64}(g[:,1,j])
         slope=0.;lastx=origin[1];height=0.
         for triangle in triangles
@@ -251,6 +285,7 @@ function aerodynamic_seed_clear_wake!(grids,triangles,scale;core,side=1,span_smo
         end
         modified+=1
     end
+    aerodynamic_coalesce_wake_seed!(candidate,side,scale)
     after=aerodynamic_wake_collisions(candidate,triangles;scale=scale)
     if span_smoothing
         smoothing_length=max(2abs(Float64(core)),.1abs(Float64(scale)),tolerance)
@@ -259,7 +294,8 @@ function aerodynamic_seed_clear_wake!(grids,triangles,scale;core,side=1,span_smo
         # again. Each repaired ray remains above/below all body sections forever;
         # therefore at most the number of distinct rays can require repair.
         for _ in 1:sum(size(g,3) for g in candidate)
-            aerodynamic_smooth_wake_seed!(candidate,side,smoothing_length)
+            aerodynamic_smooth_wake_seed!(candidate,side,smoothing_length;scale)
+            aerodynamic_coalesce_wake_seed!(candidate,side,scale)
             after=aerodynamic_wake_collisions(candidate,triangles;scale=scale)
             after.count==0&&break
             aerodynamic_seed_clear_wake!(candidate,triangles,scale;core,side,span_smoothing=false)

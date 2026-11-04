@@ -2,10 +2,11 @@
  * every reference source file and its current placement travel with the model.
  */
 (function (root, factory) {
-  const api = factory(typeof module === 'object' && module.exports ? require('./reference_import.js') : root.WingReferenceImport);
+  const api = factory(typeof module === 'object' && module.exports ? require('./reference_import.js') : root.WingReferenceImport,
+    typeof module === 'object' && module.exports ? require('./study_watermark.js') : root.WingStudyWatermark);
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.WingWorkspace = api;
-})(typeof globalThis !== "undefined" ? globalThis : this, function (reference) {
+})(typeof globalThis !== "undefined" ? globalThis : this, function (reference,watermark) {
   "use strict";
   const FORMAT = "wingfegen-workspace", VERSION = 1, MAX_BYTES = 256 * 1024 * 1024;
   const MAX_NOTE_LENGTH=20000,MAX_NOTE_ENTRIES=2000;
@@ -24,6 +25,11 @@
     "inspect-entity":["all","nodes","solid","shells","quad","tria","bar","stringer","cap","rbe3","connection","spring","conm2","coordinate"],"vlm-field":["none","pressure","cp"],
     "result-palette":["spectrum","viridis","inferno","coolwarm","grayscale","signed"]};
   const object = (value) => value && typeof value === "object" && !Array.isArray(value);
+  function normalizeIdentification(value){
+    if(watermark)return watermark.normalize(value);
+    if(value==null||object(value)&&value.text===""&&value.visible===false)return{text:"",visible:false};
+    throw Error("Study identification requires the updated viewer. Refresh JFEM-Boxer.");
+  }
   function isoTime(value,label="save timestamp") {
     if(typeof value!=="string"||!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(value)||!Number.isFinite(Date.parse(value))||new Date(value).toISOString()!==value)
       throw new Error("Invalid "+label+": expected a UTC ISO timestamp.");
@@ -238,6 +244,7 @@
     // New Studies receive the schema default (0.75) before being saved.
     if(data.parameters["mesh.stringer_runout_ratio"]===undefined)data.parameters["mesh.stringer_runout_ratio"]=1;
     data.notes=normalizeNotes(data.notes);
+    data.identification=normalizeIdentification(data.identification);
     if(data.model_source!==undefined)data.model_source=reference.source(data.model_source);
     if(data.saved_at!==undefined)isoTime(data.saved_at);
     validateView(data.view);
@@ -265,7 +272,8 @@
     const display=JSON.parse(JSON.stringify(view)),savedAt=isoTime(options.savedAt||new Date().toISOString());
     const notes=normalizeNotes(options.notes);
     const assets=references ? await references.exportPortable() : [];
-    const data={format:FORMAT,version:VERSION,created_at:options.createdAt||savedAt,saved_at:savedAt,notes,parameters:params,
+    const identification=normalizeIdentification(options.identification);
+    const data={format:FORMAT,version:VERSION,created_at:options.createdAt||savedAt,saved_at:savedAt,notes,identification,parameters:params,
       references:assets.map(({metadata,bytes})=>({...metadata,data_base64:bytesToBase64(bytes)})),view:display};
     // Apply the same checks on export and import, including the total limit.
     if(options.modelSource)data.model_source=reference.source(options.modelSource);
@@ -338,13 +346,14 @@
     if(!response.ok||data.ok===false)throw Error(data.error||"The system file operation failed.");
     return data;
   }
-  async function requestNativeDestination(name,host) {
+  async function requestNativeDestination(name,host,{browserFallback=false}={}) {
     try{
       const data=await nativeFileRequest("pick",{name},host);
       if(data.cancelled)return {cancelled:true};
       if(data.available!==false)return {method:"native",handle:data.handle,name:data.handle.name,path:data.handle.path};
+      if(browserFallback&&typeof host.showSaveFilePicker==="function"&&host.isSecureContext!==false)return requestSaveDestination("study",name,host);
       return requestDownloadFallback(name,data.reason||"Neither a browser nor a system Save dialog is available.",host);
-    }catch(error){return requestDownloadFallback(name,"The system Save dialog is unavailable: "+(error?.message||String(error)),host);}
+    }catch(error){if(browserFallback&&typeof host.showSaveFilePicker==="function"&&host.isSecureContext!==false)return requestSaveDestination("study",name,host);return requestDownloadFallback(name,"The system Save dialog is unavailable: "+(error?.message||String(error)),host);}
   }
   function requestDownloadFallback(name,reason,host){
     const accepted=typeof host.confirm==="function"&&host.confirm(reason+"\n\nDownload this file instead? Your browser download settings choose the folder. Enable 'Ask where to save each file' in the browser to select a location. Cancel keeps your changes unsaved.");
@@ -352,6 +361,12 @@
   }
   const nativeHandle=handle=>handle?.kind==="native-save"&&typeof handle.token==="string";
   const writableHandle=handle=>nativeHandle(handle)||typeof handle?.createWritable==="function";
+  function studyLocation({name=null,handle=null,path=null}={}) {
+    const fullPath=String(path||handle?.path||"").trim(),filename=String(name||handle?.name||"").trim();
+    if(fullPath)return{value:fullPath,fullPath:true,description:"Current Study file on this computer."};
+    if(filename)return{value:filename,fullPath:false,description:"Filename only: the browser does not expose its folder path. Use the system Save dialog to choose a destination with a full path."};
+    return{value:"",fullPath:false,description:"This Study has not been saved to a file yet. Choose its name and folder when saving."};
+  }
   async function nativeFile(handle,host=globalThis){
     const data=await nativeFileRequest("read",{token:handle.token},host);
     if(data.available===false)throw Error(data.reason);
@@ -363,8 +378,9 @@
   }
   // A normal Save keeps the linked destination. Save as always opens a new
   // chooser. Permission is requested synchronously while click activation is live.
-  function requestStudyDestination(name, {handle=null,saveAs=false} = {}, host=globalThis) {
+  function requestStudyDestination(name, {handle=null,saveAs=false,preferNative=false} = {}, host=globalThis) {
     if(!saveAs&&nativeHandle(handle))return Promise.resolve({method:"native",handle,name:handle.name||name,path:handle.path});
+    if(preferNative)return requestNativeDestination(name,host,{browserFallback:true});
     if (saveAs || !handle || typeof handle.createWritable!=="function") return requestSaveDestination("study",name,host);
     let request;
     try { request=typeof handle.requestPermission==="function" ? handle.requestPermission({mode:"readwrite"}) : "granted"; }
@@ -388,5 +404,5 @@
   function download(data,name,document) {
     downloadText(JSON.stringify(data,null,2),name,"application/json",document);
   }
-  return {FORMAT,VERSION,CONTROL_IDS,LAYER_GROUP_IDS,MAX_NOTE_LENGTH,MAX_NOTE_ENTRIES,normalizeNotes,notesForSave,completeView,newModelView,parse,parseObject,snapshot,captureView,applyControls,validateView,migrateReactionControls,bytesToBase64,base64ToBytes,filename,download,requestSaveDestination,requestStudyDestination,writeDestination,downloadText,nativeHandle,writableHandle,nativeFile};
+  return {FORMAT,VERSION,CONTROL_IDS,LAYER_GROUP_IDS,MAX_NOTE_LENGTH,MAX_NOTE_ENTRIES,normalizeNotes,notesForSave,completeView,newModelView,parse,parseObject,snapshot,captureView,applyControls,validateView,migrateReactionControls,bytesToBase64,base64ToBytes,filename,download,requestSaveDestination,requestStudyDestination,writeDestination,downloadText,nativeHandle,writableHandle,studyLocation,nativeFile};
 });

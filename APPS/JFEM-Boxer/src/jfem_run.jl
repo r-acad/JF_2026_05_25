@@ -1881,7 +1881,7 @@ function validate_comparison_model(parent::Model, child::Model, spec; load_scale
     for (key,value) in spec.params
         # Output paths, run controls and display reference assets may differ;
         # physical inputs must remain identical for a meaningful comparison.
-        if startswith(key,"output.") || startswith(key,"jfem.") || key in ("loads.cases", "loads.label", "references.items")
+        if startswith(key,"output.") || startswith(key,"jfem.") || is_assessment_parameter(key) || key in ("loads.cases", "loads.label", "references.items")
             continue
         end
         expected=key=="loads.load_factor" ? value*load_scale : value
@@ -1925,6 +1925,7 @@ function attach_result_source!(payload::AbstractDict,params::AbstractDict)
     source=deepcopy(params)
     function attach!(item)
         item["source_model_params"]=source
+        item["assessment_policy"]=assessment_policy_payload(params)
         for key in ("load_cases","variants"), child in get(item,key,Any[])
             child isa AbstractDict && attach!(child)
         end

@@ -29,6 +29,16 @@ end
         a,b=changed[key][1:2];@test physical_x(changed,key,a)≈physical_x(changed,key,b) atol=1e-12
     end
     p=fixture();saved=deepcopy(p);W.apply_point_angle_constraints!(p);@test p==saved
+    # Reconstructing an angle from an exactly zero root offset must not
+    # replace that anchor with a tiny cancellation residue on save/reload.
+    for key in ("planform.leading_edge_points","planform.trailing_edge_points","box.front_spar_points","box.rear_spar_points")
+        p=fixture();a=Dict("eta"=>0.,"dxc"=>0.);b=Dict("eta"=>.42,"dxc"=>.03)
+        semispan=sqrt(p["planform.area"]*p["planform.aspect_ratio"])/2
+        b["incoming_angle_deg"]=atand((physical_x(p,key,b)-physical_x(p,key,a))/(.42semispan))
+        p[key]=[a,b];W.apply_point_angle_constraints!(p)
+        @test first(p[key])["dxc"]===0.0
+        @test p[key][2]["dxc"]===.03
+    end
     key="box.front_spar_points";p[key]=[Dict("eta"=>.5,"dxc"=>0.,"incoming_angle_deg"=>0.)];W.apply_point_angle_constraints!(p)
     @test getindex.(p[key],"eta")==[0.,.5,1.]
     @test p[key][2]["dxc"]==0.

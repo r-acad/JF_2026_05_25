@@ -39,6 +39,7 @@
   <link rel="stylesheet" href="viewport-legends.css">
   <link rel="stylesheet" href="study_files.css">
   <link rel="stylesheet" href="study_comments.css">
+  <link rel="stylesheet" href="study_watermark.css">
   <link rel="stylesheet" href="recent_studies.css">
   <link rel="stylesheet" href="model_workspace.css">
   <link rel="stylesheet" href="supports.css">
@@ -134,6 +135,7 @@
         <p class="pick-note">Choose a solution below. Define loading in Loads → Cases, then run all enabled cases. Follow progress in Log.</p>
         <p id="analysis-validity" class="pick-note" role="status" aria-live="polite" data-analysis-current="false">No analysis results are available. Run JFEM for this model.</p>
         <div id="analysis-runtime-options"></div>
+        <div id="analysis-policy-options"></div>
         <div id="imported-analysis" hidden></div>
       </section>
       <details id="imported-deck-info" hidden><summary id="imported-deck-title"></summary><p>Imported deck is authoritative. Review source cases in Loads → Cases and boundary conditions in Model → Constraints. These forms are read-only; selecting a case updates the loads and constraints in the viewport. Review properties in Display → Properties or Inspect; use Analysis, Sensitivity and Results normally. Read Nastran replaces the deck; New Study returns to generated geometry. Save Study embeds the complete source, including INCLUDE content. TOML describes generated lifting surfaces only.</p><ul id="imported-deck-warnings"></ul></details>
@@ -391,6 +393,7 @@
 
       <section id="panel-displaylabels" class="workspace-panel display-pane" data-workspace-panel="displaylabels" role="tabpanel" aria-labelledby="tab-displaylabels" hidden>
       <div class="parameter-heading"><h2>Axes and labels</h2></div>
+      <div id="study-watermark-controls"></div>
       <fieldset id="display-axes-labels">
         <legend>Axes &amp; labels</legend>
         <label class="layer" title="Label the tips of the global BASIC coordinate axes x, y and z. These are reference directions and do not move with the deformed model."><input id="show-global-axis-labels" type="checkbox"><span>Global axis tip labels · x / y / z</span></label>
@@ -702,6 +705,7 @@
 <script src="sections.js" defer></script>
 <script src="shell_thickness.js" defer></script>
 <script src="geometry_tools.js" defer></script>
+<script src="study_watermark.js" defer></script>
 <script src="svg_viewport.js" defer></script>
 <script src="planform_view.js" defer></script>
 <script src="planform_inputs.js" defer></script>
@@ -735,6 +739,7 @@
 <script src="component_properties.js" defer></script>
 <script src="materials_editor.js" defer></script>
 <script src="airfoils.js" defer></script>
+<script src="loft_plots.js" defer></script>
 <script src="loft.js" defer></script>
 <script src="movable_surfaces.js" defer></script>
 <script src="movable_structure.js" defer></script>
@@ -745,6 +750,7 @@
 <script src="reference.js" defer></script>
 <script src="reference_import.js" defer></script>
 <script src="imported_analysis.js" defer></script>
+<script src="assessment_load_policy.js" defer></script>
 <script src="buckling_outputs.js" defer></script>
 <script src="imported_cases.js" defer></script>
 <script src="workspace.js" defer></script>

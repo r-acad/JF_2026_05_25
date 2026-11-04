@@ -11,10 +11,21 @@
   function cancel(){if(pending){const error=Error('A newer property edit superseded this assessment.');error.name='AbortError';pending.reject(error);pending=null;}worker?.terminate();worker=null;}
   function evaluate(input,previous,prior){
    if(typeof root.Worker!=='function')return Promise.resolve(root.WingRFIncremental.build(input,previous,prior));
-   cancel();worker=new root.Worker('rf_compute_worker.js');const id=++sequence;
+   cancel();const ownedWorker=new root.Worker('rf_compute_worker.js');worker=ownedWorker;const id=++sequence;
    return new Promise((resolve,reject)=>{
-    pending={reject};worker.onmessage=event=>{if(event.data.id!==id||!pending)return;pending=null;if(event.data.error){reject(Error(event.data.error));return;}const report=event.data.report;root.WingStressReportData.rememberCriteria(report,event.data.criteria);resolve(root.WingStressReportData.bindContext(report,input));};worker.onerror=event=>{pending=null;reject(Error(event.message||'RF worker failed'));};
-    worker.postMessage({id,input:wire(input),previous,prior:wire(prior),criteria:previous?root.WingStressReportData.criteria(previous):null});
+    pending={id,reject};
+    const active=()=>worker===ownedWorker&&pending?.id===id;
+    ownedWorker.onmessage=event=>{
+     // terminate() cannot retract an event already queued on the main thread.
+     // A cancelled worker must never consume a newer worker's pending request.
+     if(event.data.id!==id||!active())return;
+     pending=null;
+     if(event.data.error){reject(Error(event.data.error));return;}
+     try{const report=event.data.report;root.WingStressReportData.rememberCriteria(report,event.data.criteria);resolve(root.WingStressReportData.bindContext(report,input));}catch(error){reject(error);}
+    };
+    ownedWorker.onerror=event=>{if(!active())return;pending=null;reject(Error(event.message||'RF worker failed'));};
+    try{ownedWorker.postMessage({id,input:wire(input),previous,prior:wire(prior),criteria:previous?root.WingStressReportData.criteria(previous):null});}
+    catch(error){if(active())pending=null;ownedWorker.terminate();if(worker===ownedWorker)worker=null;reject(error);}
    });
   }
   return{evaluate,cancel,destroy:cancel};

@@ -250,44 +250,98 @@ end
 function aerodynamic_shared_wake!(grids,scale)
     groups=Dict{NTuple{3,Int},Vector{Tuple{Int,Int}}}()
     for (k,g) in enumerate(grids),j in axes(g,3)
-        key=Tuple(round.(Int,g[:,1,j]./(1e-9*scale)))
+        key=aerodynamic_wake_origin_key(g[:,1,j],scale)
         push!(get!(()->Tuple{Int,Int}[],groups,key),(k,j))
     end
     for group in values(groups)
         length(group)>1||continue
+        k0,j0=first(group)
+        all(grids[k][:,2:end,j]==grids[k0][:,2:end,j0] for (k,j) in group)&&continue
         line=sum(grids[k][:,2:end,j] for (k,j) in group)/length(group)
         for (k,j) in group;grids[k][:,2:end,j].=line;end
     end
 end
-function aerodynamic_wake_targets(system,grids,strengths,known,speed,core;diagnostics=nothing,local_target=false)
-    targets=deepcopy(grids);integrated=deepcopy(grids);alignment=0.;displacement=0.;slope_squared=0.;segment_count=0
+function aerodynamic_wake_targets(system,grids,strengths,known,speed,core;diagnostics=nothing,local_target=false,threaded=false)
+    targets=[copy(g) for g in grids];integrated=[copy(g) for g in grids]
     segments,rays=aerodynamic_wake_filaments(system,grids,strengths)
-    for (k,g) in enumerate(grids),j in axes(g,3),i in 1:size(g,2)-1
-        point=VortexLattice.SVector{3}((g[:,i,j]+g[:,i+1,j])/2)
-        velocity=VortexLattice.SVector(speed,0.,0.)+known(point)
-        velocity+=aerodynamic_wake_velocity(point,segments,rays,core)
-        diagnostics===nothing||(diagnostics["minimum_streamwise_velocity_over_V"]=min(get(diagnostics,"minimum_streamwise_velocity_over_V",Inf),velocity[1]/speed))
-        if !all(isfinite,velocity)||velocity[1]<=.05speed
-            start=Tuple(g[:,i,j]);finish=Tuple(g[:,i+1,j])
-            host(a,b)=(Tuple(a)==start&&Tuple(b)==finish)||(Tuple(b)==start&&Tuple(a)==finish)
-            distance=minimum(norm(point-(a+clamp(dot(point-a,b-a)/max(sum(abs2,b-a),eps()),0.,1.)*(b-a))) for (a,b,_) in segments if !host(a,b);init=Inf)
-            reason=!all(isfinite,velocity) ? "is nonfinite" : velocity[1]<=0 ? "reverses downstream direction" : "is too slow in the downstream direction for fixed-X marching"
-            throw(ArgumentError("Free-wake convection $reason: patch $k, filament $j, row $i, streamwise velocity/V=$(round(velocity[1]/speed;sigdigits=5)) (required >0.05), nearest other filament distance/core=$(round(distance/core;sigdigits=4)). Refine wake spacing/core or check the incidence/control attached-flow assumptions."))
+    columns=[(k,j) for (k,g) in enumerate(grids) for j in axes(g,3)]
+    # Each worker owns one complete column. Reduce summaries in source order
+    # so ties and the first failing filament are deterministic. Generic
+    # callbacks stay serial unless the caller explicitly enables threading.
+    summaries=Vector{Any}(undef,length(columns))
+    function column(k,j)
+        g=grids[k]
+        local alignment,slope_squared,minimum_vx,worst
+        alignment=0.;slope_squared=0.;minimum_vx=Inf;worst=nothing
+        for i in 1:size(g,2)-1
+            point=VortexLattice.SVector{3}((g[:,i,j]+g[:,i+1,j])/2)
+            velocity=VortexLattice.SVector(speed,0.,0.)+known(point)+aerodynamic_wake_velocity(point,segments,rays,core)
+            minimum_vx=min(minimum_vx,velocity[1]/speed)
+            if !all(isfinite,velocity)||velocity[1]<=.05speed
+                start=Tuple(g[:,i,j]);finish=Tuple(g[:,i+1,j])
+                host(a,b)=(Tuple(a)==start&&Tuple(b)==finish)||(Tuple(b)==start&&Tuple(a)==finish)
+                distance=minimum(norm(point-(a+clamp(dot(point-a,b-a)/max(sum(abs2,b-a),eps()),0.,1.)*(b-a))) for (a,b,_) in segments if !host(a,b);init=Inf)
+                reason=!all(isfinite,velocity) ? "is nonfinite" : velocity[1]<=0 ? "reverses downstream direction" : "is too slow in the downstream direction for fixed-X marching"
+                throw(ArgumentError("Free-wake convection $reason: patch $k, filament $j, row $i, streamwise velocity/V=$(round(velocity[1]/speed;sigdigits=5)) (required >0.05), nearest other filament distance/core=$(round(distance/core;sigdigits=4)). Refine wake spacing/core or check the incidence/control attached-flow assumptions."))
+            end
+            delta=g[:,i+1,j]-g[:,i,j];dx=delta[1];direction=velocity/velocity[1]
+            targets[k][:,i+1,j].=g[:,i,j].+dx.*direction
+            integrated[k][:,i+1,j].=integrated[k][:,i,j].+dx.*direction
+            slope_squared+=sum(abs2,targets[k][:,i+1,j]-g[:,i+1,j])/dx^2
+            defect=norm(delta/norm(delta)-velocity/norm(velocity))
+            if defect>alignment
+                alignment=defect
+                worst=Dict("patch"=>k,"filament"=>j,"row"=>i,"rows"=>size(g,2)-1,
+                    "streamwise_step_over_core"=>dx/core,"point"=>collect(point),
+                    "velocity_over_V"=>collect(velocity/speed),"segment_direction"=>collect(delta/norm(delta)))
+            end
         end
-        delta=g[:,i+1,j]-g[:,i,j];dx=delta[1];direction=velocity/velocity[1]
-        # Local (Jacobi) defect preconditions the same streamline equations:
-        # an error near the TE no longer moves every downstream trial node.
-        # Retain the full integrated defect for the original convergence test.
-        targets[k][:,i+1,j].=g[:,i,j].+dx.*direction
-        integrated[k][:,i+1,j].=integrated[k][:,i,j].+dx.*direction
-        slope_squared+=sum(abs2,targets[k][:,i+1,j]-g[:,i+1,j])/dx^2;segment_count+=1
-        alignment=max(alignment,norm(delta/norm(delta)-velocity/norm(velocity)))
+        (;alignment,slope_squared,minimum_vx,worst,count=size(g,2)-1)
     end
-    for (g,t) in zip(grids,integrated),j in axes(g,3),i in axes(g,2)
-        displacement=max(displacement,norm(t[:,i,j]-g[:,i,j]))
+    function work(index)
+        summaries[index]=try;(ok=true,value=column(columns[index]...),error=nothing);catch error;(ok=false,value=nothing,error);end
     end
-    diagnostics===nothing||(diagnostics["local_slope_rms"]=sqrt(slope_squared/segment_count))
-    return local_target ? targets : integrated,alignment,displacement
+    if threaded&&Threads.nthreads()>1
+        Threads.@threads for index in eachindex(columns);work(index);end
+    else
+        for index in eachindex(columns)
+            k,j=columns[index]
+            summaries[index]=(ok=true,value=column(k,j),error=nothing)
+        end
+    end
+    alignment=0.;slope_squared=0.;count=0;minimum_vx=Inf;worst=nothing
+    for result in summaries
+        result.ok||throw(result.error)
+        summary=result.value
+        minimum_vx=min(minimum_vx,summary.minimum_vx)
+        slope_squared+=summary.slope_squared;count+=summary.count
+        if summary.alignment>alignment;alignment=summary.alignment;worst=summary.worst;end
+    end
+    displacement=maximum(norm(t[:,i,j]-g[:,i,j]) for (g,t) in zip(grids,integrated) for j in axes(g,3) for i in axes(g,2))
+    if diagnostics!==nothing
+        diagnostics["minimum_streamwise_velocity_over_V"]=min(get(diagnostics,"minimum_streamwise_velocity_over_V",Inf),minimum_vx)
+        diagnostics["local_slope_rms"]=sqrt(slope_squared/count)
+        worst===nothing||(diagnostics["worst_tangent"]=worst)
+    end
+    local_target ? targets : integrated,alignment,displacement
+end
+
+# The difference of successive integrated defects is the local midpoint
+# streamline defect. Both vanish at exactly the same wake, but a near-TE
+# error in the integrated proposal otherwise moves every downstream node.
+function aerodynamic_wake_local_defect(grids,integrated)
+    defects=[zeros(size(g)) for g in grids]
+    for (g,t,d) in zip(grids,integrated,defects),j in axes(g,3),i in 2:size(g,2)
+        d[:,i,j].=(t[:,i,j]-g[:,i,j])-(t[:,i-1,j]-g[:,i-1,j])
+    end
+    vcat(vec.(defects)...)
+end
+
+function aerodynamic_wake_defect_location(diagnostics)
+    hit=get(diagnostics,"worst_tangent",nothing)
+    hit===nothing&&return ""
+    endpoint=hit["row"]==hit["rows"] ? " (terminal finite-wake segment)" : ""
+    " Largest tangency defect: wake patch $(hit["patch"]), filament $(hit["filament"]), row $(hit["row"])/$(hit["rows"])$endpoint; streamwise segment length/core=$(round(hit["streamwise_step_over_core"];sigdigits=4))."
 end
 
 # Limited-memory type-II Anderson step (Walker & Ni, SIAM JNA 2011).
@@ -341,7 +395,7 @@ function aerodynamic_wake_collision_message(report)
 end
 
 function aerodynamic_free_wake!(system,ref,fs,known,s,w,forward,inverse,origin;
-    seed=nothing,frozen=false,body_grids=nothing,progress=(stage,done,total)->nothing)
+    seed=nothing,frozen=false,body_grids=nothing,threaded=false,progress=(stage,done,total)->nothing)
     core=s["wake_core"]*w.mac
     grids=aerodynamic_wake_geometry(system,s,w,forward,origin,seed)
     frozen||aerodynamic_shared_wake!(grids,w.mac)
@@ -373,7 +427,7 @@ function aerodynamic_free_wake!(system,ref,fs,known,s,w,forward,inverse,origin;
         check_clearance(grids)
         _,strengths=aerodynamic_coupled_wake!(system,grids,closed,rhs,core)
         diagnostics=Dict{String,Any}()
-        targets,alignment,delta=aerodynamic_wake_targets(system,grids,strengths,known,s["speed"],core;diagnostics)
+        targets,alignment,delta=aerodynamic_wake_targets(system,grids,strengths,known,s["speed"],core;diagnostics,threaded)
         (;targets,alignment,displacement=delta/wake_length,strengths,gamma=copy(system.Γ),diagnostics)
     end
     if frozen
@@ -390,11 +444,22 @@ function aerodynamic_free_wake!(system,ref,fs,known,s,w,forward,inverse,origin;
                 "displacement"=>current.displacement,"circulation_change"=>circulation,"equation_residual_over_V"=>equation_residual,"residual"=>residual,"relaxation"=>damping,"rejected_trials"=>rejected,
                 "minimum_streamwise_velocity_over_V"=>current.diagnostics["minimum_streamwise_velocity_over_V"],
                 "local_slope_rms"=>current.diagnostics["local_slope_rms"],
+                "worst_tangent"=>get(current.diagnostics,"worst_tangent",nothing),
                 "maximum_abs_circulation_over_VMAC"=>maximum(abs,current.gamma)/(s["speed"]*w.mac)))
             strengths=current.strengths
             if residual<=s["wake_tolerance"];converged=true;break;end
+            # An exact coupled circulation solve may differ from the initial
+            # straight-wake guess even when no geometric update is necessary.
+            # Confirm the unchanged state on the next iteration instead of
+            # demanding a numerically meaningless coordinate displacement.
+            if iteration<s["wake_iterations"]&&max(current.alignment,current.displacement,equation_residual)<=s["wake_tolerance"]
+                previous=current.gamma
+                continue
+            end
             iteration==s["wake_iterations"]&&throw(ArgumentError(
-                "Free wake did not converge after $iteration iterations (residual $(round(residual;sigdigits=4)), tolerance $(s["wake_tolerance"])). Increase iterations or refine wake length/resolution/core; previous results are retained."))
+                "Free wake did not converge after $iteration iterations (residual $(round(residual;sigdigits=4)), tolerance $(s["wake_tolerance"]))."*
+                aerodynamic_wake_defect_location(current.diagnostics)*
+                " Increase wake iterations or refine the wake resolution/core; previous results are retained."))
             x=vcat(vec.(grids)...);f=vcat([vec(target-g) for (g,target) in zip(grids,current.targets)]...)
             accelerated=get(s,"wake_acceleration","none")=="anderson"
             step=accelerated ? aerodynamic_anderson_step!(states,residuals,x,f,damping) : damping.*f
@@ -402,13 +467,25 @@ function aerodynamic_free_wake!(system,ref,fs,known,s,w,forward,inverse,origin;
             recent=history[max(1,end-4):end]
             ceiling=1.02maximum(h["local_slope_rms"] for h in recent)
             accepted=false;last_rejection="No admissible trial was evaluated"
-            for fallback in 1:(accelerated ? 2 : 1)
-                if fallback==2
+            # Ten halvings are insufficient near a tightly rolled-up filament:
+            # an admissible neighborhood may be smaller than 1/512 of a trust
+            # step. Search to numerical resolution, then try a local proposal
+            # before declaring the retained physical state inaccessible.
+            directions=accelerated ? 3 : 2
+            minimum_motion=64eps(max(1.,maximum(maximum(abs,g) for g in grids)))
+            for fallback in 1:directions
+                if fallback>1
                     empty!(states);empty!(residuals)
-                    step=aerodynamic_wake_trust_step(grids,damping.*f,core)
+                    local_fallback=fallback==directions
+                    proposal=local_fallback ? aerodynamic_wake_local_defect(grids,current.targets) : f
+                    step=aerodynamic_wake_trust_step(grids,damping.*proposal,core)
                 end
                 fraction=1.
-                for attempt in 1:10
+                for attempt in 1:32
+                    if fraction*maximum(abs,step)<=minimum_motion
+                        last_rejection="Trial motion reached floating-point resolution before an admissible update was found"
+                        break
+                    end
                     trial=deepcopy(grids);offset=0
                     for g in trial
                         n=length(g);g.+=fraction.*reshape(view(step,offset+1:offset+n),size(g));offset+=n
@@ -424,22 +501,31 @@ function aerodynamic_free_wake!(system,ref,fs,known,s,w,forward,inverse,origin;
                         push!(trial_failures,last_rejection)
                     end
                     if candidate!==nothing&&candidate.diagnostics["local_slope_rms"]<=ceiling
+                        history[end]["accepted_step_fraction"]=fraction
+                        history[end]["accepted_direction"]=fallback
                         previous=current.gamma;grids=trial;current=candidate;accepted=true
-                        if fraction<1||fallback>1;empty!(states);empty!(residuals);end
+                        # Secants use the actual accepted states. A shortened
+                        # step still supplies valid information; discarding it
+                        # prevents Anderson from learning stiff flow gradients.
+                        if fallback>1;empty!(states);empty!(residuals);end
                         break
                     end
                     if candidate!==nothing
                         last_rejection="Trial slope residual $(round(candidate.diagnostics["local_slope_rms"];sigdigits=4)) exceeds the retained-state safeguard $(round(ceiling;sigdigits=4))"
                     end
                     rejected+=1
-                    progress("Safeguarding free wake: retrying iteration $(iteration+1), trial $attempt, step $(round(fraction/2;sigdigits=3)); retained last valid wake",iteration,s["wake_iterations"])
+                    if attempt in (1,4,8,16,24,32)
+                        progress("Safeguarding free wake: retrying iteration $(iteration+1), direction $fallback / $directions, trial $attempt, step $(round(fraction/2;sigdigits=3)); retained last valid wake",iteration,s["wake_iterations"])
+                    end
                     fraction/=2
                 end
                 accepted&&break
             end
             if !accepted
                 aerodynamic_coupled_wake!(system,grids,closed,rhs,core)
-                throw(ArgumentError("Free-wake update could not find a valid step at iteration $iteration (retained residual $(round(residual;sigdigits=4)), tolerance $(s["wake_tolerance"])). Last rejected trial: $last_rejection. The last valid wake and previous results were retained; inspect the indicated geometry or refine wake resolution before rerunning."))
+                throw(ArgumentError("Free-wake update could not find a valid step at iteration $iteration (retained residual $(round(residual;sigdigits=4)), tolerance $(s["wake_tolerance"])). Last rejected trial: $last_rejection."*
+                    aerodynamic_wake_defect_location(current.diagnostics)*
+                    " The last valid wake and previous results were retained; refine the indicated wake region before rerunning."))
             end
         end
     end

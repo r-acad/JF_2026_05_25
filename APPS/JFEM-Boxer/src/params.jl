@@ -32,9 +32,49 @@ function ParamSpec(key, label, kind, default, group; unit = "", help = "",
     return ParamSpec(key, label, kind, default, group, unit, help, choices)
 end
 
-const LOAD_MULTIPLIER_NOTE = "Dimensionless multiplier applied once to prescribed lift, VLM forces and moments, prescribed torque, engine thrust and enabled inertia forces. A value of 1.5 converts limit loads to ultimate only when the defined case already represents limit loads; it is not an additional n-g conversion."
+const LOAD_MULTIPLIER_NOTE = "Dimensionless physical case multiplier applied once to prescribed lift, VLM forces and moments, prescribed torque, engine thrust and enabled inertia forces. Default 1 retains the defined LIMIT load case. This is separate from the strength safety factor and buckling policy in Analysis / Sizing load policy; do not include either assessment factor here. It is not an additional n-g conversion."
 
-# Aircraft lift matching is independent of the final design/safety multiplier.
+const ASSESSMENT_FACTOR_KEYS = ("assessment.strength_safety_factor", "assessment.buckling_policy_factor")
+const LOAD_POLICY_MIGRATION_NOTE = "Older Study load-case multipliers have been retained. If a multiplier already includes an ultimate safety factor, remove that safety factor from the case loads before using the new separate strength safety factor. Reserve factors now treat the authored case loads as LIMIT loads; no saved physical loads have been divided or rescaled automatically."
+is_assessment_parameter(key) = startswith(String(key), "assessment.")
+physical_parameter_fingerprint(p::AbstractDict) = hash(Dict(k=>v for (k,v) in p if !is_assessment_parameter(k)))
+
+"""Sizing policy describes postprocessing demand levels; it never scales FE loads."""
+function assessment_policy_payload(p::AbstractDict)
+    safety=get(p, first(ASSESSMENT_FACTOR_KEYS), 1.5)
+    buckling=get(p, last(ASSESSMENT_FACTOR_KEYS), 1.0)
+    all(value->value isa Real&&!(value isa Bool)&&isfinite(value)&&value>0, (safety,buckling)) ||
+        throw(ArgumentError("Strength safety factor and buckling policy factor must be finite and positive"))
+    safety,buckling=Float64(safety),Float64(buckling)
+    isfinite(safety)&&isfinite(buckling)||throw(ArgumentError("Sizing factors must be finite Float64 values"))
+    Dict{String,Any}("load_basis"=>"limit", "strength_safety_factor"=>safety,
+        "buckling_policy_factor"=>buckling, "strength_load_level"=>"ultimate",
+        "strength_rf_definition"=>"allowable / (strength safety factor * LIMIT demand)",
+        "buckling_rf_definition"=>"critical buckling load / (buckling policy factor * LIMIT load)",
+        "migration_note"=>String(get(p,"assessment.migration_note","")))
+end
+
+"""Apply explicitly restored policy inputs without normalizing imported FE data."""
+function apply_assessment_policy!(p::AbstractDict, raw::AbstractDict; reset=false)
+    if reset
+        for key in ASSESSMENT_FACTOR_KEYS
+            p[key]=SCHEMA_BY_KEY[key].default
+        end
+        pop!(p,"assessment.migration_note",nothing)
+    end
+    for key in ASSESSMENT_FACTOR_KEYS
+        haskey(raw,key)&&(p[key]=coerce_value(SCHEMA_BY_KEY[key],raw[key]))
+    end
+    if haskey(raw,"assessment.migration_note")
+        note=raw["assessment.migration_note"]
+        note isa AbstractString||throw(ArgumentError("assessment.migration_note must be text"))
+        p["assessment.migration_note"]=String(note)
+    end
+    assessment_policy_payload(p) # Validate independently of generated-wing inputs.
+    p
+end
+
+# Aircraft lift matching is independent of the physical case multiplier and sizing policy.
 const AIRCRAFT_LIFT_GRAVITY = 9.80665
 const AIRCRAFT_LIFT_NOTE = "Symmetric full-aircraft equilibrium: aerodynamic half-wing lift is n*m*g/2, with g = 9.80665 m/s2 and total aircraft mass already including the wing, engines and fuel. Matched cases automatically include dry structural and engine inertia and use BASIC Z inertia acceleration -n g for structure and actual fuel mass; entered X/Y inertia components remain active. Wing inertia is subtracted through these body forces, not added a second time to the aerodynamic lift target. The separate Load multiplier scales all contributions once. Fuel fill is unchanged; tail lift, asymmetric loading and thrust components are not subtracted."
 aircraft_lift_matching(p::AbstractDict) = get(p, "loads.match_aircraft_lift", false)
@@ -195,7 +235,7 @@ const SCHEMA = ParamSpec[
     # Keep dotted TOML sections contiguous; the group controls its UI placement.
     ParamSpec("leading_edge.chord_elements", "Leading-edge skin elements, nose to spar", :int, 8, "Mesh";
               help = "Whole number from 2 to 100 of shell elements across EACH leading-edge skin, from the nose to the front spar, in every spanwise mesh interval. Also sets the chordwise columns in leading-edge ribs. Default 8 gives 8 upper and 8 lower skin elements per interval, with approximately equal surface arc-length spacing. Elements per rib bay sets spanwise refinement; Vertical elements sets rib height refinement. Front-spar boundary nodes stay shared. Applies when Create leading-edge structure is enabled; independent of Aero chord points and VLM panels"),
-    ParamSpec("leading_edge.t_skin", "Minimum leading-edge skin thickness", :float, 0.001, "Leading-edge properties";
+    ParamSpec("leading_edge.t_skin", "Minimum leading-edge skin thickness", :float, 0.0015, "Leading-edge properties";
               unit = "m", help = "Monolithic thickness of both leading-edge skins; sandwich construction uses its face/core dimensions"),
     ParamSpec("leading_edge.t_rib", "Minimum leading-edge rib thickness", :float, 0.0015, "Leading-edge properties";
               unit = "m", help = "Monolithic thickness of leading-edge rib extensions; sandwich construction uses its face/core dimensions"),
@@ -249,14 +289,14 @@ const SCHEMA = ParamSpec[
               help = "Prescribed lift distribution, or aerodynamic forces and moments from VortexLattice.jl"),
     ParamSpec("loads.lift_total", "Lift, semi-span", :float, 6000.0, "Loads";
               unit = "N",
-              help = "Unscaled prescribed lift carried by the modelled half lifting surface; define the intended base load level before applying the load multiplier"),
+              help = "Unscaled LIMIT lift carried by the modelled half lifting surface before applying the physical case multiplier. Strength safety and buckling policy factors are separate assessment inputs"),
     ParamSpec("loads.match_aircraft_lift", "Match lift to aircraft mass and load factor", :bool, false, "Loads";
               help = "When enabled, prescribed loading uses n*m*g/2 instead of entered semi-span lift; VLM solves angle of attack to match that wind-axis lift at the entered speed and atmosphere. When disabled, all supplied lift and flight inputs are used as entered. " * AIRCRAFT_LIFT_NOTE),
     ParamSpec("loads.aircraft_mass", "Complete aircraft mass", :float, 1000.0, "Loads";
               unit = "kg", help = "Total aircraft mass at this load case's mass status, including structure, payload and fuel. Enter mass, not weight, and not half-wing mass. Used only when Match lift is enabled. " * AIRCRAFT_LIFT_NOTE),
     ParamSpec("loads.maneuver_factor", "Aircraft load factor n", :float, 1.0, "Loads";
-              unit = "g", help = "Lift divided by complete-aircraft weight: 1 is level-flight lift, 3 requests three times weight, and negative values request downward lift. Distinct from the final Load multiplier. When matching lift, also sets BASIC Z wing/engine/fuel inertia acceleration to -n g and enables structural inertia."),
-    ParamSpec("loads.load_factor", "Load multiplier", :float, 1.5, "Loads";
+              unit = "g", help = "LIMIT lift divided by complete-aircraft weight: 1 is level-flight lift, 3 requests three times weight, and negative values request downward lift. Distinct from the physical case multiplier, strength safety factor and buckling policy. When matching lift, also sets BASIC Z wing/engine/fuel inertia acceleration to -n g and enables structural inertia."),
+    ParamSpec("loads.load_factor", "Limit load multiplier", :float, 1.0, "Loads";
               unit = "dimensionless", help = LOAD_MULTIPLIER_NOTE * " Negative values reverse forces and moments."),
     ParamSpec("loads.distribution", "Spanwise distribution", :choice, "elliptical",
               "Loads"; choices = ["elliptical", "schrenk", "chord", "uniform"],
@@ -321,9 +361,9 @@ const SCHEMA = ParamSpec[
               help = "Select an isotropic material for stringers, spar caps, rib stiffeners and fixed-area runout connectors"),
 
     # --- properties --------------------------------------------------------
-    ParamSpec("properties.t_skin_upper", "Minimum upper skin thickness", :float, 0.001,
+    ParamSpec("properties.t_skin_upper", "Minimum upper skin thickness", :float, 0.0015,
               "Properties"; unit = "m", help = "Default monolithic thickness of the upper main-box skin in metres. It changes shell stiffness and mass; panel overrides can set local values. Sandwich skins use their assigned face/core thicknesses. Leading-edge skins have separate properties"),
-    ParamSpec("properties.t_skin_lower", "Minimum lower skin thickness", :float, 0.001,
+    ParamSpec("properties.t_skin_lower", "Minimum lower skin thickness", :float, 0.0015,
               "Properties"; unit = "m", help = "Default monolithic thickness of the lower main-box skin in metres. It changes shell stiffness and mass; panel overrides can set local values. Sandwich skins use their assigned face/core thicknesses. Leading-edge skins have separate properties"),
     ParamSpec("properties.panels", "Individual stiffened-panel properties", :panelproperties, Any[], "Properties";
               help = "Physical panel key and layout token, with sparse skin and stringer properties. Blank values inherit shared defaults. Geometry and mesh-density edits retain overrides while physical rib/stringer/runout membership is unchanged. Changed membership requires reviewing or resetting the affected overrides"),
@@ -331,7 +371,7 @@ const SCHEMA = ParamSpec[
               help = "Sparse rib, spar, cap and leading-edge table overrides; blank cells inherit shared defaults"),
     ParamSpec("properties.t_spar_web", "Minimum spar web thickness", :float, 0.0015,
               "Spar properties"; unit = "m", help = "Default for both spars. Individual physical rib bays can override either web thickness below"),
-    ParamSpec("properties.t_rib_web", "Minimum rib web thickness", :float, 0.0020,
+    ParamSpec("properties.t_rib_web", "Minimum rib web thickness", :float, 0.0015,
               "Rib properties"; unit = "m", help = "Default main-box rib thickness; override individual physical ribs below"),
     ParamSpec("properties.rib_stiffeners_enabled", "Create vertical rib stiffeners", :bool, true, "Rib properties";
               help = "Vertical T bars at physical stringer columns of each main-box rib. Skin mesh subdivisions do not add stiffeners"),
@@ -353,9 +393,9 @@ const SCHEMA = ParamSpec[
     ParamSpec("properties.stringer_height", "Minimum stringer overall height", :float, 0.032,
               "Beam sections"; unit = "m",
               help = "Beam: full section height, including the flange for PBARL T or the entire blade for PBARL BAR; the CBAR includes the inward centroid offset. Shell: blade depth is overall height minus flange thickness, or the full height when flange width is zero. Shell flange and skin use a shared midsurface attachment."),
-    ParamSpec("properties.stringer_flange_thickness", "Minimum stringer flange thickness", :float, 0.002,
+    ParamSpec("properties.stringer_flange_thickness", "Minimum stringer flange thickness", :float, 0.0015,
               "Beam sections"; unit = "m", help = "Additional attached flange thickness (PBARL DIM3). In shell mode the combined footprint property adds the thinnest adjacent skin thickness to this value. A composite flange uses this total with its specified face thicknesses and the remaining core. Must be less than overall height when a flange exists. Ignored for zero-width blades in either mode. Changing it changes blade depth and requires remeshing."),
-    ParamSpec("properties.stringer_web_thickness", "Minimum stringer web thickness", :float, 0.002,
+    ParamSpec("properties.stringer_web_thickness", "Minimum stringer web thickness", :float, 0.0015,
               "Beam sections"; unit = "m", help = "Blade/web thickness (PBARL DIM4 or web PSHELL). With a flange it must be smaller than flange width. A zero-width blade has no flange-width restriction in either mode."),
     ParamSpec("properties.spar_cap_side", "Minimum square spar cap side", :float, 0.020,
               "Spar properties"; unit = "m",
@@ -382,7 +422,7 @@ const SCHEMA = ParamSpec[
               help = "Writes PARAM,JFBKCOMP,1, an optional JFEM-specific output request (not a material, stiffness or buckling-accuracy parameter). JFBKCOMP means JFEM buckling compact output. Use it for small reports or repeated studies needing only eigenvalues and the properties at each mode's largest translation. It retains each eigenvalue, preload/subcase identity, tied maximum-translation GRID IDs (relative tolerance 1e-6) and the property IDs of directly attached elements; rotations are excluded from the peak measure. The solve and eigenvalues are unchanged and eigenvectors are still computed internally. Compact output omits exported mode vectors, preload fields and energy data, so deformation and contour viewing are unavailable. Leave this off (or omit the PARAM, or set it to 0) for normal graphical results. Default off"),
     ParamSpec("output.include_aero_shells", "Export aero shells", :bool, false,
               "Analysis"; help = "Add the displayed full-chord aerodynamic loft to the exported deck as separate GRID/CQUAD4/PSHELL entries. These shells are disconnected from the structural box and form a free body; connect or remove them before solving that exported deck. Their resolution follows Aero chord points, not the VLM lattice"),
-    ParamSpec("output.t_aero_shell", "Aero shell thickness", :float, 0.001,
+    ParamSpec("output.t_aero_shell", "Aero shell thickness", :float, 0.0015,
               "Analysis"; unit = "m", help = "PSHELL thickness in metres for the optional exported aerodynamic-loft shells. Used only when Export aero shells is enabled. It does not set structural skin thickness, VLM panel properties or displayed loft sampling"),
     ParamSpec("nonlinear.load_steps", "Nonlinear load increments", :int, 8, "Analysis";
               help = "SOL106 nominal increments to the full selected load; native JFEM can cut back failed increments"),
@@ -394,6 +434,12 @@ const SCHEMA = ParamSpec[
               help = "Dimensionless relative force-residual tolerance for SOL106, written as JFEM NLRESTOL. A smaller value demands tighter equilibrium before accepting convergence and may require more iterations. Must be at least 1e-12 and less than 1"),
     ParamSpec("nonlinear.max_cutbacks", "Maximum increment cutbacks", :int, 8, "Analysis";
               help = "SOL106 cutback attempts before reporting incomplete convergence. If full load fails, the last verified accepted state is compared with SOL101 scaled to the same load, with a red warning"),
+
+    # These assessment factors do not alter FE loads, stiffness or solution identity.
+    ParamSpec("assessment.strength_safety_factor", "Strength safety factor", :float, 1.5, "Sizing load policy";
+              unit="dimensionless", help="ULTIMATE strength demand is this factor times the authored LIMIT case demand. Default 1.5. Applied to material stress and strain checks, separately from all buckling policies; does not change the analyzed load case or aircraft maneuver factor."),
+    ParamSpec("assessment.buckling_policy_factor", "Buckling policy factor", :float, 1.0, "Sizing load policy";
+              unit="dimensionless", help="Required buckling load is this factor times the authored LIMIT load. Buckling RF = critical buckling load / (this factor * LIMIT load). Default 1 permits buckling at LIMIT load; a panel buckling at 1.5 times LIMIT therefore has RF 1.5. This is independent of the strength safety factor and end-fixity coefficients."),
 
     ParamSpec("sensitivity.settings", "Sensitivity setup", :string, "", "Sensitivity";
               help="Saved sensitivity objective and property selections; evaluated only when a sensitivity job is started"),
@@ -537,6 +583,9 @@ function apply_point_angle_constraints!(p::AbstractDict)
             haskey(current,"incoming_angle_deg")||continue
             xp=x(current)-(current["eta"]-previous["eta"])*s*tand(current["incoming_angle_deg"])
             previous["dxc"]=(xp-previous["eta"]*s*tan(sweep))/chord(previous["eta"])+ref-nominal
+            # Incoming-angle back substitution can leave cancellation noise at
+            # an authored zero offset. Keep that exact geometric anchor at zero.
+            abs(previous["dxc"])<=64eps(Float64)&&(previous["dxc"]=0.0)
             isfinite(previous["dxc"])||throw(ArgumentError("$key constrained segment cannot be represented at these dimensions"))
         end
         p[key]=rows
@@ -675,6 +724,8 @@ function normalize_loft_stations(value, key::AbstractString)
 end
 
 function coerce_value(spec::ParamSpec, v)
+    spec.key in ASSESSMENT_FACTOR_KEYS&&v isa Bool&&
+        throw(ArgumentError("$(spec.key) must be a finite positive number"))
     # Saved definitions predating these assessment controls may contain null.
     # Explicit zero, blank or nonfinite edits still pass through strict validation.
     if spec.key in ("stringers.euler_fixity_coefficient","stringers.skin_fixity_coefficient",COMPONENT_RF_FIXITY_KEYS...)
@@ -751,6 +802,7 @@ end
 
 function normalize_params(flat::AbstractDict)
     flat=round_coordinate_inputs(flat)
+    legacy_assessment=!isempty(flat)&&!any(key->haskey(flat,key),ASSESSMENT_FACTOR_KEYS)
     if haskey(flat,"jfem.path")
         flat=Dict{String,Any}(String(k)=>v for (k,v) in flat)
         haskey(flat,"jfem.repo")&&!isempty(strip(String(flat["jfem.repo"])))&&flat["jfem.repo"]!=flat["jfem.path"]&&
@@ -758,6 +810,9 @@ function normalize_params(flat::AbstractDict)
         flat["jfem.repo"]=pop!(flat,"jfem.path")
     end
     p = default_params()
+    # Sparse old TOMLs inherited 1.5 implicitly. Keep their physical loads;
+    # fresh defaults and definitions carrying the new sizing policy use 1.
+    legacy_assessment&&!haskey(flat,"loads.load_factor")&&(p["loads.load_factor"]=1.5)
     # Legacy inputs had independent density/speed-of-sound values. Never
     # reinterpret those as sea-level ISA merely because the new flag is absent.
     !isempty(flat) && !haskey(flat,"aero.atmosphere") && (p["aero.atmosphere"]="manual")
@@ -777,7 +832,7 @@ function normalize_params(flat::AbstractDict)
     unknown = String[]
     for (k, v) in flat
         key = String(k)
-        if key == "structure_inertia_migration_note"
+        if key in ("structure_inertia_migration_note", "assessment.migration_note")
             # Derived import provenance may accompany a native parameter snapshot.
             # It is not a model input and never overrides the actual boolean.
             v isa AbstractString && (p[key]=String(v))
@@ -806,6 +861,9 @@ function normalize_params(flat::AbstractDict)
         p[key] = spec.kind in (:planformpoints,:masterribs,:riborientations) ? v : coerce_value(spec, v)
     end
     structure_inertia_enabled(p) && pop!(p,"structure_inertia_migration_note",nothing)
+    if legacy_assessment&&any(spec->spec.params["loads.load_factor"]!=1.0,load_case_specs(p))
+        p["assessment.migration_note"]=LOAD_POLICY_MIGRATION_NOTE
+    end
     p["output.buckling_deformation_energy"] |= p["output.buckling_energy_density"]
     p["output.buckling_energy_density"] = false
     for spec in SCHEMA
@@ -840,6 +898,7 @@ Check the parameter set for the constraints the mesh generator relies on and
 throw an `ArgumentError` naming the offending parameter.
 """
 function validate_params(p::AbstractDict; check_cases::Bool = true)
+    assessment_policy_payload(p)
     get(p,"mass.structural_representation","distributed") in ("distributed","bay_concentrated") ||
         throw(ArgumentError("mass.structural_representation must be distributed or bay_concentrated"))
     normalize_sensitivity_settings(get(p,"sensitivity.settings",""))
@@ -853,7 +912,7 @@ function validate_params(p::AbstractDict; check_cases::Bool = true)
               "box.stringer_pitch", "mesh.stringer_runout_ratio", "material.E", "material.rho",
               "properties.t_skin_upper", "properties.t_skin_lower",
               "properties.t_spar_web", "properties.t_rib_web",
-              "properties.spar_cap_side", "fuel.density", "leading_edge.t_skin", "leading_edge.t_rib")
+              "properties.spar_cap_side", "fuel.density", "leading_edge.t_skin", "leading_edge.t_rib", ASSESSMENT_FACTOR_KEYS...)
         pos(k)
     end
     for k in ("output.t_aero_shell",)
@@ -1135,6 +1194,9 @@ function params_to_toml(p::AbstractDict)
             isempty(comment) || (line = string(rpad(line, 46), "  # ", comment))
             println(io, line)
         end
+        if section=="assessment"&&!isempty(get(p,"assessment.migration_note",""))
+            println(io,rpad("migration_note",22),"= ",toml_string_literal(String(p["assessment.migration_note"])))
+        end
     end
     if !isempty(get(p,"airfoil.stations",Any[]))
         println(io)
@@ -1173,12 +1235,14 @@ function schema_payload(p::AbstractDict, input_path::AbstractString)
     values[REFERENCE_METADATA_KEY] = deepcopy(get(p, REFERENCE_METADATA_KEY, Any[]))
     values[PLAN_VIEW_METADATA_KEY] = normalize_plan_view(get(p, PLAN_VIEW_METADATA_KEY, ""))
     values[DRAWINGS_METADATA_KEY] = normalize_drawings(get(p, DRAWINGS_METADATA_KEY, ""))
+    haskey(p,"assessment.migration_note")&&(values["assessment.migration_note"]=String(p["assessment.migration_note"]))
     return Dict{String,Any}(
         "ok" => true,
         "input_file" => input_path,
         "units" => "SI (m, N, kg, Pa)",
         "schema" => specs,
         "material_presets" => report_alloy_presets(),
+        "assessment_policy" => assessment_policy_payload(p),
         "values" => values,
     )
 end

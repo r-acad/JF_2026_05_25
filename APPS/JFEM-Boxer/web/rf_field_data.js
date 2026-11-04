@@ -80,7 +80,7 @@
   return{available:valid,reason:!members.complete?members.reason:checked.reason||'',reserveFactor:valid?checked.value:null,rowKey:row.rowKey||mode+':P'+row.pid,propertyIds:members.propertyIds,memberElementIds:members.elementIds,
    modeKey,modeLabel:mode==='minimum_rf'?row.combined?.governingModeLabel||'':FAILURE_MODES[mode],caseKey:row.envelopeCaseKey||'',caseLabel:row.envelopeCaseLabel||'',scope:mode==='minimum_rf'?row.combined?.governingScope||source.scope:source.scope,
    approximation:!!row.approximation,governingApproximation:!!row.governingApproximation,propertyScope:propertyModes.has(mode)?'Full property P'+row.pid:'',noDemand:valid&&noDemand(row,mode),minimumGauge:gauge,coverage:row.coverage,status:valid?'complete':row.status||'unavailable',
-   notes:[...(tables.caseCertificateNotes?.(row)||[]),...(tables.plateDiagnosticNotes?.(row)||[]),...(row.caseResults||[]).flatMap(c=>(c.recoveryMethods||[]).map(m=>c.label+': '+(m.description||m.method))),...(row.combined?.assessments||[]).flatMap(a=>(a.recoveryMethods||[]).map(m=>m.description||m.method))],
+   notes:[...new Set([row.assessmentNote,report.assessmentNote].filter(Boolean)),...(tables.caseCertificateNotes?.(row)||[]),...(tables.plateDiagnosticNotes?.(row)||[]),...(row.caseResults||[]).flatMap(c=>(c.recoveryMethods||[]).map(m=>c.label+': '+(m.description||m.method))),...(row.combined?.assessments||[]).flatMap(a=>(a.recoveryMethods||[]).map(m=>m.description||m.method))],
    colorRecord:{complete:valid,coverage:row.coverage,reserveFactorReason:valid?'':members.reason||checked.reason,minimumGauge:gauge}};
  }
  function category(detail,report,kind){
@@ -125,7 +125,7 @@
   // the same completely assessed, governing numerical RF as the table.
   const failingElementIds=new Set();
   for(const [eid,detail]of detailsById)if(byId.has(eid)&&detail.available&&tables.isBelowOne(detail.reserveFactor))failingElementIds.add(eid);
-  const available=byId.size,total=index.elements.size,note=(estimated?ESTIMATE_NOTE+' ':'')+NOTE+(stale?' '+stale:'')+(issues.length?' '+issues.length+' physical-region membership/assessment issue(s) remain; see element details.':'');
+  const available=byId.size,total=index.elements.size,note=(estimated?ESTIMATE_NOTE+' ':'')+NOTE+(report.assessmentNote?' '+report.assessmentNote:'')+(stale?' '+stale:'')+(issues.length?' '+issues.length+' physical-region membership/assessment issue(s) remain; see element details.':'');
   return{kind:'reserve_factor_field',fieldKind:opt.kind,failureMode:opt.failureMode,palette:opt.palette,name:title,title,unit:categorical?'category':'RF',location:'element',domain:'all',byId,colorById,detailsById,unavailableById,failingElementIds,categorical,categories,gradient:categorical?[]:tables.colorStops({min:0,max:2},opt.palette),min:categorical?(categories.length?1:0):0,max:categorical?categories.length:2,actualMin,actualMax,available,total,coverage:{available,total,unavailable:total-available},complete:available===total&&total>0,issues,estimated,stale:!!stale,message:stale||(estimated?'Fixed-load estimate · ':'')+available+' / '+total+' structural elements assessed; gray = unassessed or inapplicable.',note,report};
  }
  function build(input={},request={}){

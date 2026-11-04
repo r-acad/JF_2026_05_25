@@ -1,6 +1,15 @@
 .startup-study-dialog{width:min(590px,calc(100vw - 48px));box-sizing:border-box;border:1px solid #526a85;border-radius:12px;padding:26px;background:#142336;color:#edf4fd;box-shadow:0 18px 70px #000a}
 .startup-study-dialog::backdrop{background:#060e18bb}.startup-study-dialog h2{margin:0 0 8px;font-size:23px}.startup-study-dialog p{color:#b8c9dd;line-height:1.5}
 .startup-study-choices{display:grid;gap:10px;margin:22px 0}.startup-study-choices button{padding:13px 16px;border:1px solid #537499;border-radius:6px;background:#223b57;color:#f4f8ff;text-align:left;font:600 15px system-ui;cursor:pointer}
-.startup-study-choices button:first-child{background:#1262a2;border-color:#3c9deb}.startup-study-choices button:disabled{opacity:.45;cursor:default}.startup-study-choices button:hover:enabled{filter:brightness(1.15)}.startup-study-choices button:focus-visible{outline:2px solid #7dc8ff;outline-offset:3px}
+.startup-study-choices button[data-choice=new]{background:#1262a2;border-color:#3c9deb}.startup-study-choices button:disabled{opacity:.45;cursor:default}.startup-study-choices button:hover:enabled{filter:brightness(1.15)}.startup-study-choices button:focus-visible{outline:2px solid #7dc8ff;outline-offset:3px}
 .startup-study-dialog .startup-study-recent{font-size:12px;margin:0;overflow-wrap:anywhere}
 .startup-study-dialog .startup-study-error{color:#ffd2cc;background:#522c36;border:1px solid #9a5964;border-radius:5px;padding:10px 12px;white-space:pre-wrap;overflow-wrap:anywhere}
+.startup-study-dialog{max-height:calc(100dvh - 32px);overflow:auto}
+.startup-study-identification{margin:2px 0 6px;padding:10px 12px;border:1px solid #3e5b78;border-radius:6px;min-width:0}
+.startup-study-identification legend{font-size:13px;font-weight:600;color:#bbd3eb;padding:0 5px}
+.startup-study-identification>label:first-of-type{display:grid;gap:5px;color:#c0d1e3;font:13px/1.4 system-ui}
+.startup-study-identification input[type=text]{box-sizing:border-box;width:100%;min-width:0;padding:9px;border:1px solid #577591;border-radius:5px;background:#0b1b2c;color:#edf4fd;font:14px/1.4 system-ui}
+.startup-study-watermark-choice{display:flex;align-items:center;gap:8px;font:13px/1.4 system-ui;margin-top:10px;color:#c0d1e3}
+.startup-study-identification-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:18px}
+.startup-study-identification-actions button{padding:9px 15px;border:1px solid #537499;border-radius:5px;background:#223b57;color:#f4f8ff;font:600 14px system-ui;cursor:pointer}
+.startup-study-identification-actions .startup-study-create{background:#1262a2;border-color:#3c9deb}

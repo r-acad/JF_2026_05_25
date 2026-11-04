@@ -227,8 +227,8 @@ different application points produce a panel couple that must survive transfer.
 Coefficients describe the unscaled full wing. Physical loads are the modelled
 semi-span, multiplied once by the dimensionless loads.load_factor (never by an
 extra symmetry factor or an implicit n-g conversion). Prescribed torque uses
-the same multiplier. A multiplier of 1.5 converts limit loads to ultimate only
-when the defined aerodynamic case already represents limit loads.
+the same physical case multiplier. These are LIMIT case loads; the independent
+strength safety factor and buckling policy are applied only during assessment.
 """
 function solve_vlm(w::Wing, p::AbstractDict; aerodynamic_mesh=nothing, match_lift=true)
     validate_params(p)
@@ -588,7 +588,7 @@ end
 
 """Return selected loads; cache only the latest model, with threaded-server locking."""
 function aerodynamic_loads(m::Model)
-    fingerprint = hash(m.params)
+    fingerprint = physical_parameter_fingerprint(m.params)
     return lock(AERO_CACHE_LOCK) do
         cached = AERO_CACHE[]
         if cached !== nothing && cached.model === m && cached.fingerprint == fingerprint

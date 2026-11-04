@@ -1,6 +1,6 @@
 /* User-supplied postprocessing criteria. Never changes constitutive properties,
  * loads or solved fields. Strain is engineering strain in each ply's axes. */
-(function(root,factory){const api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.WingMaterialAllowables=api;})(globalThis,function(){
+(function(root,factory){const api=factory(typeof module==='object'&&module.exports?require('./assessment_load_policy.js'):root.WingAssessmentLoadPolicy);if(typeof module==='object'&&module.exports)module.exports=api;else root.WingMaterialAllowables=api;})(globalThis,function(policy){
  'use strict';
  const KEY='materials.allowables',STRAINS=['strain_tension','strain_compression'],LEGACY_STRAINS=['e1_t','e1_c','e2_t','e2_c','g12'];
  const DEFAULT_ORIGIN='al2024_design_default',DEFAULT_STRESS=300e6;
@@ -59,7 +59,8 @@
   if(worst)return{...worst,...(recovery?.status==='complete'?{recovery:{method:String(recovery.method||''),description:String(recovery.description||'')}}:{})};
   return{reason:['PBAR','PBARL','PBEAM','PBEAML'].includes(property.type)?'Equivalent von Mises stress was not recovered for this bar. Rerun with complete section/resultant recovery; axial stress alone cannot establish a von Mises reserve factor.':'Equivalent von Mises stress was not recovered for this element.'};
  }
- function assessElement(property,record,rows){
+ function assessElement(property,record,rows,input={}){
+  policy.read(input);
   if(!property)return{reason:'Material definition unavailable.'};
   if(property.type==='PSHELL'){
    const ids=new Set([property.material_id,property.material?.id,...(Array.isArray(property.material_ids)?property.material_ids:[]),...Object.values(property.material_roles||{})].map(Number).filter(id=>Number.isInteger(id)&&id>0));
@@ -98,19 +99,19 @@
    }
    for(const candidate of candidates){if(!finite(candidate.utilization))return{reason:'Demand / allowable ratio exceeds numeric range.'};if(!worst||candidate.utilization>worst.utilization)worst=candidate;}
   }
-  return worst||{reason:'No structural material samples.'};
+  return worst?policy.sample(worst,input):{reason:'No structural material samples.'};
  }
- function build(elements,records,rows){
+ function build(elements,records,rows,input={}){
   validate(rows);const limits=new Map(rows.map(row=>[row.material_id,row])),details=new Map(),byId=new Map(),reasons=new Map();let total=0,worst=null;
   for(const[eid,element]of elements){
    const g=element.group;if(!['quad','tria','shell','solid','bar'].includes(g?.kind)||g.name==='aero')continue;
-   total++;const value=assessElement(g.properties,records?.[String(eid)],limits);details.set(eid,value);
+   total++;const value=assessElement(g.properties,records?.[String(eid)],limits,input);details.set(eid,value);
    if(value.reason){reasons.set(value.reason,(reasons.get(value.reason)||0)+1);continue;}
    byId.set(eid,value.utilization);if(!worst||value.utilization>worst.utilization)worst={eid,pid:g.pid,...value};
   }
   const values=[...byId.values()];let min=Infinity,max=-Infinity;for(const value of values){min=Math.min(min,value);max=Math.max(max,value);}
-  const note=byId.size+' / '+total+' elements assessed at their recovered sample locations. Utilization = demand / allowable; > 1 exceeds the limit. Gray elements are unassessed. Principal-strain checks require all plies to use one MAT8 material, with both faces recovered. They do not include interlaminar stresses or extrapolated corner peaks. Zero demand has no finite reserve factor.';
-  return{details,reasons,total,assessed:byId.size,worst,contour:{name:'Material allowable utilization',unit:'ratio',location:'element',domain:'all',byId,min:byId.size?min:0,max:byId.size?max:0,note}};
+  const note=byId.size+' / '+total+' elements assessed at their recovered sample locations. Utilization = ULTIMATE demand / allowable; > 1 exceeds the limit. Gray elements are unassessed. Principal-strain checks require all plies to use one MAT8 material, with both faces recovered. They do not include interlaminar stresses or extrapolated corner peaks. Zero demand has no finite reserve factor.';
+  return{details,reasons,total,assessed:byId.size,worst,contour:{name:'Material allowable utilization',unit:'ratio',location:'element',domain:'all',byId,min:byId.size?min:0,max:byId.size?max:0,note:note+' '+policy.note(input,'strength')}};
  }
  function materialsFromGroups(groups){const materials=new Map();for(const g of groups||[]){const p=g.properties;for(const mat of [p?.material,...(p?.plies||[]).map(ply=>ply.material)])if(Number.isInteger(mat?.id))materials.set(mat.id,mat);}return [...materials.values()].sort((a,b)=>a.id-b.id);}
  function editor({document:doc,host,readMaterials,readRows,onChange,sourceUnits=()=>false,materialLibrary=null,showDefinition=false}){

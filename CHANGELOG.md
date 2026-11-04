@@ -5,7 +5,46 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Numeric input precision and minimum skin gauges
+### Illustrated reserve factor calculation reference
+
+- Add the JFEM-Boxer RF methods report, covering internal-load recovery,
+  material strength, all implemented local buckling families, Rayleigh-Ritz
+  integration and eigenvalue extraction, whole-model SOL105, convergence
+  status and fixed-load sizing estimates.
+- Publish the reviewed PDF with original component diagrams, worked numerical
+  examples, assumptions and implementation references. Link it from the app
+  and documentation indexes.
+
+### Separate LIMIT, ULTIMATE and buckling-policy assessments
+
+- Add shared strength safety and buckling policy factors under Analysis /
+  Sizing load policy, defaulting to 1.5 and 1. Strength checks compare material
+  allowables with factored ULTIMATE stress or strain; all implemented analytical
+  buckling checks use the independent policy times the recovered LIMIT demand.
+- Keep physical FE loads and recovered quantities on the LIMIT basis. New case
+  multipliers default to 1; retain existing saved multipliers and flag older
+  ultimate-conversion conventions for review. Policy-only edits refresh RF
+  tables, fields, inspection, exports and sizing estimates without invalidating
+  the FE solution.
+- Show a separate SOL105 policy RF without changing raw eigenvalues or
+  sensitivity objectives. Label proportional demand assessments of SOL106
+  explicitly; they are not separately equilibrated nonlinear ULTIMATE solutions.
+
+### Study identification and editable loft distributions
+
+- Add optional identification text when creating a Study, with a watermark
+  toggle under Display / Axes & labels. Save it with the Study and retain it
+  in 2D/3D views, the detached plan view and SVG exports.
+- Show the current Study path and filename below the Save study heading,
+  with a copy action and a system-dialog option for access to full paths.
+- Plot the spanwise thickness, twist and vertical-shift functions in Loft,
+  including inherited distributions and linear/cosine interpolation. Drag
+  station points vertically or adjust them with the keyboard; each completed
+  drag commits one model edit.
+- Preserve exact zero perturbation offsets after incoming-angle back
+  substitution when floating-point cancellation leaves negligible residue.
+
+### Numeric input precision and minimum shell gauges
 
 - Normalize real-valued UI edits to at most three decimal places and five
   significant figures. Use engineering notation for small values, including
@@ -16,8 +55,10 @@ Versions follow [Semantic Versioning](https://semver.org/).
   are not quantized by this edit policy.
 - Keep useful numeric spinner increments while accepting valid intermediate
   values without browser step-validation errors.
-- Set new upper/lower, leading-edge, movable and aerodynamic-export skin
-  gauges to 1 mm.
+- Set new shell minimum gauges to 1.5 mm for skins, spar/rib webs,
+  leading-edge structure, movable-surface shells and attachment ribs.
+  Shell-stringer flange/web dimensions and aerodynamic-export shells use
+  the same default thickness. Existing Studies retain their explicit values.
 - Add a movable-shell non-structural areal density covering its skins, webs,
   ribs and hinge lugs, with consistent mass, inertia and PSHELL export.
 
@@ -41,6 +82,13 @@ Versions follow [Semantic Versioning](https://semver.org/).
 - Use one consistent finite-core velocity field for relaxed-wake circulation,
   convection and force recovery. Safeguard invalid wake updates without
   weakening the physical residual checks, and retain the last valid state.
+- Search smaller admissible wake updates, retain valid shortened-step Anderson
+  history, and confirm circulation on an already stationary valid wake.
+  Keep clearance seeds consistent across shared vertices that differ only
+  by roundoff. Identify the physical wing/control surface and eta in wake
+  failure messages.
+- Evaluate independent wake columns in parallel in the aerodynamic worker,
+  with deterministic diagnostics and recorded Julia/BLAS thread counts.
 - Detect intersecting deflected lifting surfaces before the aerodynamic solve;
   keep invalid meshes inspectable with a closable geometry warning and identify
   the affected control/fixed-wing surfaces.

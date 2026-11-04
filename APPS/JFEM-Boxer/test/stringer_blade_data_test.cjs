@@ -108,7 +108,7 @@ test('No metadata produces an explicit unavailable blade report',()=>{
  const r=S.build(input([],new Map([[1,result({1:-20e6})]])));assert.equal(r.rows.length,0);assert.equal(r.complete,false);assert.match(r.note,/No generated PBARL stringer-blade geometry/);
 });
 test('Exports state the equation, signed equal weighting and critical/mean stress in MPa',()=>{
- const r=build(),t=S.table(r,'reserve');assert.equal(t.title,'Stringer blade instability reserve factors');assert.match(t.headers.join(' '),/Critical stress \(MPa\)/);assert.match(t.headers.join(' '),/Mean compression \(MPa\)/);assert.equal(t.rows[0][4],'50');
+ const r=build(),t=S.table(r,'reserve');assert.equal(t.title,'Stringer blade instability reserve factors');assert.match(t.headers.join(' '),/Critical stress \(MPa\)/);assert.match(t.headers.join(' '),/LIMIT mean compression \(MPa\)/);assert.equal(t.rows[0][4],'50');
  for(const text of [S.csv(r,'reserve'),S.markdown(r,'reserve'),S.html(r,'reserve')]){assert.match(text,/0.425/);assert.match(text,/equal element weights/);assert.match(text,/MPa/);assert.match(text,/Critical EID/);assert.match(text,/Poisson ratio/);}
  assert.match(S.methodLabel(r),/Equal-weight mean signed bar/);
 });

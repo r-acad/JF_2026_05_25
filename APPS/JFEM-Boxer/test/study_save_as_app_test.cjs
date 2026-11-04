@@ -21,10 +21,13 @@ try{
   if(url.pathname==='/api/last_deck')return route.fulfill({json:{ok:true,available:false}});
   if(url.pathname==='/api/jfem_probe')return route.fulfill({json:{found:true}});
   if(url.pathname.startsWith('/api/'))return route.fulfill({status:404,json:{error:'Isolated Study fixture'}});
-  return route.fulfill({path:path.join(web,url.pathname==='/'?'index.html':decodeURIComponent(url.pathname))});
+  const asset=url.pathname.startsWith('/shared/')?path.join(web,'../..',url.pathname.slice('/shared/'.length)):path.join(web,url.pathname==='/'?'index.html':decodeURIComponent(url.pathname));
+  return fs.existsSync(asset)?route.fulfill({path:asset}):route.fulfill({status:404,body:'No fixture asset'});
  });
- await page.goto('http://127.0.0.1:43981/');await page.locator('.startup-study-dialog [data-choice="new"]').click();
- await page.waitForFunction(()=>typeof state!=='undefined'&&state.data&&state.autoMeshReady&&!state.workspaceBusy,null,{timeout:120000});
+ await page.goto('http://127.0.0.1:43981/');await page.locator('.startup-study-dialog [data-study-identification="text"]').fill('Assignment ABC');await page.locator('.startup-study-dialog [data-study-identification="visible"]').check();await page.locator('.startup-study-dialog [data-choice="new"]').click();
+ await page.waitForFunction(()=>typeof state!=='undefined'&&state.autoMeshReady&&!state.workspaceBusy,null,{timeout:120000});
+ if(!await page.evaluate(()=>!!state.data))await page.locator('#btn-create').click();
+ await page.waitForFunction(()=>state.data&&!state.meshRequestInFlight,null,{timeout:120000});
  await page.evaluate(()=>{
   state.autoMeshEnabled=false;document.getElementById('auto-mesh').checked=false;cancelAutoMeshTimer();
   window.savedFiles=[];window.pickerCalls=0;window.permissionCalls=0;window.cancelPicker=false;window.failWrite=false;window.nextName='First.wingfem.json';
@@ -36,6 +39,8 @@ try{
  const submit=async(button,comment)=>{await showSave(button);if(comment!==undefined)await page.locator('#study-save-comment').fill(comment);await page.locator('.study-comments-save').click();};
  assert.equal(await save.getAttribute('data-saved'),'false');
  await submit(save);await page.waitForFunction(()=>!state.workspaceBusy&&savedFiles.length===1);
+ assert.deepEqual(await page.evaluate(()=>JSON.parse(savedFiles[0].text).identification),{text:'Assignment ABC',visible:true});
+ assert.equal(await page.locator('#viewport .study-watermark-overlay').innerText(),'Assignment ABC');
  assert.equal(await save.getAttribute('data-saved'),'true');assert.equal(await page.evaluate(()=>pickerCalls),1);
  assert.equal(await page.evaluate(()=>state.studyFileHandle.name),'First.wingfem.json');
  checks.push('Initial Save chooses a destination and turns green only after writing the complete Study');
@@ -94,6 +99,7 @@ try{
  await page.locator('.recent-studies-browse').click();await page.waitForSelector('.study-comments-list li');assert.equal(await page.evaluate(()=>state.studyFile),beforePreview.file);
  assert.equal(requests.filter(p=>p==='/api/prepare_workspace').length,prepareCount);await page.locator('.study-comments-open').click();await page.waitForFunction(()=>state.studyFile==='Reviewed.wingfem.json'&&!state.workspaceBusy);
  assert.deepEqual(await page.evaluate(()=>state.studyNotes.history),beforePreview.history);checks.push('Show comments reads history without loading or mutating the current Study; Browse previews the selected file and loads only after explicit Load Study');
+ assert.deepEqual(await page.evaluate(()=>state.studyWatermark.capture()),{text:'Assignment ABC',visible:true});assert.equal(await page.locator('#viewport .study-watermark-overlay').innerText(),'Assignment ABC');checks.push('New Study identification survives Save, Save As, browser recovery and explicit disk reload and is restored in the actual 3D view');
  await page.evaluate(()=>{const data=JSON.parse(savedFiles[4].text);delete data.notes;window.previewResult=WingStudyComments.previewFile(new File([JSON.stringify(data)],'Legacy.wingfem.json'),{document});});
  assert.equal(await page.locator('.study-comments-empty').textContent(),'No saved comments in this Study.');assert(await page.locator('.study-comments-open').isEnabled());await page.locator('.study-comments-cancel').click();assert.equal(await page.evaluate(()=>previewResult),false);
  await page.evaluate(()=>{window.previewResult=WingStudyComments.previewFile(new File(['{broken'],'Broken.wingfem.json'),{document});});await page.waitForSelector('.study-comments-content[role="alert"]');assert(await page.locator('.study-comments-open').isDisabled());await page.locator('.study-comments-cancel').click();

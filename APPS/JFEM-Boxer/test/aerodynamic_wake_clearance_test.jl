@@ -122,3 +122,53 @@ end
     @test wake==original
     @test WC.aerodynamic_seed_clear_wake!(wake,triangles,1.;core=.05,side=1).remaining_intersections==0
 end
+
+@testset "Roundoff-shared TE clearance is a continuous constrained state" begin
+    # Generic three-obstacle geometry: thirty rays cross each tilted sheet.
+    # The adjoining patch duplicates its boundary origin with ordinary ULP
+    # differences, as independently computed physical patch corners can do.
+    for scale in (1.,7.),side in (-1,1),smooth in (false,true)
+        boundary=.1;rows=16;xs=.2 .+2 .* ((0:rows)./rows).^2
+        left=clearance_grid(xs,collect(range(-.2,boundary;length=31));z=x->.01)
+        right=clearance_grid(xs .+(nextfloat(.2)-.2),
+            collect(range(nextfloat(boundary),.4;length=31));z=x->nextfloat(.01))
+        wakes=[scale.*left,scale.*right]
+        bodies=[scale.*clearance_grid([center-.08,center+.08],[-.205,.095];
+            z=x->.01+.5(center-x)) for center in (.55,.9,1.25)]
+        triangles=WC.aerodynamic_wake_body_triangles(bodies)
+        attachments=[copy(g[:,1,:]) for g in wakes]
+        WC.aerodynamic_shared_wake!(wakes,scale)
+        original=deepcopy(wakes)
+        report=WC.aerodynamic_seed_clear_wake!(wakes,triangles,scale;
+            core=.02scale,side,span_smoothing=smooth)
+        @test report.initial_intersections==90
+        @test report.remaining_intersections==0
+        @test WC.aerodynamic_wake_collisions(wakes,triangles;scale).count==0
+        @test all(g[:,1,:]==attachments[k] for (k,g) in enumerate(wakes))
+        @test all(g[1,:,:]==original[k][1,:,:]&&g[2,:,:]==original[k][2,:,:] for (k,g) in enumerate(wakes))
+        retained=deepcopy(wakes)
+        # The zero-step trial must reproduce the retained admissible state.
+        WC.aerodynamic_shared_wake!(wakes,scale)
+        @test wakes==retained
+        WC.aerodynamic_shared_wake!(wakes,scale)
+        @test wakes==retained
+        @test WC.aerodynamic_wake_collisions(wakes,triangles;scale).count==0
+        @test WC.aerodynamic_seed_clear_wake!(wakes,triangles,scale;
+            core=.02scale,side,span_smoothing=smooth).modified_filaments==0
+        @test wakes==retained
+        # A nonzero trial approaches that same state continuously as its scale
+        # tends to zero, including at a shared patch boundary.
+        trial=deepcopy(retained)
+        trial[1][3,2:end,end].+=1e-8scale
+        WC.aerodynamic_shared_wake!(trial,scale)
+        @test maximum(maximum(abs,a-b) for (a,b) in zip(trial,retained))<=1.001e-8scale
+    end
+    # Averaging three already equal aliases can itself introduce one ULP.
+    # Projecting an admissible state must be exactly idempotent, not drift.
+    copies=[clearance_grid([.2,.5,1.],[.1];z=x->.1) for _ in 1:3]
+    retained=deepcopy(copies)
+    WC.aerodynamic_shared_wake!(copies,1.)
+    @test copies==retained
+    WC.aerodynamic_shared_wake!(copies,1.)
+    @test copies==retained
+end
