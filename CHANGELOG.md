@@ -5,6 +5,36 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Repair external deck-reader startup
+
+- Import the shared ForwardDiff types before including the native model
+  builder in Boxer's isolated deck reader. Keep the reader separate from
+  numerical analysis and use the repository's existing package environment.
+- Load shared engine definitions needed by imported-model defaults, repairing
+  a second reader failure exposed after the missing type import was fixed.
+
+### Rib references and live loft editing
+
+- Choose a global rib reference: vertical, a chords plane inclined about BASIC
+  X, or the local tangent to the mean upper/lower cover surface. Master ribs
+  can inherit or override it; secondary orientations interpolate and boundary
+  closures retain their vertical planes.
+- Drag loft control points in eta and value, with fixed root/tip eta anchors,
+  ordered interior stations and cancellation. Update the authored aerodynamic
+  surface during edits without requiring FEM generation, coalescing previews.
+- Keep live loft scalar settings authoritative when reading aerodynamic
+  geometry instead of overwriting them with a point editor's cached context.
+
+### Quarter-chord aerodynamic loads and wake visibility
+
+- Add explicit wake-filament visibility controls and move Analysis details
+  beside the aerodynamic case-comparison selectors.
+- Sum chordwise panel forces into quarter-chord span-strip resultants with
+  pitching-moment indicators, including case differences. Conservatively
+  combine different strip spacings and retain native force-segment moments.
+- Store quarter-chord strip geometry once per strip for display and export.
+- Refresh calebito2's airfoil, display and aerodynamic sweep settings.
+
 ### Restore saved Studies without rebuilding the FEM
 
 - Restore saved native definitions, images and view settings with lightweight
@@ -25,7 +55,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
 - Group aerodynamic actions in the header beside help and place the work
   estimate beside Exports.
 - Refresh the calebito1 example Study and add calebito2 as a fixed-wing sweep
-  example with derivatives disabled.
+  example.
 
 ### Reduce unnecessary aerodynamic work
 

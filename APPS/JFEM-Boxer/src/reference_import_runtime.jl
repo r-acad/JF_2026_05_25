@@ -13,6 +13,7 @@ include("plan_view_state.jl")
 include("materials.jl")
 include("nonstructural_mass.jl")
 include("atmosphere.jl")
+include("engine_structure.jl") # Model's empty engine field shares its native defaults/note.
 include("params.jl")
 include("geometry.jl")
 include("mesh.jl")

@@ -188,10 +188,23 @@ function aerodynamic_reference(w,s)
 end
 
 function aerodynamic_mesh_payload(patches,w,s)
-    panels=Any[];id=0
+    panels=Any[];strip_geometry=Any[];id=0
     for (patchno,patch) in enumerate(patches),j in axes(patch.metrics,2),i in axes(patch.metrics,1)
         m=patch.metrics[i,j];id+=1
         eta=(patch.etas[j]+patch.etas[j+1])/2
+        if i==first(axes(patch.metrics,1))
+            # One authoritative wing quarter-chord line per native strip, rather
+            # than repeating it for every chordwise panel. Position data stay
+            # in construction C, including loft shift/twist and mirrored Y.
+            quarter(e)=begin
+                q=section_point(w,e,.25,0.)
+                [q[1],patch.side=="left" ? 2w.root_ref_y-q[2] : q[2],q[3]]
+            end
+            push!(strip_geometry,Dict("side"=>patch.side,"region"=>patch.name,"patch"=>patchno,"strip"=>j,
+                "eta_bounds"=>[patch.etas[j],patch.etas[j+1]],
+                "quarter_chord_bounds"=>[quarter(patch.etas[j]),quarter(patch.etas[j+1])],
+                "quarter_chord_position"=>quarter(eta)))
+        end
         z=vcat(0.,[movable_chord_coordinate(c,"front_spar",eta) for c in patch.active],1.)
         at(xi)=begin k=min(floor(Int,xi)+1,length(z)-1);t=xi-(k-1);(1-t)*z[k]+t*z[k+1];end
         xc=hasproperty(patch,:chord_coordinates) ? sum(patch.chord_coordinates[i:i+1,j:j+1])/4 : (at(patch.xis[i])+at(patch.xis[i+1]))/2
@@ -202,7 +215,7 @@ function aerodynamic_mesh_payload(patches,w,s)
             "aspect_ratio_min"=>first(aerodynamic_aspect(m)),"aspect_ratio_max"=>last(aerodynamic_aspect(m)),
             "position"=>[sum(c[k] for c in m.corners)/4 for k in 1:3],"eta"=>eta))
     end
-    return Dict{String,Any}("panels"=>panels,"panel_count"=>length(panels),"patch_count"=>length(patches),
+    return Dict{String,Any}("panels"=>panels,"panel_count"=>length(panels),"patch_count"=>length(patches),"strip_geometry"=>strip_geometry,
         "wake_model"=>s["wake_model"],"chord_spacing"=>s["chord_spacing"],"aspect_policy"=>(cosine=s["chord_spacing"]=="cosine";cosine ? "True cosine per hinge region; maximum 1.5 enforced, minimum 0.7 advisory" : "Uniform: physical span/chord ratios 0.7-1.5"),
         "reference_frames"=>aerodynamic_frame_geometry(s),"stability_alpha_deg"=>s["stability_alpha"],
         "vector_frame"=>"construction C: X aft, Y right, Z up; origin at selected reference for moments/rates",

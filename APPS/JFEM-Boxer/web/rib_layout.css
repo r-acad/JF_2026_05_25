@@ -58,4 +58,6 @@
 .rl-plane-settings{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
 .rl-plane-settings label{display:flex;align-items:center;gap:7px;flex:1;min-width:0}
 .rib-layout-editor .rl-plane-settings select{width:auto;flex:1;min-width:145px}
+.rib-layout-editor .rl-plane-settings .rl-plane-inclination{flex:0 1 170px;min-width:145px}
+.rib-layout-editor .rl-plane-inclination input{width:70px;flex:0 0 70px}
 .rib-layout-editor .rl-plane-row td{border-top:0;padding:0 2px 8px}

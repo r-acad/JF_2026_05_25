@@ -15,7 +15,7 @@ displays structural results and property sensitivities.
 Open the public [test1 Study](examples/test1/test1.wingfem.json) or
 [calebito1 Study](examples/test1/calebito1.json) through **Project > Open**.
 The [calebito2 Study](examples/test1/calebito2.json) supplies a fixed-wing
-example with an aerodynamic sweep and derivatives disabled.
+example with saved display settings and a derivative-enabled relaxed-wake sweep.
 These retain the authored geometry, controls and analysis settings; mesh and
 solver results are created locally. Run the repository-root setup first.
 The [Python sizing example](../../utils/python_client/README.md) demonstrates
@@ -107,10 +107,16 @@ For an angled rib, alignment uses its intersection with the selected spar;
 the rib datum eta can therefore differ from the spar point eta. Review the
 result and regenerate the FEM after adjusting these physical boundaries.
 
-Each intermediate master has a **Plane** selector. **Vertical** contains BASIC
-Z and the selected plan-view direction. **Normal to local midplane** makes the
-rib plane perpendicular to the local chord sheet, including loft twist,
-dihedral and vertical shift. Its datum passes through the rear-spar mid-surface;
+**Structure / Ribs** provides a global **Default rib normal reference**. **Vertical**
+contains BASIC Z and the selected plan-view direction. **Normal to chords
+plane** uses a horizontal sheet rotated about BASIC X by **Chords plane
+inclination**, default 0 degrees. A positive angle raises the outboard side;
+enter the wing dihedral to align ribs with straight inclined covers.
+**Normal to local midplane** uses the tangent to the average upper/lower cover
+surface at the rear-spar datum, including camber, twist, dihedral and vertical
+shift. This lets ribs follow a curved or shifted loft. Each intermediate master
+can inherit the global reference or override its plane and inclination.
+The datum passes through the rear-spar mid-surface;
 upper and lower spar intersections can therefore have different span locations.
 Secondary plane tilt blends between adjacent masters. This formulation changes
 oblique rib intersections and matched-case body forces; older results are
@@ -648,7 +654,9 @@ labels without a fabricated arc. The helpers follow the camera projection,
 remain readable over the model and can be hidden independently. Their display
 does not alter the solved flow. The initial Isometric view exposes both planes.
 
-**Show VLM wakes** displays actual solved curved streamlines for relaxed
+**Wake filaments** in the aerodynamic viewport shows or hides the wake
+geometry. The choice is saved with the Study and retained
+in SVG exports. It displays actual solved curved streamlines for relaxed
 wakes, or finite straight rays along freestream for straight wakes and mesh
 previews. **Wake length (spans)** controls only display extent, at least 0.1 spans;
 curved lines stop at their computed length and are never extended artificially.
@@ -657,6 +665,22 @@ fit and display length do not rerun the analysis. The current curves and wake
 convergence context are retained in **Export view SVG**. Complete JSON includes
 all wake sheets and iteration history; coefficient reports/CSV identify wake
 model and convergence, and derivative CSV identifies the wake policy.
+
+Choose **Span strips at 25% chord** for **Load arrow placement** to combine all
+chordwise forces, including movable surfaces, into spanwise resultant arrows
+at 25% of the wing chord. **Pitching moment at 25% chord** adds gold indicators along
+construction X: upwind for nose down, downwind for nose up. Forces and moments
+have separate scales, in N and N·m. These are display resultants and do not
+change the VLM calculation. The same options work with **Difference A − B**;
+moments are transported to case A's quarter chord before subtraction.
+
+Different native strip spacings are combined on their common span boundaries,
+assuming uniform force and moment per eta within each native strip. Total force
+and moment are conserved. Additional quarter-chord positions interpolate the
+native reference line; moment recovery uses the actual force-segment moments,
+not a panel-centroid approximation. Older saved results need a new aerodynamic
+run to supply this strip geometry. **Analysis details** sits beside the case
+comparison selectors and expands there.
 
 In the structural workspace, **Display > Filter** isolates one physical rib
 bay: select rib N to show the elements between it and rib N+1, including both
@@ -2540,9 +2564,12 @@ These describe the upstream format; JFEM implements the subset listed here.
 Each curve includes the selected interpolation method. Without a schedule,
 the plots show the blended airfoil thickness, original root-to-tip twist and
 zero vertical shift. Add stations to obtain draggable control points. Drag
-vertically to change a station value, or focus a point and use the arrow keys.
-Eta remains fixed during a drag; edit its numeric field to move the station.
-Escape cancels a drag. The edited schedule is saved with the Study.
+horizontally to change eta and vertically to change the value. Interior points
+stay between their neighbours; exact root/tip eta anchors remain at 0/1.
+Left/right arrows change eta (Alt for a finer step), and up/down change the
+value. Escape cancels both changes. The authored 3D surface updates during
+dragging and after interpolation or twist edits without creating a FEM; the
+camera is retained. The edited schedule is saved with the Study.
 
 Every left pane collapses with **−** and restores with **+**. Drawing panes
 retain a separate Maximize action while expanded. **Collapse all trees / Expand all trees** changes the entity-list layout without

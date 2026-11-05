@@ -14,6 +14,20 @@
   if(!Number.isFinite(rounded))rounded=clamped;
   return Math.max(c.min,Math.min(c.max,rounded));
  }
+ function constrainEta(value,{initial,lower=0,upper=1}={},formatter){
+  // Exact root/tip anchors keep the physical end stations. Interior handles
+  // cannot cross their neighbours or create coincident interpolation anchors.
+  if(initial===0||initial===1)return initial;
+  const bounded=Math.max(lower,Math.min(upper,value)),round=value=>Number(formatter?formatter(value):value.toPrecision(5));
+  const rounded=round(bounded);
+  if(Number.isFinite(rounded)&&rounded>=lower&&rounded<=upper)return rounded;
+  const edge=rounded<lower?lower:upper,direction=rounded<lower?1:-1;
+  let increment=Math.max(1e-14,Math.abs(edge)*1e-5);
+  for(let i=0;i<12;i++,increment*=2){const candidate=round(edge+direction*increment);if(candidate>=lower&&candidate<=upper)return candidate;}
+  // Very closely spaced loaded stations may have no newly rounded value in
+  // their interval. Retain their original eta rather than collapse a segment.
+  return initial;
+ }
  function profileBlendThickness(a,b,weight,airfoils){
   const xs=[...new Set([...a.xu,...a.xl,...b.xu,...b.xl])];
   let maximum=0;for(const x of xs){const ta=airfoils.tableOrdinate(a.xu,a.zu,x)-airfoils.tableOrdinate(a.xl,a.zl,x),tb=airfoils.tableOrdinate(b.xu,b.zu,x)-airfoils.tableOrdinate(b.xl,b.zl,x);maximum=Math.max(maximum,(1-weight)*ta+weight*tb);}return maximum;
@@ -58,19 +72,19 @@
    svg.append(el('text',{x:PAD.left,y:15,fill:'#dceaf5','font-size':13},c.unit),el('text',{x:(WIDTH+PAD.left-PAD.right)/2,y:HEIGHT-5,'text-anchor':'middle',fill:'#dceaf5','font-size':13},'Eta (fraction of semi-span)'));
    if(domain[0]<0&&domain[1]>0)svg.append(el('line',{x1:PAD.left,y1:y(0),x2:WIDTH-PAD.right,y2:y(0),stroke:'#91a8ba','stroke-dasharray':'4 3'}));
    svg.append(el('path',{d:samples.map((p,i)=>(i?'L':'M')+x(p.eta).toFixed(3)+' '+y(p.value).toFixed(3)).join(' '),fill:'none',stroke:c.color,'stroke-width':2.5,'vector-effect':'non-scaling-stroke','data-loft-curve':kind}));
-   rows.forEach((row,index)=>{const handle=el('circle',{cx:x(row.eta),cy:y(row[field]),r:6.5,fill:c.color,stroke:'#0c1720','stroke-width':2,tabindex:isLocked()?-1:0,role:'slider','aria-label':c.unit+' at eta '+label(row.eta),'aria-valuenow':row[field],'aria-valuetext':label(row[field]*c.scale)+' '+c.unit,'aria-disabled':isLocked()?'true':'false','data-loft-handle':index});if(Number.isFinite(c.min))handle.setAttribute('aria-valuemin',c.min);if(Number.isFinite(c.max))handle.setAttribute('aria-valuemax',c.max);handle.append(el('title',{},`Eta ${label(row.eta)}: ${label(row[field]*c.scale)} ${c.unit}. Drag vertically to change the value. Eta stays fixed.`));svg.append(handle);});
-   note.textContent=rows.length?`${readMethod()==='cosine'?'Cosine':'Linear'} interpolation. Drag a point vertically to edit its value; use the station fields to change eta. Arrow keys adjust a focused point.`:'Inherited distribution. Add stations to edit its control points.';
+   rows.forEach((row,index)=>{const handle=el('circle',{cx:x(row.eta),cy:y(row[field]),r:6.5,fill:c.color,stroke:'#0c1720','stroke-width':2,tabindex:isLocked()?-1:0,role:'slider','aria-label':c.unit+' at eta '+label(row.eta),'aria-valuenow':row[field],'aria-valuetext':'Eta '+label(row.eta)+'; '+label(row[field]*c.scale)+' '+c.unit,'aria-disabled':isLocked()?'true':'false','data-loft-handle':index});if(Number.isFinite(c.min))handle.setAttribute('aria-valuemin',c.min);if(Number.isFinite(c.max))handle.setAttribute('aria-valuemax',c.max);handle.append(el('title',{},`Eta ${label(row.eta)}: ${label(row[field]*c.scale)} ${c.unit}. Drag horizontally for eta and vertically for value. Root/tip eta anchors stay at 0/1. Escape cancels.`));svg.append(handle);});
+   note.textContent=rows.length?`${readMethod()==='cosine'?'Cosine':'Linear'} interpolation. Drag in X for eta and Y for value. Root/tip eta anchors stay at 0/1; interior points stay between their neighbours. Left/right arrows change eta (Alt: fine); up/down change the value. Escape cancels a drag.`:'Inherited distribution. Add stations to edit its control points.';
    lastRender=signature;if(focused!==null&&focused!==undefined&&!drag&&!isLocked())svg.querySelector(`[data-loft-handle="${focused}"]`)?.focus({preventScroll:true});
   }
-  function commit(cancel=false){if(!drag)return;const previous=drag;drag=null;if(cancel)onChange(previous.index,previous.initial,{commit:false});else onChange(previous.index,previous.value,{commit:true});if(svg.hasPointerCapture?.(previous.pointerId))svg.releasePointerCapture(previous.pointerId);refresh();}
-  listen(svg,'pointerdown',event=>{const target=event.target.closest?.('[data-loft-handle]');if(event.button!==0||!target||isLocked()||drag)return;const index=Number(target.dataset.loftHandle);drag={index,initial:rows[index][field],value:rows[index][field],pointerId:event.pointerId,domain:domain.slice()};svg.setPointerCapture(event.pointerId);event.preventDefault();event.stopPropagation();});
-  listen(svg,'pointermove',event=>{if(!drag||event.pointerId!==drag.pointerId)return;if(isLocked()){commit(true);return;}const p=point(event),t=(p.y-PAD.top)/(HEIGHT-PAD.top-PAD.bottom),value=drag.domain[1]-t*(drag.domain[1]-drag.domain[0]);drag.value=roundValue(value,kind,win.WingNumericInputs?.format);onChange(drag.index,drag.value,{commit:false});refresh();event.preventDefault();});
-  listen(svg,'pointerup',event=>{if(drag&&event.pointerId===drag.pointerId){commit();event.preventDefault();event.stopPropagation();}});
+  function commit(cancel=false){if(!drag)return;const previous=drag;drag=null;onChange(previous.index,cancel?previous.initial:previous.value,{eta:cancel?previous.initialEta:previous.eta,commit:!cancel,cancel});if(svg.hasPointerCapture?.(previous.pointerId))svg.releasePointerCapture(previous.pointerId);refresh();}
+  listen(svg,'pointerdown',event=>{const target=event.target.closest?.('[data-loft-handle]');if(event.button!==0||!target||isLocked()||drag)return;const index=Number(target.dataset.loftHandle),row=rows[index];drag={index,initial:row[field],value:row[field],initialEta:row.eta,eta:row.eta,lower:index?rows[index-1].eta+1e-8:0,upper:index<rows.length-1?rows[index+1].eta-1e-8:1,pointerId:event.pointerId,start:point(event),domain:domain.slice()};svg.setPointerCapture(event.pointerId);event.preventDefault();event.stopPropagation();});
+  listen(svg,'pointermove',event=>{if(!drag||event.pointerId!==drag.pointerId)return;if(isLocked()){commit(true);return;}const p=point(event),value=drag.initial-(p.y-drag.start.y)/(HEIGHT-PAD.top-PAD.bottom)*(drag.domain[1]-drag.domain[0]);drag.value=roundValue(value,kind,win.WingNumericInputs?.format);drag.eta=constrainEta(drag.initialEta+(p.x-drag.start.x)/(WIDTH-PAD.left-PAD.right),{initial:drag.initialEta,lower:drag.lower,upper:drag.upper},win.WingNumericInputs?.format);onChange(drag.index,drag.value,{eta:drag.eta,commit:false});refresh();event.preventDefault();});
+  listen(svg,'pointerup',event=>{if(drag&&event.pointerId===drag.pointerId){commit(isLocked());event.preventDefault();event.stopPropagation();}});
   listen(svg,'pointercancel',()=>commit(true));listen(svg,'lostpointercapture',()=>{if(drag)commit(true);});
   listen(win,'keydown',event=>{if(event.key==='Escape'&&drag){commit(true);event.preventDefault();}});
-  listen(svg,'keydown',event=>{if(event.key==='Escape'&&drag){commit(true);event.preventDefault();return;}const target=event.target.closest?.('[data-loft-handle]');if(!target||isLocked()||!['ArrowUp','ArrowDown','ArrowRight','ArrowLeft'].includes(event.key))return;const index=Number(target.dataset.loftHandle),value=rows[index][field]+(['ArrowUp','ArrowRight'].includes(event.key)?1:-1)*c.step;onChange(index,roundValue(value,kind,win.WingNumericInputs?.format),{commit:true});refresh();svg.querySelector(`[data-loft-handle="${index}"]`)?.focus();event.preventDefault();event.stopPropagation();});
+  listen(svg,'keydown',event=>{if(event.key==='Escape'&&drag){commit(true);event.preventDefault();return;}const target=event.target.closest?.('[data-loft-handle]');if(!target||isLocked()||!['ArrowUp','ArrowDown','ArrowRight','ArrowLeft'].includes(event.key))return;const index=Number(target.dataset.loftHandle),row=rows[index],horizontal=['ArrowLeft','ArrowRight'].includes(event.key),sign=['ArrowUp','ArrowRight'].includes(event.key)?1:-1;const eta=horizontal?constrainEta(row.eta+sign*(event.altKey?.01:.1),{initial:row.eta,lower:index?rows[index-1].eta+1e-8:0,upper:index<rows.length-1?rows[index+1].eta-1e-8:1},win.WingNumericInputs?.format):row.eta,value=horizontal?row[field]:roundValue(row[field]+sign*c.step,kind,win.WingNumericInputs?.format);if(eta!==row.eta||value!==row[field])onChange(index,value,{eta,commit:true});refresh();svg.querySelector(`[data-loft-handle="${index}"]`)?.focus();event.preventDefault();event.stopPropagation();});
   let lastWidth=0;const observer=win.ResizeObserver?new win.ResizeObserver(()=>{const width=wrapper.clientWidth;if(width>0&&Math.abs(width-lastWidth)>1){lastWidth=width;refresh();}}):null;observer?.observe(wrapper);
   refresh();return{refresh,isInteracting:()=>!!drag,destroy(){commit(true);destroyed=true;observer?.disconnect();for(const detach of listeners)detach();wrapper.remove();}};
  }
- return{install,extent,roundValue,inheritedThickness,profileBlendThickness};
+ return{install,extent,roundValue,constrainEta,inheritedThickness,profileBlendThickness};
 });

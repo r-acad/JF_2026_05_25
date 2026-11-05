@@ -401,6 +401,7 @@ const CHOICE_LABELS = {
   rear_spar:"Local rear spar",front_spar:"Local front spar",global_y:"Angle from Y axis",
   beam: "Beams · PBARL T or blade sections", shell: "Shells · web and attached flange", surface_normal: "Normal to the local skin", coordinate_axis: "Along a coordinate-system axis", x: "X axis", y: "Y axis", z: "Z axis",
   inboard: "Inboard", outboard: "Outboard", flight_direction: "Line of flight", front_spar_angle: "Angle to local front spar", rear_spar_angle: "Angle to local rear spar",
+  vertical: "Vertical", normal_to_chords_plane: "Normal to chords plane", normal_to_midplane: "Normal to local midplane", inherit: "Use global rib reference",
   analytic: "Prescribed lift", vortex_lattice: "Aerodynamic (VLM)",
   elliptical: "Elliptical", schrenk: "Schrenk (ellipse + chord)", chord: "Proportional to chord", uniform: "Uniform",
   distributed: "Distributed element mass (default)", bay_concentrated: "Bay-concentrated mass and inertia",
@@ -422,6 +423,7 @@ const HELP_TOPICS = {
   "Ribs": { title:"Master rib layout", paragraphs:[
     "Root and final ribs are fixed masters in flight direction. With no intermediate masters, the root rib pitch generates the original layout. Add a master at its rear-spar ETA and set its outgoing pitch to the next master. The generator fits a whole number of evenly spaced rear-spar arc-length bays and interpolates the rib directions between masters.",
     "Choose flight direction or an angle from the rear-spar segment immediately inboard of that master, toward the nose. 90 degrees is perpendicular. Drag a rear-spar anchor to move a master; drag its line or front handle to rotate it. Use the table for exact values. Invalid drafts stay editable; the generator rejects ribs that cross or leave the surface.",
+    "The global rib plane reference can be Vertical, Normal to chords plane, or Normal to local midplane. Chords plane inclination rotates the XY reference sheet about BASIC +X; zero is horizontal and positive raises +Y. Enter the wing dihedral for straight inclined covers. The local option uses the tangent to the mean upper/lower cover surface at the rear spar, including camber, twist and shift. Masters can inherit or override the reference; secondary normals interpolate. Root and final boundary closures stay vertical.",
     "The drawing previews the untwisted reference geometry while editing and shows generated rib projections once the mesh is current. Lock mesh protects the layout. Study and TOML saves retain the master table. Leading Edge provides separate directions for individual rib extensions."
   ]},
   "Leading edge": { title:"Leading-edge ribs", paragraphs:[
@@ -931,7 +933,7 @@ function buildForm(schema, values) {
       const editor=WingComponentProperties.install(det,{kind:name==="Rib properties"?"ribs":"spar_bays",onEdit:parameterEdited,readRibs:currentSupportRibs});if(editor)state.componentEditors.push(editor);
     }
     if (name === "Airfoils" && typeof WingAirfoils !== "undefined") state.airfoilEditor = WingAirfoils.install(det, { onEdit: parameterEdited, onHelp: openHelp, isLocked: () => state.parameterLocks?.isLocked("airfoil.root") || false });
-    if (name === "Loft" && typeof WingLoft !== "undefined") state.loftEditor = WingLoft.install(det, { onEdit: parameterEdited, onHelp: openHelp, isLocked: () => state.parameterLocks?.isLocked("loft.twist_stations") || false });
+    if (name === "Loft" && typeof WingLoft !== "undefined") state.loftEditor = WingLoft.install(det, { onEdit: parameterEdited, onPreview:()=>{ensureGeometryPreview();state.geometryPreview?.request(0);}, onHelp: openHelp, isLocked: () => state.parameterLocks?.isLocked("loft.twist_stations") || false });
     if (name === "Movable surfaces" && typeof WingMovableSurfaces !== "undefined") state.movableEditor = WingMovableSurfaces.install(det, {
       onEdit:parameterEdited,onHelp:openHelp,isLocked:()=>state.parameterLocks?.isLocked("movable_surfaces.items")||false,
       readValues:()=>{const keys=state.schema.filter(s=>/^(planform|airfoil|loft)\./.test(s.key)).map(s=>s.key),values=readEditorParams(keys),context=readSurfacePreviewParams(WingDimensionedPlanView);delete context._rib_geometry;return {...Object.fromEntries(keys.map(k=>[k,values[k]])),...context};},
@@ -1673,7 +1675,7 @@ function parameterEdited(key) {
   }
   if(state.importedDeck && !["sensitivity.settings","jfem.timeout_minutes"].includes(key))return;
   if (state.parameterLocks?.guard(key)) return;
-  if(/^(planform|airfoil|loft|movable_surfaces)\./.test(key)) {ensureGeometryPreview();state.geometryPreview?.request();}
+  if(/^(planform|airfoil|loft|movable_surfaces)\./.test(key)) {ensureGeometryPreview();state.geometryPreview?.request(key.startsWith('loft.')||key==='planform.twist_tip'||key==='planform.twist_axis_xc'?0:180);}
   // Capture the solved sections before the first sizing edit, even if the
   // user has not opened Stress Report or Inspect in this session yet.
   if(!state.stressReport&&!state.modelDirty&&state.resultCases?.size&&/^(properties|material|materials)\./.test(key))refreshStressReport(true,{primeOnly:true});
@@ -6853,7 +6855,14 @@ function readAuthoredGeometry(){
       if(state.importedDeck||state.diskResults)throw Error('Open a generated wing Study to define aerodynamic geometry. Imported FE decks do not define a wing loft.');
       const keys=state.schema.filter(s=>/^(planform|airfoil|loft)\./.test(s.key)||s.key==='movable_surfaces.items').map(s=>s.key);
       const values=readEditorParams(keys);
-      for(const editor of [state.planformEditor,state.airfoilEditor,state.loftEditor,state.movableEditor]){const draft=editor?.readDrafts?.();if(draft&&typeof draft==='object'&&!Array.isArray(draft))Object.assign(values,draft);}
+      // Point editors also return their reference context. Only their own
+      // tables may override the live form; cached context would otherwise
+      // replace current loft interpolation, thickness or twist inputs.
+      for(const [editor,ownedKeys] of [[state.planformEditor,['planform.leading_edge_points','planform.trailing_edge_points']],
+          [state.airfoilEditor,['airfoil.stations']],[state.loftEditor,['loft.thickness_stations','loft.twist_stations','loft.vertical_shift_stations']],
+          [state.movableEditor,['movable_surfaces.items']]]){
+        const draft=editor?.readDrafts?.();if(draft&&typeof draft==='object'&&!Array.isArray(draft))for(const key of ownedKeys)if(Object.hasOwn(draft,key))values[key]=draft[key];
+      }
       const selected=Object.fromEntries(keys.filter(k=>values[k]!==undefined).map(k=>[k,values[k]]));
       return globalThis.WingCoordinates?.roundInputs(selected)??selected;
 

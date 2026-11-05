@@ -94,5 +94,7 @@ end
     @test payload["solid_boundary"]["triangles"]["count"]==16
     @test isempty(payload["loads"]["force_stations"])
     loaded=Set(String(id.name) for id in keys(Base.loaded_modules))
-    @test isempty(intersect(loaded,Set(["OpenJFEM","WingFEGen","HTTP","VortexLattice","ForwardDiff","HDF5","KrylovKit","AlgebraicMultigrid"])))
+    @test isdefined(N,:ForwardDiff)
+    @test "ForwardDiff" in loaded # ModelBuilder's Dual method signatures need this binding.
+    @test isempty(intersect(loaded,Set(["OpenJFEM","WingFEGen","HTTP","VortexLattice","HDF5","KrylovKit","AlgebraicMultigrid"])))
 end

@@ -1,9 +1,11 @@
 # Read-only native input context. These are the same parser/model builders and
 # load definitions used by OpenJFEM, without loading its numerical pipeline,
-# result writers, AD stack or package precompile workload just to inspect a mesh.
+# result writers or package precompile workload just to inspect a mesh.
 module ImportNative
 using LinearAlgebra, SparseArrays, Statistics, StaticArrays, Dates
-import JSON
+import JSON, ForwardDiff
+# ModelBuilder declares methods specialized on ForwardDiff.Dual while loading.
+# Bind its shared dependency even though importing a mesh performs no AD solve.
 const REPOSITORY=getfield(parentmodule(@__MODULE__),:IMPORT_REPO)
 include(joinpath(REPOSITORY,"src","parsing","ReferenceParser.jl"))
 include(joinpath(REPOSITORY,"src","ModelBuilder.jl"))

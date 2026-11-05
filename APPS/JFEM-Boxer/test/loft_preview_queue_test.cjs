@@ -1,0 +1,30 @@
+'use strict';
+const assert=require('node:assert/strict'),Geometry=require('../web/geometry_preview.js'),Plots=require('../web/loft_plots.js'),Numeric=require('../web/numeric_inputs.js');
+const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms)),tick=()=>wait(0);
+(async()=>{
+ for(const initial of [0,1])assert.equal(Plots.constrainEta(.45,{initial,lower:0,upper:1},Numeric.format),initial);
+ const interval={initial:.5,lower:.25+1e-8,upper:.75-1e-8};
+ assert.equal(Plots.constrainEta(.5678912,interval,Numeric.format),.56789);
+ const left=Plots.constrainEta(-1,interval,Numeric.format),right=Plots.constrainEta(2,interval,Numeric.format);
+ assert(left>=interval.lower&&left<.251);assert(right<=interval.upper&&right>.749);
+ assert.equal(Plots.constrainEta(.5000015,{initial:.5000015,lower:.5000014,upper:.5000016},Numeric.format),.5000015,'Unresolvable loaded precision retains the distinct anchor.');
+ let parameters={'loft.vertical_shift_stations':[{eta:0,shift_percent:0},{eta:1,shift_percent:0}]},invalid=false;
+ const requests=[],resolvers=[],statuses=[],state={scene:null,data:null};
+ const preview=Geometry.create({state,read:()=>{if(invalid)throw Error('Incomplete station');return parameters;},request:payload=>{requests.push(payload);return new Promise((resolve,reject)=>resolvers.push({resolve,reject}));},onStatus:text=>statuses.push(text)});
+ preview.request(0);
+ for(let i=1;i<=50;i++){parameters['loft.vertical_shift_stations'][1].shift_percent=i;preview.request(0);}
+ await tick();assert.equal(requests.length,1);assert.equal(requests[0]['loft.vertical_shift_stations'][1].shift_percent,0,'An in-flight request owns a stable snapshot.');
+ resolvers[0].resolve({revision:'initial'});await tick();assert.equal(preview.data.revision,'initial','A valid intermediate draft can render during continuous interaction.');
+ await wait(125);assert.equal(requests.length,2,'Fifty moves coalesce into one newest pending request.');assert.equal(requests[1]['loft.vertical_shift_stations'][1].shift_percent,50);
+ resolvers[1].resolve({revision:'latest'});await tick();assert.equal(preview.data.revision,'latest');assert.equal(preview.signature,Geometry.signature(parameters));assert.equal(state.data,null);
+ parameters['loft.vertical_shift_stations'][1].shift_percent=60;preview.request(0);await wait(125);assert.equal(requests.length,3);
+ parameters['loft.vertical_shift_stations'][1].shift_percent=50;preview.request(0);resolvers[2].resolve({revision:'obsolete'});await tick();assert.equal(preview.data.revision,'latest','Returning to the cached current draft prevents an older response replacing it.');
+ parameters['loft.vertical_shift_stations'][1].shift_percent=70;preview.request(0);await wait(125);assert.equal(requests.length,4);
+ preview.reset();parameters={'loft.vertical_shift_stations':[{eta:0,shift_percent:3},{eta:1,shift_percent:4}]};preview.request(0);
+ resolvers[3].resolve({revision:'previous-study'});await tick();assert.equal(preview.data,null,'Reset rejects an in-flight previous Study.');await tick();assert.equal(requests.length,5);
+ resolvers[4].resolve({revision:'new-study'});await tick();assert.equal(preview.data.revision,'new-study');
+ invalid=true;preview.request(0);await wait(125);assert.equal(requests.length,5);assert.equal(preview.data.revision,'new-study');assert.match(statuses.at(-1),/waiting for valid input/);
+ invalid=false;parameters['loft.vertical_shift_stations'][1].shift_percent=5;preview.request(0);await wait(125);assert.equal(requests.length,6);resolvers[5].reject(Error('Fixture rejected geometry'));await tick();assert.equal(preview.data.revision,'new-study');assert.match(statuses.at(-1),/retained.*Fixture rejected geometry/);
+ parameters['loft.vertical_shift_stations'][1].shift_percent=6;preview.request(0);await wait(125);preview.destroy();resolvers[6].resolve({revision:'after-destroy'});await tick();assert.equal(preview.data,null);
+ console.log('PASS Loft eta anchors/precision, bounded XY movement, stable request snapshots, latest-only queue, intermediate display, cached reversion, Study reset, invalid drafts and cleanup.');
+})().catch(error=>{console.error(error);process.exitCode=1;});

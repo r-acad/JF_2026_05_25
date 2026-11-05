@@ -347,7 +347,7 @@ function rib_layout_payload(m::Model)
     for (number,j) in enumerate(g.ribs)
         low=[collect(grid_point(g,i,j,0)) for i in 0:ni(g)]
         high=[collect(grid_point(g,i,j,g.nh)) for i in 0:ni(g)]
-        info=layout.physical[number];leading=get(le,number,nothing)
+        info=layout.physical[number];leading=get(le,number,nothing);plane=main_rib_plane(g,m.params,j)
         eids=Int[]
         for group in m.groups
             component_base_pid(group.pid)==PID_RIB_WEB||continue
@@ -357,13 +357,15 @@ function rib_layout_payload(m::Model)
         push!(rows,Dict{String,Any}("number"=>number,"eta"=>g.etas[j+1],"rear_eta"=>g.etas[j+1],
             "front_eta"=>(g.lower_etas[1,j+1]+g.upper_etas[1,j+1])/2,
             "is_master"=>info.master,"master_index"=>info.master_index,"mode"=>info.mode,"angle"=>info.angle,
+            "plane_normal"=>collect(plane.normal),"plane_origin"=>collect(plane.origin),
             "direction"=>collect(rib_row_direction(layout,g.etas[j+1])),"front"=>(first(low).+first(high))./2,"rear"=>(last(low).+last(high))./2,
             "lower"=>low,"upper"=>high,"eids"=>eids,"leading"=>leading===nothing ? nothing : leading["nose"],
             "le_fallback"=>leading===nothing ? false : leading["fallback"],"le_status"=>leading===nothing ? "not modeled" : leading["reason"]))
     end
     return Dict{String,Any}("ribs"=>rows,"masters"=>layout.masters,"angle_reference"=>"local_inboard_rear_spar",
         "pitch_reference"=>layout.legacy ? "legacy_reference_line" : "rear_spar_3d_reference",
-        "note"=>"Actual generated rib/skin intersections. ETA is measured at the rear spar; root and final closures are fixed line of flight.")
+        "default_plane_reference"=>get(m.params,"ribs.plane","vertical"),"chords_plane_angle_deg"=>get(m.params,"ribs.chords_plane_angle",0.),
+        "note"=>"Actual generated rib/skin intersections. ETA is measured at the rear spar. Normals use the selected reference at the rear-spar anchor; secondary normals interpolate between masters. Root and final closures stay vertical and line of flight.")
 end
 
 function mesh_payload(m::Model; progress = stage -> nothing)

@@ -40,7 +40,8 @@ tests=try
     @test imported_runtime["runtime"]=="import-only"
     @test imported_runtime["packages"]["JSON"]==string(Base.pkgversion(W.JSON))
     @test Set(keys(imported_runtime["packages"]))==Set(["JSON","MsgPack","CodecZlib"])
-    @test isempty(intersect(Set(imported_runtime["loaded_packages"]),Set(["OpenJFEM","WingFEGen","HTTP","VortexLattice","ForwardDiff","HDF5","KrylovKit"])))
+    @test "ForwardDiff" in imported_runtime["loaded_packages"] # Native ModelBuilder type signatures.
+    @test isempty(intersect(Set(imported_runtime["loaded_packages"]),Set(["OpenJFEM","WingFEGen","HTTP","VortexLattice","HDF5","KrylovKit"])))
     model=W.Serialization.deserialize(joinpath(importdir,"model.jls"))
     @test model isa W.Model
     @test model.node_ids==[1,2,3,4]

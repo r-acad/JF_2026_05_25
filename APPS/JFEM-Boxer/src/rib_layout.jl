@@ -82,7 +82,10 @@ function physical_rib_layout(w::Wing,p::AbstractDict)
     distances=rear_arc_length.(Ref(arc),master_etas)
     directions=[master_rib_direction(arc,row["eta"],row["mode"],row["angle"]) for row in masters]
     deltas=[atan(d[2],-d[1]) for d in directions]
-    plane_tilts=[get(row,"plane","vertical")=="normal_to_midplane" ? 1.0 : 0.0 for row in masters]
+    default_plane=get(p,"ribs.plane","vertical");default_angle=Float64(get(p,"ribs.chords_plane_angle",0.))
+    plane_modes=[get(row,"plane","inherit")=="inherit" ? default_plane : row["plane"] for row in masters]
+    plane_angles=[mode=="normal_to_chords_plane" ? Float64(get(row,"plane_angle",default_angle)) : 0. for (mode,row) in zip(plane_modes,masters)]
+    plane_tilts=[mode=="normal_to_midplane" ? 1.0 : 0.0 for mode in plane_modes]
     physical=NamedTuple[];legacy=isempty(rows)
     for interval in 1:length(masters)-1
         length_interval=legacy ? end_eta*reference_length(w) : distances[interval+1]-distances[interval]
@@ -102,7 +105,7 @@ function physical_rib_layout(w::Wing,p::AbstractDict)
     end
     push!(physical,(eta=end_eta,arc=last(distances),master=true,master_index=length(masters),interval=length(masters)-1,
         mode="flight_direction",angle=90.0,pitch=0.0,delta=0.0,direction=(-1.0,0.0,0.0)))
-    return (;arc,masters,master_etas,distances,deltas,plane_tilts,physical,legacy)
+    return (;arc,masters,master_etas,distances,deltas,plane_tilts,plane_modes,plane_angles,physical,legacy)
 end
 
 function rib_row_direction(layout,eta::Real)
@@ -111,29 +114,46 @@ function rib_row_direction(layout,eta::Real)
     return (-cos(delta),sin(delta),0.0)
 end
 
-"""Local chord-sheet normal, including twist, dihedral and loft Z translation."""
+"""Local mean-cover normal, including camber, twist, dihedral and loft shift."""
 function local_midplane_normal(w::Wing,eta::Real,xc::Real)
     e=Float64(eta);x=Float64(xc)
-    chord_axis=section_point(w,e,1.,0.).-section_point(w,e,0.,0.)
+    middle(e,x)=(upper_point(w,e,x).+lower_point(w,e,x))./2
+    h=1e-7;xlo=x<1-h ? x : max(0.,x-h);xhi=x<1-h ? min(1.,x+h) : x
+    chord_axis=(middle(e,xhi).-middle(e,xlo))./(xhi-xlo)
     # One-sided at linear loft anchors, matching the outboard slope convention.
-    h=1e-7;lo=e<1-h ? e : max(0.,e-h);hi=e<1-h ? min(1.,e+h) : e
-    span_axis=(section_point(w,hi,x,0.).-section_point(w,lo,x,0.))./(hi-lo)
+    lo=e<1-h ? e : max(0.,e-h);hi=e<1-h ? min(1.,e+h) : e
+    span_axis=(middle(hi,x).-middle(lo,x))./(hi-lo)
     return unit3(cross3(chord_axis,span_axis))
 end
 
-"""Plane at the rear mid-surface datum; secondary tilt blends between masters."""
+"""Rib normal in a reference sheet, perpendicular to the plan-view rib line."""
+function rib_reference_normal(w::Wing,direction,eta,xc,mode,angle)
+    vertical=unit3(cross3(direction,(0.,0.,1.)))
+    mode=="vertical"&&return vertical
+    sheet=mode=="normal_to_midplane" ? local_midplane_normal(w,eta,xc) : (0.,-sind(angle),cosd(angle))
+    normal=unit3(cross3(direction,sheet))
+    return sum(normal.*vertical)<0 ? (-1.).*normal : normal
+end
+
+"""Plane at the rear mid-surface datum; secondary normals blend between masters.
+
+Boundary closures retain constant-span vertical planes. Their reference settings
+still anchor adjacent interior interpolation, so a global normal reference also
+works without any intermediate master rows.
+"""
 function main_rib_plane(w::Wing,layout,eta::Real)
     xc=spar_surface_xc(w,layout.arc.spar,eta,:rear)
     lower,upper=lower_point(w,Float64(eta),xc),upper_point(w,Float64(eta),xc)
     origin=(lower.+upper)./2;direction=rib_row_direction(layout,eta)
     vertical=unit3(cross3(direction,(0.,0.,1.)))
-    fraction=edge_offset(layout.distances,layout.plane_tilts,rear_arc_length(layout.arc,eta))
     normal=vertical
-    if fraction>0
-        local_normal=local_midplane_normal(w,eta,xc)
-        tilted=unit3(cross3(direction,local_normal))
-        sum(tilted.*vertical)<0&&(tilted=(-1.).*tilted)
-        normal=unit3((1-fraction).*vertical.+fraction.*tilted)
+    if first(layout.master_etas)<eta<last(layout.master_etas)
+        distance=rear_arc_length(layout.arc,eta)
+        i=clamp(searchsortedlast(layout.distances,distance),1,length(layout.distances)-1)
+        t=clamp((distance-layout.distances[i])/(layout.distances[i+1]-layout.distances[i]),0.,1.)
+        a=rib_reference_normal(w,direction,eta,xc,layout.plane_modes[i],layout.plane_angles[i])
+        b=rib_reference_normal(w,direction,eta,xc,layout.plane_modes[i+1],layout.plane_angles[i+1])
+        normal=layout.plane_modes[i]==layout.plane_modes[i+1]=="vertical" ? vertical : unit3((1-t).*a.+t.*b)
     end
     norm3(normal)>0.5||throw(ArgumentError("main rib plane is undefined at rear-spar ETA $eta"))
     return (;origin,direction,normal,lower,upper,eta=Float64(eta),scale=max(w.semispan,w.chord_root,1.0))

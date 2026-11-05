@@ -37,6 +37,9 @@ end
 end
 @testset "Master plane normal to shifted local midplane" begin
     p=fixture();delete!(p["ribs.masters"][1],"spar_link")
+    # Equal camber isolates the prescribed 10% spanwise translation. Otherwise
+    # the true mean-cover tangent also includes root-to-tip camber changes.
+    p["airfoil.tip"]=p["airfoil.root"]
     p["ribs.masters"][1]["eta"]=.5
     p["loft.vertical_shift_stations"]=[Dict("eta"=>0.,"shift_percent"=>0.),Dict("eta"=>1.,"shift_percent"=>10.)]
     p["ribs.masters"][1]["plane"]="normal_to_midplane"

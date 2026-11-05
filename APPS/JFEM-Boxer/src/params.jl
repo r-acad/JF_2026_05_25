@@ -211,8 +211,13 @@ const SCHEMA = ParamSpec[
     ParamSpec("box.stringer_segment_angles", "Angles between master ribs", :stringerangles, Float64[], "Stringer layout";
               help="Angles in degrees from BASIC +Y, ordered root to tip, one per segment between master ribs. Used with Angle from Y axis. Missing entries use Default stringer angle; zero is parallel to Y and positive sweeps aft. Paths remain continuous across segment boundaries."),
 
+    ParamSpec("ribs.plane", "Default rib normal reference", :choice, "vertical", "Ribs";
+              choices=["vertical","normal_to_chords_plane","normal_to_midplane"],
+              help="Vertical retains BASIC-Z rib planes. Normal to chords plane places the rib normal in a reference XY plane rotated about BASIC +X by Chords plane inclination; enter the wing dihedral to follow straight covers. Normal to local midplane uses the mean upper/lower cover tangent at the rear-spar anchor, including camber, dihedral, loft vertical shift and twist. Applies to all interior ribs unless a master overrides it. Root/final closures remain vertical so they close the defined span."),
+    ParamSpec("ribs.chords_plane_angle", "Chords plane inclination", :float, 0.0, "Ribs";
+              unit="deg", help="Rotate the horizontal reference plane about BASIC +X. Positive angles raise its outboard +Y direction. Zero is horizontal; enter the wing dihedral for a straight dihedral wing. Used by Normal to chords plane. Local midplane computes its own reference from the loft. Angles must be strictly between -89 and 89 degrees."),
     ParamSpec("ribs.masters", "Intermediate master ribs", :masterribs, Any[], "Ribs";
-              help = "Intermediate masters: ETA at the rear spar, orientation, angle in degrees from the immediately inboard rear-spar segment's outboard tangent toward the nose (90 is perpendicular), and outgoing pitch in metres. Root/final closures are fixed line of flight. Each master plane is Vertical or Normal to local midplane (including loft Z shift, twist and dihedral). Secondary positions, directions and plane tilt interpolate between masters; root/final planes stay vertical. Snap rib stores a persistent spar-point link; Unlink or deleting the point releases it. Pitch follows the 3D rear-spar reference path"),
+              help = "Intermediate masters: ETA at the rear spar, orientation, angle in degrees from the immediately inboard rear-spar segment's outboard tangent toward the nose (90 is perpendicular), and outgoing pitch in metres. Plane inherits Default rib normal reference unless overridden as Vertical, Normal to chords plane or Normal to local midplane. Secondary plane normals interpolate between masters. Root/final closures stay vertical. Snap rib stores a persistent spar-point link; Unlink or deleting the point releases it. Pitch follows the 3D rear-spar reference path"),
 
     # --- optional leading-edge structure ----------------------------------
     ParamSpec("leading_edge.enabled", "Create leading-edge structure", :bool, false, "Leading edge";
@@ -635,7 +640,7 @@ function normalize_rib_tables(value, key::AbstractString; end_eta::Real=1.0)
         raw isa AbstractDict || throw(ArgumentError("$key row $index must be a table"))
         all(k->k isa AbstractString||k isa Symbol,keys(raw))||throw(ArgumentError("$key row $index has invalid field names"))
         row=Dict(String(k)=>v for (k,v) in raw)
-        allowed=master ? Set(["eta","mode","angle","pitch","plane","spar_link"]) : Set(["rib","mode","angle","kink_side"])
+        allowed=master ? Set(["eta","mode","angle","pitch","plane","plane_angle","spar_link"]) : Set(["rib","mode","angle","kink_side"])
         all(k->k in allowed,keys(row)) || throw(ArgumentError("$key row $index has unsupported fields"))
         field=master ? "eta" : "rib"
         for required in (master ? (field,"mode","pitch") : (field,"mode"))
@@ -645,7 +650,12 @@ function normalize_rib_tables(value, key::AbstractString; end_eta::Real=1.0)
             throw(ArgumentError("$key row $index kink_side must be inboard or outboard"))
         get!(row,"angle",90.0)
         if master
-            get(row,"plane","vertical") in ("vertical","normal_to_midplane")||throw(ArgumentError("$key plane must be vertical or normal_to_midplane"))
+            get(row,"plane","inherit") in ("inherit","vertical","normal_to_chords_plane","normal_to_midplane")||throw(ArgumentError("$key plane must inherit the default, be vertical, normal_to_chords_plane or normal_to_midplane"))
+            if haskey(row,"plane_angle")
+                value=row["plane_angle"]
+                value isa Real&&!(value isa Bool)&&isfinite(value)&&abs(value)<89||throw(ArgumentError("$key row $index chords plane inclination must be finite and strictly between -89 and 89 degrees"))
+                row["plane_angle"]=Float64(value)
+            end
             if haskey(row,"spar_link")
                 link=row["spar_link"]
                 link isa AbstractDict&&Set(String.(keys(link)))==Set(["edge","point_id"])&&get(link,"edge",nothing) in ("front","rear")&&get(link,"point_id",nothing) isa AbstractString&&occursin(r"^[A-Za-z0-9_-]{1,80}$",link["point_id"])||throw(ArgumentError("$key spar_link needs front/rear edge and a valid point_id"))
@@ -724,6 +734,7 @@ function normalize_loft_stations(value, key::AbstractString)
 end
 
 function coerce_value(spec::ParamSpec, v)
+    spec.key=="ribs.chords_plane_angle"&&v isa Bool&&throw(ArgumentError("ribs.chords_plane_angle must be a finite angle in degrees"))
     spec.key in ASSESSMENT_FACTOR_KEYS&&v isa Bool&&
         throw(ArgumentError("$(spec.key) must be a finite positive number"))
     # Saved definitions predating these assessment controls may contain null.
@@ -912,7 +923,12 @@ Physical validity and deep property-table rules are checked when creating a FEM.
 function canonical_study_parameters(flat::AbstractDict)
     (haskey(flat,"jfem.path")||any(key->haskey(flat,key),LEGACY_SECTION_KEYS))&&return false
     for spec in SCHEMA
-        haskey(flat,spec.key)||return false
+        if !haskey(flat,spec.key)
+            # These scalar display-independent defaults preserve the physical
+            # behavior of complete snapshots saved before rib reference planes.
+            spec.key in ("ribs.plane","ribs.chords_plane_angle")&&continue
+            return false
+        end
         value=flat[spec.key]
         if spec.kind===:float
             value isa Real&&!(value isa Bool)||return false
@@ -969,6 +985,9 @@ Check the parameter set for the constraints the mesh generator relies on and
 throw an `ArgumentError` naming the offending parameter.
 """
 function validate_params(p::AbstractDict; check_cases::Bool = true)
+    get(p,"ribs.plane","vertical") in ("vertical","normal_to_chords_plane","normal_to_midplane")||throw(ArgumentError("ribs.plane must be vertical, normal_to_chords_plane or normal_to_midplane"))
+    plane_angle=get(p,"ribs.chords_plane_angle",0.)
+    plane_angle isa Real&&!(plane_angle isa Bool)&&isfinite(plane_angle)&&abs(plane_angle)<89||throw(ArgumentError("ribs.chords_plane_angle must be finite and strictly between -89 and 89 degrees"))
     assessment_policy_payload(p)
     get(p,"mass.structural_representation","distributed") in ("distributed","bay_concentrated") ||
         throw(ArgumentError("mass.structural_representation must be distributed or bay_concentrated"))

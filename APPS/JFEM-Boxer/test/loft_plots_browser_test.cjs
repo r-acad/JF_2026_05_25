@@ -13,7 +13,7 @@ const checks=[];
  try{
   await page.goto('http://127.0.0.1:'+server.address().port);
   await page.evaluate(()=>{
-   window.edits=[];window.locked=false;WingNumericInputs.install(document);
+   window.edits=[];window.previews=[];window.locked=false;document.addEventListener("pointerdown",event=>window.lastPointerId=event.pointerId,true);WingNumericInputs.install(document);
    const host=document.getElementById('loft'),context=document.getElementById('context');
    const field=(key,value,choices,parent=host)=>{const row=document.createElement('label');row.id='row-'+key;row.className='row';row.append(document.createTextNode(key));const input=document.createElement(choices?'select':'input');input.id='p-'+key;if(choices)for(const choice of choices){const option=document.createElement('option');option.value=option.textContent=choice;input.append(option);}input.value=value;row.append(input);parent.append(row);};
    for(const kind of ['thickness','twist','vertical_shift']){field('loft.'+kind+'_stations','[]');field('loft.'+kind+'_interpolation','linear',['linear','cosine']);}
@@ -21,7 +21,7 @@ const checks=[];
    for(const station of ['root','tip']){field('airfoil.'+station+'_source','naca',null,context);field('airfoil.'+station,station==='root'?'2412':'0018',null,context);field('airfoil.'+station+'_profile','',null,context);}
    field('airfoil.n_points','21',null,context);field('airfoil.closed_trailing_edge','',null,context);document.getElementById('p-airfoil.closed_trailing_edge').type='checkbox';document.getElementById('p-airfoil.closed_trailing_edge').checked=false;
    field('airfoil.stations','[]',null,context);field('airfoil.interpolation','linear',null,context);
-   window.editor=WingLoft.install(host,{onEdit:key=>edits.push(key),isLocked:()=>locked});
+   window.editor=WingLoft.install(host,{onEdit:key=>edits.push(key),onPreview:key=>previews.push(key),isLocked:()=>locked});
    document.addEventListener('input',e=>{if(e.target.id?.startsWith('p-planform.'))editor.refresh();});
   });
   assert.equal(await page.locator('.loft-distribution-plot').count(),3);
@@ -41,7 +41,7 @@ const checks=[];
   checks.push('Changing interpolation redraws the curve through the scheduled control points');
   const point=thickness.locator('[data-loft-handle="1"]');await point.scrollIntoViewIfNeeded();const box=await point.boundingBox(),before=Number(await rows.last().locator('input').last().inputValue()),editCount=await page.evaluate(()=>edits.length);
   await page.mouse.move(box.x+box.width/2,box.y+box.height/2);await page.mouse.down();await page.mouse.move(box.x+box.width/2,box.y+box.height/2+25,{steps:5});
-  assert.equal(await page.evaluate(()=>edits.length),editCount,'Dragging must not launch repeated model generations');
+  assert.equal(await page.evaluate(()=>edits.length),editCount,'Dragging must not launch repeated model generations');assert(await page.evaluate(()=>previews.length)>0,'Dragging publishes live geometry drafts independently of FEM generation');
   assert.equal(await page.evaluate(()=>editor.isInteracting()),true);
   assert(Number(await rows.last().locator('input').last().inputValue())<before);await page.mouse.up();
   assert.equal(await page.evaluate(()=>edits.length),editCount+1);assert.equal(await rows.last().locator('input').first().inputValue(),'1');
@@ -57,12 +57,48 @@ const checks=[];
   assert.equal(await point.getAttribute('aria-disabled'),'true');assert.equal(await point.getAttribute('tabindex'),'-1');
   await page.evaluate(()=>{locked=false;document.getElementById('loft').dispatchEvent(new Event('parameterlockchange'));});
   checks.push('Keyboard adjustment and parameter locks apply to graphical control points');
+  await page.locator('[data-loft-add="thickness"]').click();
+  const mid=thickness.locator('[data-loft-handle="1"]'),middle=rows.nth(1);await mid.scrollIntoViewIfNeeded();
+  const xyBefore=await page.evaluate(()=>JSON.parse(document.getElementById('p-loft.thickness_stations').value)),xyBox=await mid.boundingBox(),xyEdits=await page.evaluate(()=>edits.length);
+  await page.mouse.move(xyBox.x+xyBox.width/2,xyBox.y+xyBox.height/2);await page.mouse.down();await page.mouse.move(xyBox.x+xyBox.width/2+50,xyBox.y+xyBox.height/2-12,{steps:7});
+  const xyLive=await page.evaluate(()=>JSON.parse(document.getElementById('p-loft.thickness_stations').value));assert(xyLive[1].eta>xyBefore[1].eta&&xyLive[1].tc>xyBefore[1].tc);assert.equal(await page.evaluate(()=>edits.length),xyEdits);await page.mouse.up();
+  assert.equal(await page.evaluate(()=>edits.length),xyEdits+1);assert.equal(xyLive[0].eta,0);assert.equal(xyLive[2].eta,1);assert.equal(Number(await middle.locator('input').first().inputValue()),xyLive[1].eta);
+  checks.push('Interior handles move in both eta and value, update the live draft, retain root/tip anchors and commit exactly once');
+  const closeBox=await mid.boundingBox();await page.mouse.move(closeBox.x+closeBox.width/2,closeBox.y+closeBox.height/2);await page.mouse.down();await page.mouse.move(closeBox.x+closeBox.width/2+1500,closeBox.y+closeBox.height/2,{steps:3});await page.mouse.up();
+  const bounded=await page.evaluate(()=>JSON.parse(document.getElementById('p-loft.thickness_stations').value));assert(bounded[1].eta<bounded[2].eta&&bounded[1].eta>bounded[0].eta);assert(bounded[2].eta-bounded[1].eta>=1e-8);
+  checks.push('Dragging beyond neighbouring anchors clamps to a distinct representable eta without crossing or collapsing interpolation intervals');
+  await page.evaluate(()=>{const rows=document.querySelectorAll('[data-loft-kind=thickness] .loft-station-row');rows[1].querySelectorAll('input')[0].value='0.587654321012';rows[1].querySelectorAll('input')[1].value='0.173456789012';editor.refresh();});
+  const raw=await middle.locator('input').evaluateAll(nodes=>nodes.map(node=>Number(node.value))),rawBox=await mid.boundingBox(),rawEdits=await page.evaluate(()=>edits.length);
+  await page.mouse.move(rawBox.x+rawBox.width/2,rawBox.y+rawBox.height/2);await page.mouse.down();await page.mouse.move(rawBox.x+rawBox.width/2-35,rawBox.y+rawBox.height/2+9,{steps:4});await page.keyboard.press('Escape');await page.mouse.up();
+  assert.deepEqual(await middle.locator('input').evaluateAll(nodes=>nodes.map(node=>Number(node.value))),raw);assert.equal(await page.evaluate(()=>edits.length),rawEdits);
+  const cancelBox=await mid.boundingBox();await page.mouse.move(cancelBox.x+cancelBox.width/2,cancelBox.y+cancelBox.height/2);await page.mouse.down();await page.mouse.move(cancelBox.x+cancelBox.width/2+20,cancelBox.y+cancelBox.height/2-8,{steps:3});await page.evaluate(()=>document.querySelector('[data-loft-plot=thickness]').dispatchEvent(new PointerEvent('pointercancel',{pointerId:window.lastPointerId,bubbles:true})));await page.mouse.up();
+  assert.deepEqual(await middle.locator('input').evaluateAll(nodes=>nodes.map(node=>Number(node.value))),raw);assert.equal(await page.evaluate(()=>edits.length),rawEdits);
+  checks.push('Escape and pointer cancellation restore both coordinates with the original loaded precision and no model edit');
+  const lockBox=await mid.boundingBox();await page.mouse.move(lockBox.x+lockBox.width/2,lockBox.y+lockBox.height/2);await page.mouse.down();await page.mouse.move(lockBox.x+lockBox.width/2+12,lockBox.y+lockBox.height/2+8,{steps:2});await page.evaluate(()=>{locked=true;document.getElementById('loft').dispatchEvent(new Event('parameterlockchange'));});await page.mouse.up();
+  assert.deepEqual(await middle.locator('input').evaluateAll(nodes=>nodes.map(node=>Number(node.value))),raw);assert.equal(await page.evaluate(()=>edits.length),rawEdits);await page.evaluate(()=>{locked=false;document.getElementById('loft').dispatchEvent(new Event('parameterlockchange'));});
+  checks.push('A lock activated during a drag rolls back its draft instead of committing a locked parameter');
+
+  await mid.focus();await page.keyboard.press('ArrowLeft');const etaKeyboard=Number(await middle.locator('input').first().inputValue());assert(etaKeyboard<raw[0]);await page.keyboard.press('Alt+ArrowRight');assert(Math.abs(Number(await middle.locator('input').first().inputValue())-etaKeyboard-.01)<1e-4);
+  checks.push('Left/right keyboard actions change eta and Alt provides a fine spanwise increment');
+  const offsetBefore=Number(await middle.locator('input').first().inputValue()),offsetBox=await mid.boundingBox(),axisWidth=await thickness.locator('svg').evaluate(svg=>svg.getScreenCTM().a*(svg.viewBox.baseVal.width-86));
+  await page.mouse.move(offsetBox.x+offsetBox.width/2+3,offsetBox.y+offsetBox.height/2+2);await page.mouse.down();await page.mouse.move(offsetBox.x+offsetBox.width/2+23,offsetBox.y+offsetBox.height/2+2,{steps:3});await page.mouse.up();
+  assert(Math.abs(Number(await middle.locator('input').first().inputValue())-offsetBefore-20/axisWidth)<1e-4,JSON.stringify({offsetBefore,after:Number(await middle.locator('input').first().inputValue()),axisWidth,offsetBox}));
+  checks.push('Dragging from the edge of a handle preserves its cursor offset instead of jumping the anchor to the initial mouse position');
+
   const thicknessBefore=await rows.last().locator('input').last().inputValue();await page.locator('[data-loft-add="twist"]').click();await page.locator('[data-loft-add="vertical_shift"]').click();
   assert.equal(await page.locator('[data-loft-plot="twist"] [data-loft-handle]').count(),2);assert.equal(await page.locator('[data-loft-plot="vertical_shift"] [data-loft-handle]').count(),2);
   await page.locator('[data-loft-kind="vertical_shift"] .loft-station-row').last().locator('input').last().fill('-3');
   assert.match(await page.locator('[data-loft-plot="vertical_shift"] [data-loft-handle="1"]').getAttribute('aria-valuetext'),/-3/);
   assert.equal(thicknessBefore,await rows.last().locator('input').last().inputValue());
   checks.push('Twist and shift schedules have independent, labeled editable control points');
+  for(const kind of ['twist','vertical_shift']){
+   await page.locator('[data-loft-add="'+kind+'"]').click();const group=page.locator('[data-loft-kind="'+kind+'"]'),handle=group.locator('[data-loft-handle="1"]');await handle.scrollIntoViewIfNeeded();
+   const before=await group.locator('.loft-station-row').nth(1).locator('input').evaluateAll(nodes=>nodes.map(node=>Number(node.value))),box=await handle.boundingBox();
+   await page.mouse.move(box.x+box.width/2,box.y+box.height/2);await page.mouse.down();await page.mouse.move(box.x+box.width/2-25,box.y+box.height/2+8,{steps:4});await page.mouse.up();
+   const after=await group.locator('.loft-station-row').nth(1).locator('input').evaluateAll(nodes=>nodes.map(node=>Number(node.value)));assert(after[0]<before[0]&&after[1]<before[1],JSON.stringify({kind,before,after}));
+  }
+  checks.push('Twist and vertical-shift function viewers also support independent two-axis control-point editing');
+
   await page.locator('#loft').screenshot({path:path.join(out,'loft-distributions-wide.png')});
   await page.evaluate(()=>document.getElementById('loft').style.width='300px');await page.waitForTimeout(100);
   assert.equal(await thickness.evaluate(el=>el.scrollWidth<=el.clientWidth+1),true);

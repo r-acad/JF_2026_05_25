@@ -95,4 +95,13 @@
 .aero-derivative-warning-actions button{width:auto;min-height:36px;padding:7px 11px;border:1px solid #6d8a9e;border-radius:5px;background:#344858;color:#fff;font:13px system-ui,sans-serif;cursor:pointer}
 .aero-derivative-warning-actions button.primary{background:#176dab;border-color:#75b4e0}
 .aero-derivative-warning-actions button:focus-visible{outline:2px solid #ffd793;outline-offset:3px}
+/* Analysis details share the condition/comparison row, leaving the model clear. */
+.aero-case-controls{position:relative}
+.aero-case-controls>.aero-result-card{position:static;flex:0 0 auto;max-width:100%;margin:0 0 0 auto;border:1px solid #587c92;border-radius:6px;background:#182a38;color:#d7e7f4;z-index:24}
+.aero-case-controls>.aero-result-card>summary{padding:6px 10px;white-space:nowrap;font-size:12px}
+.aero-case-controls>.aero-result-card>.aero-result-card-body{position:absolute;top:calc(100% + 5px);right:0;box-sizing:border-box;width:min(520px,calc(100vw - 32px));max-height:min(340px,55vh);border:1px solid #587c92;border-radius:6px;background:#182a38;box-shadow:0 5px 18px #0007;white-space:normal}
+.aero-case-controls>.aero-difference-note:not(:empty){flex-basis:100%;order:1}
+.aero-viewport-tools>.aero-wake-visibility{display:inline-flex;align-items:center;gap:5px;padding:4px 7px;white-space:nowrap;font-size:11px}
+.aero-wake-visibility input[type=checkbox]{width:auto;margin:0;accent-color:#bc9ef7}
+@media(max-width:750px){.aero-case-controls>.aero-result-card{margin-left:0}.aero-case-controls>.aero-result-card>summary{font-size:10px;padding:5px 7px}.aero-case-controls>.aero-result-card>.aero-result-card-body{right:auto;left:0;width:min(520px,calc(100vw - 24px))}}
 @media(max-width:750px){.aero-header-actions{flex:0 1 auto;margin:0 0 0 2px}.aero-header-actions button{padding:5px 7px;font-size:11px}.aero-work-estimate{font-size:10px}.aero-derivative-warning{padding:18px}.aero-derivative-warning-actions{justify-content:stretch}.aero-derivative-warning-actions button{flex:1 1 100%}}
