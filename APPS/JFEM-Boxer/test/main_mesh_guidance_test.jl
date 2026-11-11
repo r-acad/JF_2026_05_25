@@ -61,7 +61,7 @@ end
 end
 
 @testset "Close whole-loft stations remain exact and warn without blocking" begin
-    @test parse(Float64,W.mesh_eta_label(.4185798815789473))==.4185798815789473
+    @test W.mesh_eta_label(.4185798815789473)=="0.4186"
     p=guidance_parameters()
     p["loft.twist_stations"]=[Dict("eta"=>0.,"twist"=>0.),Dict("eta"=>.500000001,"twist"=>1.),Dict("eta"=>1.,"twist"=>0.)]
     model=W.build_model(p)

@@ -57,13 +57,28 @@
     const stage=progress.stage||progress.phase||"startup",category=["compile","compilation","precompile","package_precompilation"].includes(stage)?"preparation":progress.stage_category||"preparation";
     const names={startup:"Starting Julia and loading the solver",bootstrap:"Loading sensitivity worker",native_package_load:"Loading cached JFEM solver",precompile:"Precompiling Julia packages",parse:"Reading model input",export:"Writing solver results",unknown:"Waiting for solver phase"};
     const workerLabel=stage==="startup"&&progress.persistent_worker?(progress.worker_reused?"Reusing the running Julia solver":progress.message||"Waiting for the solver worker"):null;
-    const label=workerLabel||progress.stage_message||names[stage]||progress.detail||progress.message||"Waiting for solver phase";
+    const label=workerLabel||progress.modal?.label||progress.stage_message||names[stage]||progress.detail||progress.message||"Waiting for solver phase";
     const completed=progress.stage_state==="completed",mixed=!completed&&category==="numerical"&&progress.compilation_live!=="excluded";
     const measured=value=>Number.isFinite(value)?value.toFixed(3)+" s":"unavailable";
+    const aggregateCompiler=Number.isFinite(progress.stage_timing?.compilation_seconds)&&
+      Number.isFinite(progress.stage_timing?.wall_seconds)&&progress.stage_timing.compilation_seconds>progress.stage_timing.wall_seconds;
+    const completedTiming=aggregateCompiler?
+      "Stage complete. Aggregate compiler work across threads "+measured(progress.stage_timing.compilation_seconds)+"; numerical wall time excluding compilation cannot be separated for this stage.":
+      "Stage complete. Measured compilation "+measured(progress.stage_timing?.compilation_seconds)+"; execution excluding compilation "+measured(progress.stage_timing?.execution_seconds)+".";
+    const modal=progress.modal;
+    const modalDetail=modal?[
+      modal.label,
+      Number.isFinite(modal.operator_applications)?modal.operator_applications.toLocaleString()+" matrix/solve operator applications":null,
+      Number.isFinite(modal.converged)?modal.converged+" converged"+(Number.isFinite(modal.requested)?" / "+modal.requested+" requested modes":""):null,
+      Number.isFinite(modal.iteration)?modal.iteration+" extraction iterations":null,
+      Number.isFinite(modal.residual)?"maximum "+(modal.residual_kind==="original_pencil"||modal.phase==="recovery"?"original-pencil":"transformed")+" residual "+modal.residual.toExponential(2):null,
+      Number.isFinite(modal.elapsed_seconds)?Math.floor(modal.elapsed_seconds)+" s in this numerical step":null
+    ].filter(Boolean).join(" · "):null;
     const detail=[progress.solution?"SOL"+progress.solution:null,progress.case_label?"Case "+progress.case_id+": "+progress.case_label:null,
+      modalDetail,
       Number.isFinite(progress.target_percent)?"Attempting "+progress.target_percent.toFixed(1)+"% load; accepted "+(progress.accepted_percent||0).toFixed(1)+"%":null,
       progress.detail&&progress.detail!==label?progress.detail:progress.message&&progress.message!==label?progress.message:null,
-      completed?"Stage complete. Measured compilation "+measured(progress.stage_timing?.compilation_seconds)+"; execution excluding compilation "+measured(progress.stage_timing?.execution_seconds)+".":mixed?"Julia compilation may occur; it is measured separately after this stage.":category==="numerical"&&progress.compilation_live==="excluded"?"Numerical execution; compilation excluded by the reported phase.":null,
+      completed?completedTiming:mixed?"Julia compilation may occur; it is measured separately after this stage.":category==="numerical"&&progress.compilation_live==="excluded"?"Numerical execution; compilation excluded by the reported phase.":null,
       Number.isFinite(progress.stage_seconds)?Math.floor(Math.max(0,progress.stage_seconds))+" s in this stage":null].filter(Boolean).join(" · ");
     return {label:(options.sensitivity?"Sensitivity":"JFEM")+" · "+label,detail:detail||"Waiting for the next reported phase.",
       category:progress.stage_state==="completed"?"preparation":stage==='native_package_load'?'loading':category,compilationLive:progress.compilation_live,

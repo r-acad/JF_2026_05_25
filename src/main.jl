@@ -92,6 +92,11 @@ function main(filename::String;
         model
     end
     t_build = phases["build_model"]["wall_seconds"]
+    # The native model owns the interpreted data. Release parser token tables
+    # before large sparse assembly/factorization; closures otherwise retain
+    # these full-deck tables until main returns.
+    cards = nothing
+    cc = nothing
     _apply_sol105_output_overrides!(model; compact_buckling,
         export_element_energy, export_energy_density)
 
@@ -106,6 +111,11 @@ function main(filename::String;
     end
 
     # --- Stage 2: Solve ---
+    # Binary/VTK/HDF5/report exporters use the native mode matrix. Construct
+    # millions of per-GRID dictionaries only for self-contained JSON output.
+    # With binary plus JSON, metadata references the already stored vectors.
+    # Direct solve_model callers retain the historical public-list default.
+    model["_sol103_store_public_mode_shapes"] = export_json && !export_jfem_binary
     results = _pipeline_measure!(phases, "solve") do
         solve_model(model)
     end

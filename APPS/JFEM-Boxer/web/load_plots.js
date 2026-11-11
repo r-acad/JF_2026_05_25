@@ -64,10 +64,10 @@
       const solved=summary?.method==="vortex_lattice",ar=solved?(summary.aspect_ratio??((2*data.semispan_m)**2/summary.reference_area_m2)):null;
       const cl=solved?summary.CL:null,cdi=solved?summary.CDi:null;
       const efficiency=solved?(summary.span_efficiency??(Number.isFinite(cl)&&Number.isFinite(cdi)&&cdi>0&&Number.isFinite(ar)&&ar>0?cl*cl/(Math.PI*ar*cdi):null)):null;
-      for(const [key,label,value]of[["span-efficiency","Oswald / span efficiency e (inviscid)",efficiency],["induced-drag","Induced drag Cᴅᵢ",cdi],["lift-coefficient","Lift Cₗ",cl],["aspect-ratio","Aspect ratio AR",ar]]){
+      for(const [key,label,value]of[["span-efficiency","Inviscid span efficiency e",efficiency],["induced-drag","Induced drag Cᴅᵢ",cdi],["lift-coefficient","Lift Cₗ",cl],["aspect-ratio","Aspect ratio AR",ar]]){
         const item=element("div","plot-aero-metric"),term=element("span","",label),number=element("strong","",Number.isFinite(value)?format(value):"Unavailable");number.dataset.metric=key;number.dataset.value=Number.isFinite(value)?String(value):"";item.append(term,number);box.appendChild(item);
       }
-      const note=solved?"Selected aerodynamic case · full-span coefficients before the structural load multiplier. Inviscid e is not the viscous Oswald factor; profile drag is not modeled.":"Prescribed lift has no aerodynamic wake solution: induced drag and span efficiency are unavailable. The equal-lift ellipse remains a geometric comparison.";
+      const note=solved?"Selected aerodynamic case · full-span coefficients before the structural load multiplier. Inviscid e is not the viscous Oswald factor; profile drag is not modeled."+(efficiency>1?" e > 1: nonplanar geometry or numerical discretization can produce this value. Check wing/wake resolution and induced-drag convergence before interpreting it.":""):"Prescribed lift has no aerodynamic wake solution: induced drag and span efficiency are unavailable. The equal-lift ellipse remains a geometric comparison.";
       box.appendChild(element("p","plot-explanation",note));return box;
     }
     function exportSVG(data,spec,summary,caseLabel) {

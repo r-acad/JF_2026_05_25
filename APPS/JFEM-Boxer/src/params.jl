@@ -808,11 +808,12 @@ coordinate_input_key(key)=occursin(r"(?:^|[._-])(?:eta|d?x_?c|z_?c|[xz]_over_c)(
 function round_coordinate_inputs(value,key="")
     value isa AbstractDict && return Dict{String,Any}(String(k)=>round_coordinate_inputs(v,String(k)) for (k,v) in value)
     value isa AbstractVector && return [round_coordinate_inputs(v,key) for v in value]
-    value isa Real&&!(value isa Bool)&&isfinite(value)&&coordinate_input_key(key) ? round(Float64(value);sigdigits=5) : value
+    value isa Real&&!(value isa Bool)&&isfinite(value)&&coordinate_input_key(key) ? round(Float64(value);sigdigits=4) : value
 end
 
 function normalize_params(flat::AbstractDict; validate::Bool = true)
-    flat=round_coordinate_inputs(flat)
+    # Precision is a UI presentation/committed-edit policy. Keep saved and
+    # computed station coordinates exact so coincident rib/spar datums stay so.
     legacy_assessment=!isempty(flat)&&!any(key->haskey(flat,key),ASSESSMENT_FACTOR_KEYS)
     if haskey(flat,"jfem.path")
         flat=Dict{String,Any}(String(k)=>v for (k,v) in flat)

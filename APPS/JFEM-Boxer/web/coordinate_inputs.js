@@ -1,8 +1,9 @@
-/* User-defined non-dimensional locations use five significant figures. */
+/* Coordinate labels and committed edits use four significant figures. Exact
+ * loaded and snapped values remain available through WingNumericInputs.value. */
 (function(root,factory){const api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.WingCoordinates=api;})(globalThis,function(){
  'use strict';
  const isKey=key=>/(?:^|[._-])(?:eta|d?x_?c|z_?c|[xz]_over_c)(?:$|[._-])/.test(key)||['front_spar_start','front_spar_end','hinge_start','hinge_end'].includes(key);
- const round=value=>typeof value==='number'&&Number.isFinite(value)?Number(value.toPrecision(5)):value;
+ const round=value=>typeof value==='number'&&Number.isFinite(value)?Number(value.toPrecision(4)):value;
  function roundInputs(value,key=''){
   if(Array.isArray(value))return value.map(v=>Array.isArray(v)&&v.length===2&&typeof v[0]==='string'?[v[0],roundInputs(v[1],v[0])]:roundInputs(v,key));
   if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).map(([k,v])=>[k,roundInputs(v,k)]));
@@ -10,11 +11,13 @@
  }
  function isField(input){
   if(input?.tagName!=='INPUT'||input.type!=='number')return false;
-  if(isKey(input.id.replace(/^p-/,''))||isKey(input.dataset.field||'')||isKey(input.name||''))return true;
-  const label=(input.closest('label')?.textContent||input.getAttribute('aria-label')||'');
+  if([input.id.replace(/^p-/,''),input.dataset.field,input.dataset.movableField,input.dataset.movableStructureField,input.dataset.engineField,input.name].some(key=>isKey(key||'')))return true;
+  // Help text may be appended without whitespace ("etaInboard..."). The
+  // explicit accessible label and structured field key remain unambiguous.
+  const label=[input.getAttribute('aria-label')||'',input.closest('label')?.textContent||''].join(' ');
   return /\beta\b|\u03b7|[xz]\s*\/\s*c/i.test(label);
  }
- function format(input){if(isField(input)&&input.value.trim()!==''&&Number.isFinite(input.valueAsNumber)){input.value=String(round(input.valueAsNumber));globalThis.WingNumericInputs?.formatExact(input);}}
+ function format(input){if(isField(input)&&input.value.trim()!==''&&Number.isFinite(input.valueAsNumber)){if(globalThis.WingNumericInputs)globalThis.WingNumericInputs.formatExact(input);else input.value=String(round(input.valueAsNumber));}}
  function install(doc){
   const visit=node=>{if(node.nodeType!==1)return;if(node!==doc.activeElement)format(node);for(const input of node.querySelectorAll('input[type=number]'))if(input!==doc.activeElement)format(input);};
   const observer=new doc.defaultView.MutationObserver(records=>{for(const r of records)for(const node of r.addedNodes)visit(node);});

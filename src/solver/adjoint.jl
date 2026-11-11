@@ -903,7 +903,7 @@ function _get_beam_element_data(eid::Int, model, id_map, node_coords, node_R, re
     L = norm(axis)
     L > 1e-9 || return nothing
     vx = axis / L
-    v_ref = resolve_bar_vref(beam, p1, id_map, node_coords)
+    v_ref = resolve_bar_vref(beam, p1, id_map, node_coords; model=model)
     if norm(v_ref) < 1e-6
         v_ref = SVector{3,Float64}(0.0, 0.0, 1.0)
         abs(dot(vx, v_ref)) > 0.9 && (v_ref = SVector{3,Float64}(0.0, 1.0, 0.0))

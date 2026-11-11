@@ -51,7 +51,7 @@
   return roles.filter(([,pid])=>positiveID(pid)).map(([part,pid,label])=>({pid:Number(pid),...common,part,key:common.panelKey+':'+part,cellLabel:prefix+label+(segment>1?' · segment '+segment:'')}));
  }
  function compact(raw={}){
-  return{report:raw.report?clone(raw.report):null,requestedFailureMode:String(raw.requestedFailureMode||''),onlyBelowOne:raw.onlyBelowOne===true,generated:raw.generated===true,caseScopeLabel:String(raw.caseScopeLabel||''),error:String(raw.error||''),
+  return{report:raw.report?clone(raw.report):null,requestedFailureMode:String(raw.requestedFailureMode||''),onlyBelowOne:raw.onlyBelowOne===true,generated:raw.generated===true,propertyPreview:raw.propertyPreview===true,caseScopeLabel:String(raw.caseScopeLabel||''),error:String(raw.error||''),
    panels:(raw.panels||[]).map(p=>Object.fromEntries(['id','key','skin','rib_bay','stringer','segment','shell_pid','stringer_pid','stringer_web_pid','stringer_flange_pid'].filter(k=>p[k]!==undefined).map(k=>[k,p[k]]))),
    componentGroups:entries(raw.componentGroups||raw.properties).map(p=>Object.fromEntries(['pid','name','part','index','component_key'].filter(k=>p[k]!==undefined).map(k=>[k,p[k]])))};
  }

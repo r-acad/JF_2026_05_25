@@ -4,9 +4,13 @@
 
 ## Install once
 
-1. Install **Julia 1.13.1** for your Mac's processor architecture from
-   [Julia downloads](https://julialang.org/downloads/manual-downloads/). Make
-   `julia` available on PATH and confirm `julia --version` in a new Terminal.
+1. Run `julia --version` in a new Terminal if Julia is already installed.
+   This checkout records **Julia 1.13.1**; setup accepts the **1.13** release
+   line, so an existing 1.13.x installation can be reused. Otherwise install
+   **Julia 1.13** for your Mac's processor architecture from
+   [Julia downloads](https://julialang.org/downloads/manual-downloads/), make
+   `julia` available on PATH and reopen Terminal. For an older installation,
+   see **Repair and updates** below.
 2. Download and extract the complete repository to a writable directory.
 3. Open the repository root and double-click **setup.command**. If the ZIP
    did not retain executable permissions, open Terminal in that folder and run:
@@ -39,10 +43,28 @@ The results-viewer server loads only browser assets, not the FE solver. If Julia
 is unavailable, the launcher opens the offline WebGL viewer directly. Opening
 `APPS/JFEM_results_viewer/postv11.html` directly provides the same fallback.
 
-Commands below assume Terminal opened in this Mac folder.
+Run the setup/repair commands below from the **repository root**: the directory
+containing `Project.toml`, `Manifest.toml` and `setup.command`.
 
 ## Repair and updates
 
+- **An older Julia is already installed:** if you use Juliaup, run
+  `juliaup status`, `juliaup add 1.13`, then `juliaup default 1.13`.
+  The last command changes the default Julia for your other projects too.
+  Reopen Terminal and confirm `julia --version` before `bash setup.command`.
+  Without Juliaup, install 1.13 alongside the older version using step 1 above.
+  Keep your other Julia installations and package cache. If the old Julia still
+  starts, check `command -v julia`, or set `JFEM_JULIA` to the matching executable
+  path without flags. Remove an obsolete `WINGFEGEN_JULIA` override for Boxer,
+  or point it to that same executable.
+- **Updating JFEM:** save your Studies, stop the app and update the complete
+  repository, keeping your Studies/decks and Julia depot. Run
+  `bash setup.command` at the updated repository root, then launch Boxer normally.
+  Setup reuses cached packages and a current eligible image. Julia source,
+  runtime or dependency changes can require a long rebuild. A fresh ZIP has no
+  generated image, so its first setup builds one even with cached packages.
+  UI-only or documentation edits in an existing checkout do not themselves
+  invalidate the Julia image. Restart the app and reload the browser.
 - **Julia not found:** put the tested Julia executable on PATH and reopen the
   terminal or launcher. `JFEM_JULIA` can name its full executable path without flags.
 - **Download failure:** restore network/proxy access and rerun setup; completed

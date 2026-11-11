@@ -59,6 +59,20 @@ context.fetch=async()=>response();
   let status={state:'done',seconds:1,next_line:1,lines:['worker output'],has_more:false,log_done:false};
   context.fetch=async url=>String(url).includes('jfem_status')?{ok:true,json:async()=>status}:response();
   state.polling=true;await context.pollJfem();assert(state.polling);assert.equal(timers.length,1);checks++;
+  status={...status,lines:[
+    '[JFEM_PROGRESS] '+JSON.stringify({label:'Factor modal matrix',state:'completed',elapsed_seconds:11.7,timing:{compilation_seconds:1.2}}),
+    '[JFEM_PROGRESS] '+JSON.stringify({label:'Numerical solver',state:'started',resumed:true}),
+    '[JFEM_MODAL_PROGRESS] '+JSON.stringify({label:'Extract modes',state:'running',operator_applications:128}),
+    '[MODES] 128 operator applications',
+    '[JFEM_TIMINGS] '+JSON.stringify({schema_version:2})]};
+  const readableStart=logs.length;await context.pollJfem();
+  const readable=logs.slice(readableStart).map(entry=>entry.text).join('\n');
+  assert.match(readable,/Factor modal matrix · completed · 12 s \(Julia compilation 1 s\)/);
+  assert.match(readable,/128 operator applications/);assert(!readable.includes('JFEM_PROGRESS'));
+  assert(!readable.includes('Numerical solver'));assert(!readable.includes('schema_version'));checks++;
+  status={...status,lines:['[JFEM_PROGRESS] '+JSON.stringify({label:'Assemble stiffness',state:'completed',elapsed_seconds:32.7,
+    timing:{wall_seconds:32.7,compilation_seconds:634.2,execution_seconds:null}})]};
+  await context.pollJfem();assert.match(logs.at(-1).text,/aggregate compiler work across threads 634 s; numerical wall time cannot be separated/);checks++;
   status={...status,log_done:true};payload=envelope();await context.pollJfem();assert(!state.polling);assert.equal(announcements.at(-1).title,'JFEM results ready');checks++;
   state.polling=true;payload=envelope([{...row(1),source_model_params:{stale:1}}]);await context.pollJfem();
   assert.equal(announcements.at(-1).title,'JFEM results could not be displayed');assert.match(announcements.at(-1).detail,/no results compatible/);checks++;

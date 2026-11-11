@@ -70,6 +70,9 @@
   function syncFieldState(next){if(next&&typeof next==='object')localFieldState={...localFieldState,...next};const current=fieldState(),blocked=fieldBlockReason();showField.disabled=fieldPending||!!blocked;clearField.disabled=!current.active&&!fieldPending;showField.setAttribute('aria-pressed',String(!!current.active));fieldStatus.textContent=fieldPending?'Preparing the 3D field…':blocked||fieldActionError||(current.message||(!current.active?'Choose a field to color the full model.':'Field shown in the 3D model.'));fieldStatus.dataset.active=String(!!current.active);fieldStatus.dataset.blocked=String(!!blocked||!!fieldActionError);}
   function requestField(refresh=false){
    if(typeof onShowField!=='function'||refresh&&!fieldState().active)return;
+   // The accepted field remains the complete visible frame while a new report
+   // is evaluated. Only the final, current report may replace its colors/mask.
+   if(refresh&&pending){syncFieldState();return;}
    const blockedReason=fieldBlockReason();if(blockedReason&&!refresh){syncFieldState();return;}
    const epoch=++fieldEpoch;fieldPending=true;fieldActionError='';syncFieldState();
    function failed(error){if(epoch!==fieldEpoch)return;fieldPending=false;fieldActionError='Cannot show this field: '+(error?.message||String(error));syncFieldState({active:false,message:fieldActionError});}

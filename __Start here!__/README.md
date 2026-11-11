@@ -8,6 +8,9 @@ to build locally from the cached dependencies, without rerunning package setup.
 Keep the complete repository and your matching prepared package records.
 
 Each operating-system folder contains application shortcuts and a guide covering installation, repair and offline use. There are no app-specific installers.
+Already have Julia from another course or an earlier JFEM download? Check its
+version first; your OS guide explains version selection, cached-package reuse
+and updates without deleting your Studies or reinstalling Julia unnecessarily.
 
 | System | Open this guide |
 | --- | --- |

@@ -263,7 +263,7 @@ function _solve_eigb_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, req
 end
 
 # CBAR V-vector resolution (G0 grid point or direct vector)
-function resolve_bar_vref(bar, p_ga::SVector{3,Float64}, id_map, node_coords)
+function resolve_bar_vref(bar, p_ga::SVector{3,Float64}, id_map, node_coords, node_R=nothing; model=nothing)
     g0 = get(bar, "G0", 0)
     if g0 > 0 && haskey(id_map, g0)
         ig0 = id_map[g0]
@@ -271,8 +271,55 @@ function resolve_bar_vref(bar, p_ga::SVector{3,Float64}, id_map, node_coords)
         return p_g0 - p_ga
     else
         v_raw = bar["V"]
-        return SVector{3}(v_raw...)
+        v = SVector{3,Float64}(v_raw...)
+        offt = uppercase(strip(string(get(bar, "OFFT", "GGG"))))
+        flag = isempty(offt) ? 'G' : first(offt)
+        flag in ('G', 'B') || throw(ArgumentError(
+            "$(get(bar, "TYPE", "Beam")) $(get(bar, "ID", "?")): unsupported OFFT orientation flag '$flag'."))
+        # Explicit X1/X2/X3 with OFFT=G are components in GA's displacement
+        # coordinate system. G0 above is a point and is already resolved in
+        # BASIC coordinates. End-offset flags and WA/WB are independent.
+        if flag == 'G'
+            if node_R !== nothing
+                return SVector{3,Float64}(node_R[id_map[bar["GA"]]] * v)
+            elseif model !== nothing
+                grid = get(get(model, "GRIDs", Dict()), string(bar["GA"]), nothing)
+                cd = grid === nothing ? 0 : Int(get(grid, "CD", 0))
+                if cd != 0
+                    cord = get(get(model, "CORDs", Dict()), string(cd), nothing)
+                    cord === nothing && throw(ArgumentError(
+                        "$(get(bar, "TYPE", "Beam")) $(get(bar, "ID", "?")): GA $(bar["GA"]) refers to undefined displacement coordinate system $cd."))
+                    return SVector{3,Float64}(_node_dof_rotation(cord, p_ga) * v)
+                end
+            end
+        end
+        return v
     end
+end
+
+"""Physical beam axes, rejecting invalid references instead of creating NaNs."""
+function beam_section_axes(bar, p_ga::SVector{3,Float64}, axis,
+                           id_map, node_coords, node_R=nothing; model=nothing)
+    eid = get(bar, "ID", "?")
+    ga, gb = get(bar, "GA", "?"), get(bar, "GB", "?")
+    label = "$(get(bar, "TYPE", "Beam")) $eid (GA=$ga, GB=$gb)"
+    axis_length = norm(axis)
+    isfinite(axis_length) && axis_length > 0 || throw(ArgumentError(
+        "$label has a nonfinite or zero effective length; check its GRID coordinates and end offsets."))
+    vx = SVector{3,Float64}(axis / axis_length)
+    v_ref = resolve_bar_vref(bar, p_ga, id_map, node_coords, node_R; model=model)
+    ref_length = norm(v_ref)
+    isfinite(ref_length) && ref_length > 0 || throw(ArgumentError(
+        "$label has a nonfinite or zero orientation vector; define a valid X1/X2/X3 or G0."))
+    # Normalize first: the validity test must not depend on deck length units
+    # or on the arbitrary magnitude of an explicit orientation vector.
+    transverse = cross(vx, v_ref / ref_length)
+    transverse_length = norm(transverse)
+    isfinite(transverse_length) && transverse_length > 64eps(Float64) || throw(ArgumentError(
+        "$label has an orientation vector parallel to its effective axis after resolving OFFT/GA displacement coordinates. Change X1/X2/X3 or G0; no arbitrary section direction has been substituted."))
+    vz = SVector{3,Float64}(transverse / transverse_length)
+    vy = cross(vz, vx)
+    return vx, vy, vz
 end
 
 # Skew-symmetric cross-product matrix: skew(w) * v = w × v

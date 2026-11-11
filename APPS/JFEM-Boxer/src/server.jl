@@ -909,6 +909,8 @@ function make_router(st::AppState)
         HTTP.Response(200, ["Content-Type" => "application/javascript; charset=utf-8"],
             read(joinpath(dirname(st.root),"jfem_graphics.js"))))
     HTTP.register!(router, "POST", "/api/import_reference", req -> handle_import_reference(st,req))
+    HTTP.register!(router, "POST", "/api/fe_edit", req -> handle_fe_edit(st,req))
+    HTTP.register!(router, "POST", "/api/import_reference/folder/scan", req -> handle_import_reference_folder_scan(st,req))
     HTTP.register!(router, "GET", "/api/import_reference/browse", req -> handle_import_reference_browse(st,req))
     HTTP.register!(router, "POST", "/api/import_reference/pick", req -> handle_import_reference_pick(st,req))
     HTTP.register!(router, "POST", "/api/import_reference/prepare", req -> handle_import_reference_prepare(st,req))

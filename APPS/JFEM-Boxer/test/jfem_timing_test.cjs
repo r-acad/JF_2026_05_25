@@ -37,4 +37,8 @@ assert(!warm[0].text.includes('solution completed'));
 const incomplete=T.completion({state:'failed',progress:{worker_timings:{sensitivity_compute:measured(2,3)}}});
 assert.match(incomplete[0],/calculation failed.*execution excluding measured compilation unavailable/);
 assert.match(incomplete[1],/overlap across Julia threads/);
+const parallelStage={phase:'assembly',category:'numerical',inclusive:{wall_seconds:32.7,compilation_seconds:634.2},
+ exclusive:{wall_seconds:32.7,compilation_seconds:634.2,execution_seconds:null}};
+assert(T.stageEntries([parallelStage],'JFEM').some(row=>/aggregate compiler work across threads 634\.2 s.*cannot be separated/.test(row.text)));
+assert.match(T.completion({seconds:40,timings:{available:false,stages:[parallelStage]}})[1],/Aggregate compiler work across threads.*cannot be separated/);
 console.log('JFEM timing messages: solve time and preparation separated; unavailable timing stays explicit.');

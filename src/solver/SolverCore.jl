@@ -29,6 +29,7 @@ include("sol105_calibrated_constants.jl")
 include("sol105_options.jl")
 include("follower_loads.jl")
 include("corotational_shell.jl")
+include("modal_mass_support.jl")
 include("solve_case.jl")
 
 const _full_solver_extensions_loaded = Ref(false)

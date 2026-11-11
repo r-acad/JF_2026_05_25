@@ -16,4 +16,63 @@ test('Component tables enforce spar-cap, rib-stiffener and leading-edge floors',
 test('Disabled stiffeners do not require inactive minimum dimensions',()=>gauge.validate(p,'rib_stiffener',{...section,height:.02,enabled:false}));
 test('Floating roundoff at the minimum does not reject an equal intended value',()=>gauge.validate(p,'upper_skin',{kind:'monolithic',thickness:.0025*(1-2e-15)}));
 test('Unsupported or unrecorded families never invent a minimum',()=>{assert.deepEqual(gauge.dimensions(p,'external_property',{thickness:.0001}),[]);assert.equal(gauge.fieldMinimum(p,'external_property',{},'thickness'),null);});
+test('An explicit global spar-web increase raises both override systems and preserves thicker values',()=>{
+ const q={...p,'properties.t_spar_web':.004,'properties.spar_bays':[{bay:1,front_thickness:.003,rear_thickness:.006}],
+  'properties.components':[{key:'front_web:1',thickness:.003},{key:'rear_web:1',thickness:.006},{key:'rib_web:1',thickness:.002}]},before=JSON.stringify(q),r=gauge.reconcileMinimumEdit(q,'properties.t_spar_web');
+ assert.equal(JSON.stringify(q),before,'pure edit reconciliation');assert.equal(r.patches['properties.spar_bays'][0].front_thickness,.004);assert.equal(r.patches['properties.spar_bays'][0].rear_thickness,.006);
+ assert.equal(r.patches['properties.components'][0].thickness,.004);assert.equal(r.patches['properties.components'][1].thickness,.006);assert.equal(r.patches['properties.components'][2].thickness,.002);
+ assert.equal(r.changes.length,2);assert.deepEqual(gauge.reconcileMinimumEdit({...q,...r.patches},'properties.t_spar_web').patches,{},'idempotent');
+});
+test('Skin and stringer minima reconcile shared physical panels independently',()=>{
+ const q={...p,'properties.panels':[{key:'upper:bay1:stringer1:segment1',skin:{thickness:.0015,material:2},stringer:{height:.02,web_thickness:.003}},{key:'lower:bay1:stringer1:segment1',skin:{thickness:.0015}}]};
+ const skins=gauge.reconcileMinimumEdit(q,'properties.t_skin_upper').patches['properties.panels'];assert.equal(skins[0].skin.thickness,.0025);assert.equal(skins[0].skin.material,2);assert.equal(skins[1].skin.thickness,.0015);
+ const bars=gauge.reconcileMinimumEdit(q,'properties.stringer_height').patches['properties.panels'];assert.equal(bars[0].stringer.height,.032);assert.equal(bars[0].stringer.web_thickness,.003);
+});
+test('Cap, rib-web and rib-stiffener minimum increases preserve IDs and unrelated fields',()=>{
+ const q={...p,'properties.ribs':[{rib:3,thickness:.001,flange_width:.02,stiffener_enabled:false}],'properties.components':[{key:'front_upper_cap:1',side:.01},{key:'rib_stiffener:3',flange_width:.02,material:7}]};
+ assert.equal(gauge.reconcileMinimumEdit(q,'properties.spar_cap_side').patches['properties.components'][0].side,.02);
+ assert.equal(gauge.reconcileMinimumEdit(q,'properties.t_rib_web').patches['properties.ribs'][0].thickness,.002);
+ const r=gauge.reconcileMinimumEdit(q,'properties.rib_stiffener_flange_width');assert.equal(r.patches['properties.ribs'][0].flange_width,.03);assert.equal(r.patches['properties.ribs'][0].stiffener_enabled,false);assert.equal(r.patches['properties.components'][1].material,7);
+});
+test('Sandwich total minima increase the core without erasing materials or larger local stacks',()=>{
+ const q={...p,'properties.t_skin_upper':.012,'materials.shells':[{component:'upper_skin',kind:'sandwich',face_thickness:.001,core_thickness:.008}],
+  'properties.panels':[{key:'upper:bay1:stringer1:segment1',skin:{core_thickness:.007,core_material:3}},{key:'upper:bay1:stringer2:segment1',skin:{core_thickness:.02}}]};
+ const r=gauge.reconcileMinimumEdit(q,'properties.t_skin_upper');assert.equal(r.patches['materials.shells'][0].core_thickness,.01);assert.equal(r.patches['properties.panels'][0].skin.core_thickness,.01);assert.equal(r.patches['properties.panels'][0].skin.core_material,3);assert.equal(r.patches['properties.panels'][1].skin.core_thickness,.02);
+});
+test('Unrelated edits, reducing minima, absent dimensions and invalid drafts are not repaired',()=>{
+ const q={...p,'properties.t_spar_web':.001,'properties.components':[{key:'front_web:1',thickness:.003},{key:'rear_web:1',thickness:-.001},{key:'front_web:2',material:2}]};
+ assert.deepEqual(gauge.reconcileMinimumEdit(q,'properties.t_spar_web').patches,{});assert.deepEqual(gauge.reconcileMinimumEdit(q,'properties.components').patches,{});
+ assert.deepEqual(gauge.reconcileMinimumEdit({...q,'properties.t_spar_web':NaN},'properties.t_spar_web').patches,{});
+});
+test('A raised sandwich core floor overrides a thinner local core even when thicker faces already satisfy the total',()=>{
+ const q={...p,'properties.t_skin_upper':.012,'materials.shells':[{component:'upper_skin',kind:'sandwich',face_thickness:.001,core_thickness:.008,face_material:2,core_material:3}],
+  'properties.panels':[{key:'upper:bay1:stringer1:segment1',skin:{face_thickness:.002,core_thickness:.009,face_material:7}},{key:'upper:bay1:stringer2:segment1',skin:{face_thickness:.0025,core_thickness:.02}}]};
+ const r=gauge.reconcileMinimumEdit(q,'properties.t_skin_upper'),skin=r.patches['properties.panels'][0].skin;
+ assert.equal(skin.face_thickness,.002);assert.equal(skin.core_thickness,.01);assert.equal(skin.face_material,7);assert.equal(r.patches['properties.panels'][1].skin.core_thickness,.02);
+ gauge.validate({...q,...r.patches},'upper_skin',{...r.patches['materials.shells'][0],...skin});
+});
+test('Legacy sandwich rib and spar totals preserve the new core floor under thicker local faces',()=>{
+ for(const [component,key,legacy,part]of [['rib_web','properties.t_rib_web','properties.ribs','rib_web'],['spar_web','properties.t_spar_web','properties.spar_bays','front_web']]){
+  const q={...p,[key]:.012,'materials.shells':[{component,kind:'sandwich',face_thickness:.001,core_thickness:.008}],
+   [legacy]:[component==='rib_web'?{rib:1,thickness:.013}:{bay:1,front_thickness:.013,rear_thickness:.02}],
+   'properties.components':[{key:part+':1',face_thickness:.003,face_material:2}]};
+  const r=gauge.reconcileMinimumEdit(q,key),row=r.patches[legacy][0],total=row[component==='rib_web'?'thickness':'front_thickness'];
+  assert.equal(total,.016);assert.equal(r.patches['materials.shells'][0].core_thickness,.01);assert.equal(q['properties.components'][0].face_material,2);
+ }
+});
+test('Committed sandwich layer minima raise local layers and compensate legacy totals without reducing larger gauges',()=>{
+ const q={...p,'materials.shells':[{component:'spar_web',kind:'sandwich',face_thickness:.002,core_thickness:.006,face_material:1,core_material:3}],
+  'properties.spar_bays':[{bay:1,front_thickness:.009,rear_thickness:.03}],
+  'properties.components':[{key:'front_web:1',face_thickness:.001,face_material:7},{key:'rear_web:1',face_thickness:.003,core_thickness:.02,core_material:8}]},before=JSON.stringify(q);
+ const r=gauge.reconcileMaterialMinimumEdit(q,'spar_web');assert.equal(JSON.stringify(q),before);
+ assert.equal(r.patches['properties.components'][0].face_thickness,.002);assert.equal(r.patches['properties.components'][0].face_material,7);
+ assert.equal(r.patches['properties.components'][1].core_thickness,.02);assert.equal(r.patches['properties.components'][1].core_material,8);
+ assert.equal(r.patches['properties.spar_bays'][0].front_thickness,.01);assert.equal(r.patches['properties.spar_bays'][0].rear_thickness,.03);
+ assert.deepEqual(r.patches['materials.shells'],q['materials.shells']);assert.equal(gauge.shellMinimumKey('spar_web'),'properties.t_spar_web');
+});
+test('Layer minima reject partial invalid candidates rather than treating a typed mantissa as an accepted assignment',()=>{
+ const q={...p,'materials.shells':[{component:'upper_skin',kind:'sandwich',face_thickness:{raw:'1e-'},core_thickness:.006}]};
+ assert.deepEqual(gauge.reconcileMaterialMinimumEdit(q,'upper_skin'),{patches:{},changes:[]});
+ assert.deepEqual(gauge.reconcileMaterialMinimumEdit({...q,'materials.shells':[{component:'upper_skin',kind:'monolithic',face_thickness:.002,core_thickness:.006}]},'upper_skin'),{patches:{},changes:[]});
+});
 console.log(count+' minimum-gauge input tests passed.');

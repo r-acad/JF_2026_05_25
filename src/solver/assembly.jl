@@ -5440,7 +5440,7 @@ end
         L = norm(p2_eff - p1_eff)
         if L < 1e-9; continue; end
         vx = normalize(p2_eff - p1_eff)
-        v_ref = resolve_bar_vref(bar, p1, id_map, node_coords)
+        v_ref = resolve_bar_vref(bar, p1, id_map, node_coords; model=model)
 
         if norm(v_ref) < 1e-6
              v_ref = SVector(0.0,0.0,1.0)
@@ -5505,7 +5505,7 @@ end
         L = norm(p2_eff - p1_eff)
         if L < 1e-9; continue; end
         vx = normalize(p2_eff - p1_eff)
-        v_ref = resolve_bar_vref(bar, p1, id_map, node_coords)
+        v_ref = resolve_bar_vref(bar, p1, id_map, node_coords; model=model)
 
         if norm(v_ref) < 1e-6
              v_ref = SVector(0.0,0.0,1.0)
@@ -8442,7 +8442,7 @@ end
         L = norm(p2_eff - p1_eff)
         if L < 1e-9; continue; end
         vx = normalize(p2_eff - p1_eff)
-        v_ref = resolve_bar_vref(bar, p1, id_map, node_coords)
+        v_ref = resolve_bar_vref(bar, p1, id_map, node_coords; model=model)
         if norm(v_ref) < 1e-6
             v_ref = SVector(0.0,0.0,1.0)
             if abs(dot(vx, v_ref)) > 0.9; v_ref = SVector(0.0,1.0,0.0); end
@@ -8502,7 +8502,7 @@ end
         L = norm(p2_eff - p1_eff)
         if L < 1e-9; continue; end
         vx = normalize(p2_eff - p1_eff)
-        v_ref = resolve_bar_vref(bar, p1, id_map, node_coords)
+        v_ref = resolve_bar_vref(bar, p1, id_map, node_coords; model=model)
         if norm(v_ref) < 1e-6
             v_ref = SVector(0.0,0.0,1.0)
             if abs(dot(vx, v_ref)) > 0.9; v_ref = SVector(0.0,1.0,0.0); end

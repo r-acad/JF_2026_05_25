@@ -17,9 +17,13 @@
  // caps only the number it prints, never the physical assessment.
  const rfText=value=>finite(value)?Number(Math.min(999,value).toPrecision(5)).toString():'Unavailable';
  function assessmentSummary(report,pid){
-  const row=report?.rows?.find(item=>Number(item.pid)===Number(pid));
+  const rows=(report?.rows||[]).filter(item=>Number(item.pid)===Number(pid)||(item.propertyIds||[]).some(id=>Number(id)===Number(pid)));
+  const noDemand=item=>item.noDemand===true||item.euler?.noCompression===true||item.blade?.noCompression===true||item.skinBuckling?.noDestabilizingLoad===true;
+  const ordered=rows.slice().sort((a,b)=>Number(noDemand(a))-Number(noDemand(b))||(finite(a.reserveFactor)?a.reserveFactor:Infinity)-(finite(b.reserveFactor)?b.reserveFactor:Infinity));
+  const row=ordered[0];
   if(!row)return{available:false,reason:'No reserve-factor assessment is available for this property.',failures:[]};
-  const assessments=row.combined?.assessments||[],failures=[];
+  const standaloneMode={von_mises:'Von Mises stress',principal_strain:'Laminate principal strain',euler_column:'Euler column buckling',stringer_blade:'Stringer blade instability',skin_buckling:'Skin panel buckling',spar_web_buckling:'Spar-web buckling',rib_web_buckling:'Rib-web buckling',spar_cap_buckling:'Spar-cap column buckling',rib_stiffener_buckling:'Rib-stiffener column buckling',rib_stiffener_blade:'Rib-stiffener blade instability'}[report?.failureMode]||'';
+  const assessments=rows.flatMap(item=>item.combined?.assessments||(standaloneMode?[{...item,noDemand:noDemand(item),modeLabel:standaloneMode,failureMode:report.failureMode,scope:item.label||'Full property P'+pid,caseLabel:item.envelopeCaseLabel||''}]:[])),failures=[];
   for(const item of assessments){
    const cases=(item.caseResults||[]).filter(c=>finite(c.reserveFactor)&&c.reserveFactor<1&&!c.noDemand);
    const records=cases.length?cases:[item];
@@ -28,11 +32,11 @@
     approximate:!!(c.approximate||c.approximation)});
   }
   failures.sort((a,b)=>a.value-b.value||a.mode.localeCompare(b.mode));
-  return{available:row.complete===true&&finite(row.reserveFactor),value:row.reserveFactor,
-   mode:row.combined?.governingModeLabel||'',caseLabel:row.envelopeCaseLabel||'',scope:row.combined?.governingScope||'',
-   reason:row.reserveFactorReason||'',failures,estimated:!!report.estimated,stale:!!report.stale&&!report.estimated,
+  return{available:rows.every(item=>item.complete===true&&finite(item.reserveFactor)),value:row.reserveFactor,
+   mode:row.combined?.governingModeLabel||standaloneMode,caseLabel:row.envelopeCaseLabel||'',scope:row.combined?.governingScope||row.label||'',
+   reason:rows.filter(item=>!item.complete).map(item=>item.reserveFactorReason||item.reason||'Incomplete physical assessment.').join(' ')||row.reserveFactorReason||'',failures,estimated:!!report.estimated,stale:!!report.stale&&!report.estimated,
    approximate:!!(row.approximate||row.approximation||assessments.some(a=>a.approximate||a.approximation)),
-   incomplete:assessments.filter(a=>!a.complete).map(a=>(a.modeLabel||a.failureMode)+': '+a.reason)};
+   incomplete:assessments.filter(a=>!a.complete).map(a=>(a.modeLabel||a.failureMode)+': '+(a.reason||a.reserveFactorReason||'Incomplete physical assessment.'))};
  }
  function inputs(context={}){
   const data=context.data||context;
@@ -219,7 +223,7 @@
   dialog.addEventListener('keydown',event=>{if(event.key==='Enter'&&event.target.tagName==='INPUT'){event.preventDefault();void commit();}});
   render();if(typeof dialog.showModal==='function')dialog.showModal();else dialog.setAttribute('open','');
   win?.setTimeout(()=>{if(!closed)([...controls.values()].find(control=>!control.wrap.hidden&&!control.input.disabled)?.input||closeButton).focus();},0);
-  return{close,hasDrafts:drafts,element:dialog,setError,getState:()=>({pid:descriptor.pid,rawValues:{...rawValues},...checked}),setDescriptor(next){if(drafts()||pending)throw Error('Finish or cancel the current property edits before replacing the editor.');descriptor=next;title.textContent='Edit '+(descriptor.label||'property');render();}};
+  return{close,hasDrafts:()=>!closed&&drafts(),element:dialog,setError,getState:()=>({pid:descriptor.pid,rawValues:{...rawValues},...checked}),setDescriptor(next){if(drafts()||pending)throw Error('Finish or cancel the current property edits before replacing the editor.');descriptor=next;title.textContent='Edit '+(descriptor.label||'property');render();}};
  }
  return{resolve,validate,prepare,open,activeField,assessmentSummary};
 });

@@ -71,7 +71,9 @@ const uiucProfile=id=>({version:1,id,name:id,source_kind:'uiuc',source_url:'http
   assert.equal((await selected(stations[1])).filename,'tip-replacement.dat');assert.equal((await selected(stations[2])).filename,'station-1-replacement.dat');
   checks.push('Saved active selections reopen with their actual file coordinates for root, tip and intermediate station');
   await page.evaluate(saved=>buildFixture({...saved,'airfoil.root_source':'uiuc'}),saved);
-  assert.match(await invalid(),/Select a UIUC/);assert.equal(await page.locator('#airfoil-root-card svg').count(),0);
+  // A valid candidate preview may already have arrived asynchronously. It
+  // must not be mistaken for a committed, inconsistent source/profile pair.
+  assert.match(await invalid(),/Select a UIUC/);assert.equal(await page.locator('#airfoil-root-card .airfoil-selected svg').count(),0);
   await page.locator(stations[0].source).selectOption('file');assert.equal((await selected(stations[0])).filename,'root-replacement.dat');assert.equal(await invalid(),'');
   checks.push('An existing inconsistent source/profile draft is rejected clearly and recovers by selecting its actual file source');
   assert.deepEqual(errors,[]);fs.writeFileSync(path.join(out,'airfoil_source_switch.json'),JSON.stringify({passed:true,checks,errors,requests},null,2));console.log(JSON.stringify({passed:true,checks},null,2));

@@ -30,7 +30,8 @@ function rf_section_update(m::Model, p::Dict{String,Any})
     is_imported_model(m) && throw(ArgumentError("Fixed-load sizing requires a generated model"))
     changed=[s.key for s in SCHEMA if get(p,s.key,nothing)!=get(m.params,s.key,nothing)]
     allowed(key)=occursin(r"^(properties\.|material\.|materials\.)",key) ||
-        key in ("stringers.euler_fixity_coefficient","stringers.skin_fixity_coefficient")
+        key in ("stringers.euler_fixity_coefficient","stringers.skin_fixity_coefficient",
+                "leading_edge.t_skin","leading_edge.t_rib")
     unsupported=filter(key->!allowed(key)&&!rf_equivalent_controls(m.params,p,key),changed)
     isempty(unsupported) || throw(ArgumentError("Geometry, loads or analysis settings changed ($(join(unsupported,", "))); create the FEM and rerun analysis"))
     # Enabling/disabling physical stiffeners changes membership, not capacity.

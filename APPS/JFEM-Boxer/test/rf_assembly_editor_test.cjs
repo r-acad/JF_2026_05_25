@@ -1,0 +1,27 @@
+'use strict';
+const assert=require('node:assert/strict'),api=require('../web/rf_assembly_editor.js'),core=require('../web/rf_property_editor.js');
+const {context:fixture}=require('./rf_property_editor_test.cjs');
+const c=fixture();
+c.panels.push({id:3,key:'lower:1:2:1',skin:'lower',rib_bay:1,stringer:2,segment:1,shell_pid:6000003,stringer_pid:7000003,label:'Lower R1–R2, stringer2'});
+c.groups.push({pid:6000003},{pid:7000003});
+const criterion={failureMode:'euler_column',modeLabel:'Euler column buckling',reserveFactor:.51,complete:true,propertyIds:[6000001,6000003,7000001],scope:'Stringer 1 and adjacent skin, R1–R2',caseLabel:'+2.5g'};
+const report={failureMode:'minimum_rf',rows:[6000001,6000003,7000001].map(pid=>({pid,complete:true,reserveFactor:.51,combined:{governingMode:'euler_column',governingModeLabel:'Euler column buckling',assessments:[criterion]}}))};
+const bundle=api.related(c,6000001,report);
+assert.deepEqual(bundle.descriptors.map(d=>d.pid),[6000001,7000001,6000003]);
+assert.match(bundle.explanation,/complete stringer plus its associated skin/);
+assert.equal(bundle.descriptors.find(d=>d.kind==='stringers').assessment.failures[0].mode,'Euler column buckling');
+assert.deepEqual(api.related(c,6000001).descriptors.map(d=>d.pid),[6000001,7000001]);
+const before=JSON.stringify(c),result=api.prepare(c,[{pid:6000001,values:{thickness:'4'}},{pid:7000001,values:{height:'45',web_thickness:'3'}}]);
+assert.equal(result.patches.length,1);assert.equal(result.patches[0].rows[0].skin.thickness,.004);assert.equal(result.patches[0].rows[0].stringer.height,.045);assert.equal(result.patches[0].rows[0].stringer.web_thickness,.003);
+assert.equal(JSON.stringify(c),before);
+assert.throws(()=>api.prepare(c,[{pid:6000001,values:{thickness:'4'}},{pid:7000001,values:{height:'1'}}]),/minimum/);
+assert.equal(JSON.stringify(c),before,'invalid related section cannot partially edit the Study');
+const physical={failureMode:'euler_column',rows:[{pid:6000001,propertyIds:[6000001,6000003,7000001],label:criterion.scope}]};
+assert.deepEqual(api.related(c,6000001,physical).descriptors.map(d=>d.pid),[6000001,7000001,6000003]);
+const shell=fixture();shell.parameters['stringers.model']='shell';shell.panels[0].stringer_web_pid=19000001;shell.panels[0].stringer_flange_pid=20000001;
+const shellSection=api.related(shell,6000001).descriptors.filter(d=>d.kind==='stringers');
+assert.equal(shellSection.length,1);assert.deepEqual(shellSection[0].propertyIds,[7000001,19000001,20000001]);
+// Web/flange/beam aliases for the same section must not become three editors.
+assert.equal(core.resolve(shell,19000001).key,core.resolve(shell,20000001).key);
+console.log('PASS RF physical membership, combined skin/bar edits and atomic validation');
+module.exports={context:c,report};

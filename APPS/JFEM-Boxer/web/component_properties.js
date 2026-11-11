@@ -76,7 +76,9 @@
     for(const row of JSON.parse(canonical.value||"[]"))addRow(row);
     const globalChange=event=>{if(event.target.id?.startsWith("p-properties."))update();};host.addEventListener("input",globalChange);
     update();
-    return {readDrafts:()=>({[key]:read().filter(row=>Object.keys(row).length>1||!Number.isInteger(row[idKey]))}),assertValidDraft(){canonical.value=JSON.stringify(validate(read()));},refresh, destroy(){host.removeEventListener("input",globalChange);viewport?.destroy();}};
+    return {readDrafts:()=>({[key]:read().filter(row=>Object.keys(row).length>1||!Number.isInteger(row[idKey]))}),assertValidDraft(){canonical.value=JSON.stringify(validate(read()));},refresh,
+      syncFromCanonical(){body.replaceChildren();for(const row of JSON.parse(canonical.value||'[]'))addRow(row);update();},
+      destroy(){host.removeEventListener("input",globalChange);viewport?.destroy();}};
   }
   root.WingComponentProperties={install};
 })(globalThis);

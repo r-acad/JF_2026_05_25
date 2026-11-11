@@ -47,8 +47,9 @@ end
 """Resolve the selected SPC/SPC1 sets with SPCADD selection precedence.
 
 Keep one resolver for static/eigen partitions and boundary-condition exports.
-SPCADD members must name SPC/SPC1 sets, not other SPCADD entries. Unsupported
-nested references and missing sets must not silently lose constraints.
+SPCADD members must name SPC/SPC1 sets, not other SPCADD entries. Missing
+members are ignored with an explicit warning, matching an empty member of a
+set union. Missing top-level selections and unsupported nesting remain errors.
 """
 function selected_spc_sets(model, spc_id)
     sets=Set{Int}()
@@ -61,11 +62,15 @@ function selected_spc_sets(model, spc_id)
         push!(sets,sid)
     else
         isempty(children)&&throw(ArgumentError("SPCADD $sid contains no referenced SPC sets"))
+        missing=Int[]
         for child in children
             leaf=Int(child)
+            leaf>0||throw(ArgumentError("SPCADD $sid requires positive SPC/SPC1 member set IDs"))
             (haskey(combinations,leaf)||haskey(combinations,string(leaf)))&&throw(ArgumentError("SPCADD $sid references SPCADD $leaf; nested or cyclic SPCADD entries are unsupported. Members must name SPC/SPC1 sets."))
-            leaf in available||throw(ArgumentError("SPCADD $sid references undefined SPC/SPC1 set $leaf"))
-            push!(sets,leaf)
+            leaf in available ? push!(sets,leaf) : push!(missing,leaf)
+        end
+        if !isempty(missing)
+            @warn "SPCADD $sid references undefined SPC/SPC1 member sets; these members are ignored. Defined selected constraints and permanent GRID constraints are unchanged." spcadd=sid missing_sets=sort!(unique!(missing))
         end
     end
     sets

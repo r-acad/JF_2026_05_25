@@ -160,6 +160,7 @@ function drain_solver_output!(job,path,cursor;final=false)
     cursor.offset+=length(data)
     isempty(data) && !final && return 0
     lock(job.lk) do
+        isempty(data) || (job.progress["_solver_output_at"]=time())
         open(job.logpath,"a") do output
             start=1
             while start<=length(data)
@@ -186,6 +187,32 @@ function drain_solver_output!(job,path,cursor;final=false)
         end
     end
     length(data)
+end
+
+"""Report quiet native work without inventing an extraction percentage or ETA.
+
+Runs in the application process, so a blocking native factorization in the solver
+cannot suppress the notice. The latest solver stage and its elapsed time remain
+visible even when that native library cannot report intermediate progress.
+"""
+function solver_job_heartbeat!(job::JfemJob;now=time(),interval=15.)
+    message=lock(job.lk) do
+        job.state===:running && !job.cancel_requested || return nothing
+        last_output=get(job.progress,"_solver_output_at",job.started)
+        last_heartbeat=get(job.progress,"_heartbeat_at",job.started)
+        now-max(last_output,last_heartbeat)>=interval || return nothing
+        job.progress["_heartbeat_at"]=now
+        stage=String(get(job.progress,"stage_message",get(job.progress,"message","Waiting for the solver worker")))
+        get(job.progress,"stage_state","")=="completed" && (stage="Awaiting the next solver phase after: "*stage)
+        stage_start=get(job.progress,"stage_started",job.started)
+        stage_seconds=max(0,round(Int,now-stage_start))
+        run_seconds=max(0,round(Int,now-job.started))
+        silence=max(0,round(Int,now-last_output))
+        "[Progress] Still working: $stage. Stage elapsed $(stage_seconds) s; run elapsed $(run_seconds) s; "*
+            "no new solver output for $(silence) s. Numerical progress and remaining time are not available during this step."
+    end
+    message===nothing || append_job_lines!(job,[message])
+    message
 end
 
 function solver_worker_reply!(job,worker,log,cursor)
@@ -286,6 +313,7 @@ function launch_jfem_process!(job::JfemJob;worker_factory=create_solver_worker,c
             job.started=time();job.state=:running
             merge!(job.progress,Dict("persistent_worker"=>true,"stage"=>"startup",
                 "stage_started"=>job.started,"stage_category"=>"preparation","stage_state"=>"started",
+                "_solver_output_at"=>job.started,"_heartbeat_at"=>job.started,
                 "compilation_live"=>"not_separable","message"=>"Waiting for the solver worker; analyses run one at a time"))
             SOLVER_PENDING_JOBS[job]=nothing
             :accepted
@@ -307,7 +335,11 @@ function launch_jfem_process!(job::JfemJob;worker_factory=create_solver_worker,c
     end
     Threads.@spawn run_persistent_solver_job!(job;worker_factory,command,completion)
     Threads.@spawn begin
-        while job.state===:running;sleep(.25);enforce_job_timeout!(job);end
+        while job.state===:running
+            sleep(.25)
+            enforce_job_timeout!(job)
+            solver_job_heartbeat!(job)
+        end
     end
     job
 end

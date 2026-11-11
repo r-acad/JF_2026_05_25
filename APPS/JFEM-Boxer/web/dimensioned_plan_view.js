@@ -66,7 +66,7 @@
     result.pin = Viewport.validatePin(value.pin, result.image);
     return result;
   }
-  const number = value => root.WingNumbers ? root.WingNumbers.format(value, 4) : Number(value.toPrecision(6)).toString();
+  const number = value => root.WingNumbers?.coordinate ? root.WingNumbers.coordinate(value) : Number(value.toPrecision(4)).toString();
   function projection(data, mirror = false) {
     const minimumY = mirror ? data.bounds.ymin : data.points.rootReference[1];
     const width = mirror ? data.span : data.semispan, height = data.bounds.xmax - data.bounds.xmin;

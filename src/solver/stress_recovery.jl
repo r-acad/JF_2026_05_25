@@ -1361,7 +1361,7 @@ function recover_bar_stresses!(
         L = norm(p2_eff - p1_eff)
         if L < 1e-9; continue; end
         vx = normalize(p2_eff - p1_eff)
-        v_ref = resolve_bar_vref(bar, p1, id_map, X)
+        v_ref = resolve_bar_vref(bar, p1, id_map, X; model=model)
 
         if norm(v_ref) < 1e-6
              v_ref = SVector(0.0,0.0,1.0)
@@ -1484,7 +1484,7 @@ function recover_bar_stresses!(
         L = norm(p2_eff - p1_eff)
         if L < 1e-9; continue; end
         vx = normalize(p2_eff - p1_eff)
-        v_ref = resolve_bar_vref(bar, p1, id_map, X)
+        v_ref = resolve_bar_vref(bar, p1, id_map, X; model=model)
 
         if norm(v_ref) < 1e-6
              v_ref = SVector(0.0,0.0,1.0)

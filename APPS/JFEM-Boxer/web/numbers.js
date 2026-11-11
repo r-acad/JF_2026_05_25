@@ -11,5 +11,6 @@
     const rounded=Number(value.toFixed(Math.min(15,places)));
     return String(Math.abs(rounded)>=100?Number(rounded.toFixed(2)):rounded);
   }
-  return {format};
+  const coordinate=value=>Number.isFinite(value)?String(Number(value.toPrecision(4))):'—';
+  return {format,coordinate};
 });

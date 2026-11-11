@@ -414,9 +414,14 @@ function stringer_grid(w, p, xcs, base_etas, base_ribs, nh)
         if i == 1 || i == count || side != 0
             xc = i == 1 || side < 0 ? fs : rs
             lower[i,j] = upper[i,j] = xc
-        elseif j == 1
+        elseif j == 1 && iszero(twist(w,eta))
             lower[i,j] = upper[i,j] = xcs[i]
         else
+            # The root seeds the same vertical stringer planes as every
+            # following row. At nonzero root twist, equal upper/lower x/c
+            # values have different physical x: using them directly would
+            # put R1 off its plane and dogleg the first bar back onto it.
+            # Keep the exact legacy coordinates for an untwisted root.
             x = roots[i] + stringer_offset(path, eta)
             lower[i,j] = plane_skin_xc(w, eta, x, fs, rs, false)
             upper[i,j] = plane_skin_xc(w, eta, x, fs, rs, true)

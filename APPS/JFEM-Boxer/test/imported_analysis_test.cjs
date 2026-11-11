@@ -13,9 +13,12 @@ assert.throws(()=>A.options({solution:'999'}));assert.throws(()=>A.options([]));
 const saved=I.source(source);assert.deepEqual(saved,source);saved.analysis.modes=8;assert.equal(source.analysis.modes,7);
 const app=fs.readFileSync(require.resolve('../web/app.js'),'utf8');
 function extract(name){const start=app.indexOf('function '+name+'('),end=app.indexOf('\nfunction ',start+1);assert(start>=0);return app.slice(start,end<0?undefined:end);}
-const context={WingImportedAnalysis:A,readRunTimeout:()=>0,state:{importedDeck:deck,data:{imported_deck:{}}}};vm.createContext(context);
-vm.runInContext(extract('collectParams'),context);
+// Material and assessment editors are separate from this source-identity
+// fixture. Use their empty defaults while retaining the real draft guard.
+const context={WingImportedAnalysis:A,readRunTimeout:()=>0,readMaterialAllowables:()=>({}),assessmentPolicyParameters:()=>({}),state:{importedDeck:deck,data:{imported_deck:{}}}};vm.createContext(context);
+vm.runInContext(extract('assertReserveFactorDraftFinished')+'\n'+extract('collectParams'),context);
 context.state.importedDeck.token='opaque-token';const params=context.collectParams();assert.equal(params.model_kind,'reference');assert.equal(params.imported_deck.signature,'source-hash');assert.equal(params.imported_deck.analysis.solution,'103');
+context.state.rfPropertyDrafts={};assert.throws(()=>context.collectParams(),/Apply or cancel the reserve-factor property edit/);delete context.state.rfPropertyDrafts;
 context.state.importedDeck=null;assert.throws(()=>context.collectParams(),/identity is unavailable/);
 (async()=>{
  const view={controls:{},layers:{},camera:{target:[0,0,0],alpha:0,beta:1,radius:10},workspace:{activeTab:'analysis',width:400,collapsed:false},activeCase:17};

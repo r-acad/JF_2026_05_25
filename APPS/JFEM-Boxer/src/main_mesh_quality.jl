@@ -151,9 +151,9 @@ function movable_mesh_quality_issues(reg,p,groups,metadata)
     result
 end
 
-# Suggested coincidences must round-trip exactly: a shortened eta copied back
-# into the form could otherwise introduce another microscopic geometric gap.
-mesh_eta_label(x)=string(Float64(x))
+# Labels are short; structured diagnostic coordinates retain every bit for
+# Snap/copy actions, so retyping a rounded label is never needed for alignment.
+mesh_eta_label(x)=string(round(Float64(x);sigdigits=4))
 """Deduplicate physical edits shared by skin and spar diagnostic regions.
 
 These are suggestions, never automatic repairs: alignment changes the Study's
@@ -184,7 +184,7 @@ function main_mesh_quality_actions(issues)
             end
             rib=c["nearest_rib"];row=c["master_rib_row"]
             ribedit=row===nothing ? "Structure / Ribs, the pitch or angle defining R$rib" : "Structure / Ribs, master-rib row $row"
-            message="$(c["label"]) at eta $(mesh_eta_label(c["eta"])) is $(@sprintf("%.3f",c["distance_mm"])) mm in span from R$rib at eta $(mesh_eta_label(c["rib_eta"])). Review $(c["menu"]) or $ribedit. If they should coincide, explicitly set the point eta to $(mesh_eta_label(c["rib_eta"])); otherwise separate the features or refine their long mesh direction."
+            message="$(c["label"]) at eta $(mesh_eta_label(c["eta"])) is $(@sprintf("%.3f",c["distance_mm"])) mm in span from R$rib at eta $(mesh_eta_label(c["rib_eta"])). Review $(c["menu"]) or $ribedit. If they should coincide, use Snap to rib to retain the exact rib station (or Copy exact eta in Mesh quality review); do not retype the rounded label. Otherwise separate the features or refine their long mesh direction."
             action=merge(copy(c),Dict{String,Any}("id"=>id,"kind"=>"review_geometry_control",
                 "target_eta"=>c["rib_eta"],"message"=>message,"regions"=>[region],"automatic"=>false))
             push!(actions,action);seen[id]=action

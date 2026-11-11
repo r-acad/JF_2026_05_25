@@ -107,7 +107,13 @@ function oriented_stringer_grid(w,p,xcs,base_etas,base_ribs,nh,layout)
     etas=Float64[base_etas...];ribs=Int[base_ribs...]
     schedule=stringer_runout_schedule(w,p,etas[ribs.+1],count,
         (eta,previous)->oriented_row(w,context,eta,previous,pitch,cuts).states)
-    rows=[(states=zeros(Int,count),lx=copy(xcs),ux=copy(xcs),le=zeros(count),ue=zeros(count))]
+    # A twisted root needs the same skin/path intersection as every interior
+    # rib. Raw x/c seeds otherwise start the two skins off their prescribed
+    # stringer planes and produce an unrequested kink in the first segment.
+    root_row=iszero(twist(w,0.0)) ?
+        (states=zeros(Int,count),lx=copy(xcs),ux=copy(xcs),le=zeros(count),ue=zeros(count)) :
+        oriented_row(w,context,0.0,zeros(Int,count),pitch,cuts;detect_runouts=false)
+    rows=[root_row]
     for bay in eachindex(schedule),j in ribs[bay]+2:ribs[bay+1]+1
         push!(rows,oriented_row(w,context,etas[j],schedule[bay],pitch,cuts;detect_runouts=false))
     end

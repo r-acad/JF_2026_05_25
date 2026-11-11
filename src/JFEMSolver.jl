@@ -2655,7 +2655,7 @@ function _solve_sol103(model, cc, K, id_map, X, ndof, node_R,
 
     all_eigenvalues = Float64[]
     all_frequencies = Float64[]
-    all_mode_shapes = Vector{Vector{Float64}}()
+    all_mode_shape_blocks = Matrix{Float64}[]
     all_modal_effective_mass = Any[]
     modal_subcases = Any[]
     modal_case_diagnostics = Any[]
@@ -2664,6 +2664,10 @@ function _solve_sol103(model, cc, K, id_map, X, ndof, node_R,
     id_map_modal = id_map
     X_modal = X
     first_mass_summary = Dict{String,Any}()
+    # Direct solve_model callers retain the public per-node representation.
+    # The file runner supplies an explicit output policy: binary, VTK and HDF5
+    # exporters consume the raw matrix and do not need millions of node Dicts.
+    store_public_mode_shapes = Bool(get(model, "_sol103_store_public_mode_shapes", true))
 
     for sid in modal_sids
         sub = cc["SUBCASES"][sid]
@@ -2715,12 +2719,22 @@ function _solve_sol103(model, cc, K, id_map, X, ndof, node_R,
             eigrl_v1=eigrl_v1, eigrl_v2=eigrl_v2, eigrl_norm=eigrl_norm,
             eigen_cache=eigen_solve_cache, return_diagnostics=true)
         modal_wall_seconds = (time_ns() - t_modes) * 1e-9
+        if get(solver_diagnostics, "solver_backend", "") == "failed"
+            attempts = get(solver_diagnostics, "solver_attempts", Any[])
+            reasons = [string(get(attempt, "error", "Unspecified eigensolver failure"))
+                for attempt in attempts if get(attempt, "status", "") == "failed"]
+            throw(ErrorException("SOL 103 subcase $sid failed to extract eigenvalues: " * join(reasons, "; ")))
+        end
 
         wtmass = Float64(get(model, "PARAM_WTMASS", 1.0))
-        mode_shapes_analysis = _sol103_global_to_analysis_modes(mode_shapes, id_map_sub, node_R_sub)
-        total_mass, modal_effective_mass = _sol103_modal_mass_metrics(
-            M_physical, mode_shapes_analysis, frequencies,
-            id_map_sub, node_R_sub, ndof_sub)
+        total_mass, modal_effective_mass = _pipeline_detail_measure!(
+                "modal_mass_metrics", "Compute modal masses and participation") do
+            Solver.log_msg("[MODES] Computing physical modal masses and participation for $(length(frequencies)) modes")
+            mode_shapes_analysis = _sol103_global_to_analysis_modes(mode_shapes, id_map_sub, node_R_sub)
+            _sol103_modal_mass_metrics(
+                M_physical, mode_shapes_analysis, frequencies,
+                id_map_sub, node_R_sub, ndof_sub)
+        end
 
         if length(modal_sids) > 1
             println(">>> SOL 103 modal subcase $sid results")
@@ -2741,7 +2755,14 @@ function _solve_sol103(model, cc, K, id_map, X, ndof, node_R,
             "global_translation_in_analysis_dof_frame"
         solver_diagnostics["modal_generalized_mass"] =
             [m["generalized_mass"] for m in modal_effective_mass]
-        mode_shapes_out = _mode_shapes_to_list(mode_shapes, id_map_sub)
+        mode_shapes_out = if store_public_mode_shapes
+            _pipeline_detail_measure!("modal_output", "Prepare modal result tables"; category="preparation") do
+                _mode_shapes_to_list(mode_shapes, id_map_sub)
+            end
+        else
+            Solver.log_msg("[MODES] Keeping $(size(mode_shapes, 2)) mode shapes in the binary-ready matrix; per-node JSON tables were not requested")
+            Any[]
+        end
 
         push!(modal_subcases, Dict(
             "sid" => sid,
@@ -2766,11 +2787,11 @@ function _solve_sol103(model, cc, K, id_map, X, ndof, node_R,
         isempty(first_mass_summary) && merge!(first_mass_summary, mass_summary)
         id_map_modal = id_map_sub
         X_modal = X_sub
+        push!(all_mode_shape_blocks, mode_shapes)
 
         for i in eachindex(frequencies)
             push!(all_eigenvalues, eigenvalues[i])
             push!(all_frequencies, frequencies[i])
-            push!(all_mode_shapes, mode_shapes[:, i])
             push!(all_modal_effective_mass, Dict(
                 "mode" => length(all_modal_effective_mass) + 1,
                 "sid" => sid,
@@ -2784,8 +2805,22 @@ function _solve_sol103(model, cc, K, id_map, X, ndof, node_R,
         end
     end
 
-    combined_mode_shapes = isempty(all_mode_shapes) ? zeros(ndof, 0) : hcat(all_mode_shapes...)
-    combined_mode_shapes_out = _mode_shapes_to_list(combined_mode_shapes, id_map_modal)
+    combined_mode_shapes = if isempty(all_mode_shape_blocks)
+        zeros(ndof, 0)
+    elseif length(all_mode_shape_blocks) == 1
+        only(all_mode_shape_blocks)
+    else
+        hcat(all_mode_shape_blocks...)
+    end
+    # Reuse the already constructed tables rather than constructing another
+    # full set of per-node Dicts for the top-level compatibility view.
+    combined_mode_shapes_out = if !store_public_mode_shapes || isempty(modal_subcases)
+        Any[]
+    elseif length(modal_subcases) == 1
+        modal_subcases[1]["mode_shapes"]
+    else
+        vcat((sc["mode_shapes"] for sc in modal_subcases)...)
+    end
     top_level_diagnostics = length(modal_subcases) == 1 ?
         modal_subcases[1]["solver_diagnostics"] :
         modal_case_diagnostics
@@ -2795,6 +2830,11 @@ function _solve_sol103(model, cc, K, id_map, X, ndof, node_R,
         "eigenvalues" => collect(all_eigenvalues),
         "frequencies" => collect(all_frequencies),
         "mode_shapes" => combined_mode_shapes_out,
+        "mode_shape_storage" => Dict{String,Any}(
+            "public_list_stored" => store_public_mode_shapes,
+            "raw_matrix_stored" => true,
+            "policy" => haskey(model, "_sol103_store_public_mode_shapes") ? "explicit_file_output_policy" : "public_solver_api_default",
+        ),
         "mass_summary" => first_mass_summary,
         "modal_effective_mass" => all_modal_effective_mass,
         "solver_diagnostics" => top_level_diagnostics,
@@ -3777,12 +3817,15 @@ end
 # ============================================================================
 function _sol103_global_translation_vector(id_map, node_R, ndof::Integer, dir::Integer)
     r = zeros(Float64, ndof)
-    e = zeros(Float64, 3)
-    e[dir] = 1.0
     for (_, idx) in id_map
         base = (idx - 1) * 6
         base + 3 <= ndof || continue
-        @views r[base + 1:base + 3] .= transpose(node_R[idx]) * e
+        # R' * e_dir is exactly the corresponding row of R. Avoid a tiny
+        # allocated vector for every GRID in each rigid-translation direction.
+        R = node_R[idx]
+        @inbounds for j in 1:3
+            r[base + j] = R[dir, j]
+        end
     end
     return r
 end
@@ -3793,11 +3836,17 @@ function _sol103_global_to_analysis_modes(mode_shapes_global, id_map, node_R)
         base = (idx - 1) * 6
         base + 6 <= size(mode_shapes_global, 1) || continue
         R = node_R[idx]
-        for m in axes(mode_shapes_global, 2)
-            @views mode_shapes_analysis[base + 1:base + 3, m] =
-                transpose(R) * mode_shapes_global[base + 1:base + 3, m]
-            @views mode_shapes_analysis[base + 4:base + 6, m] =
-                transpose(R) * mode_shapes_global[base + 4:base + 6, m]
+        # The initial copy already represents BASIC coordinates. Most GRID
+        # frames are BASIC, so leave those values alone without arithmetic.
+        all(R[i,j] == (i == j ? 1.0 : 0.0) for i in 1:3, j in 1:3) && continue
+        @inbounds for m in axes(mode_shapes_global, 2), offset in (0, 3)
+            x = mode_shapes_global[base + offset + 1, m]
+            y = mode_shapes_global[base + offset + 2, m]
+            z = mode_shapes_global[base + offset + 3, m]
+            for j in 1:3
+                mode_shapes_analysis[base + offset + j, m] =
+                    R[1,j] * x + R[2,j] * y + R[3,j] * z
+            end
         end
     end
     return mode_shapes_analysis
@@ -3836,9 +3885,10 @@ function _sol103_modal_mass_metrics(
         _sol103_total_translational_mass(
             physical_mass, id_map, node_R, ndof)
     modal_effective_mass = Any[]
+    Mphi = zeros(Float64, size(physical_mass, 1))
     for i in eachindex(frequencies)
-        phi = mode_shapes_analysis[:, i]
-        Mphi = physical_mass * phi
+        phi = view(mode_shapes_analysis, :, i)
+        mul!(Mphi, physical_mass, phi)
         gen_mass = dot(phi, Mphi)
         meff = zeros(3)
         for dir in 1:3
@@ -4090,7 +4140,9 @@ function _export_results_impl(results::Dict, filename::String, output_dir::Strin
         if export_vtk
             export_buckling_vtk(filename, output_dir, model, id_map, X, frequencies, mode_shapes)
         end
-        if export_json
+        if export_json && export_jfem_binary
+            export_modal_metadata_json(filename, output_dir, results)
+        elseif export_json
             export_buckling_json(filename, output_dir, eigenvalues, mode_shapes, id_map;
                 frequencies=frequencies,
                 mass_summary=get(results, "mass_summary", nothing),

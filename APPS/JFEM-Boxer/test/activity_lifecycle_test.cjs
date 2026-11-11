@@ -37,6 +37,19 @@ async function activityChecks(){
  assert.match(a.phase({stage:"startup",persistent_worker:true,worker_reused:false,message:"Starting Julia and loading the shared solver packages"}).label,/Starting Julia/);
  assert.match(a.phase({stage:"startup",persistent_worker:true,worker_reused:true,stage_message:"Old startup message"}).label,/Reusing the running Julia solver/);
  assert.match(a.phase({stage:"factorization",persistent_worker:true,worker_reused:true,stage_message:"Matrix factorization",stage_category:"numerical"}).label,/Matrix factorization/);
+ const modal=a.phase({stage:'modal_solve',stage_category:'numerical',modal:{label:'Extracting normal modes',
+  operator_applications:128,requested:80,elapsed_seconds:12}});
+ assert.match(modal.label,/Extracting normal modes/);
+ assert.match(modal.detail,/128 matrix\/solve operator applications/);
+ assert(!modal.detail.includes('converged'),"work count must not imply convergence");
+ const extracted=a.phase({stage:'modal_solve',stage_category:'numerical',modal:{label:'Normal modes extracted',
+  operator_applications:640,requested:80,converged:80,iteration:8,residual:1e-10,elapsed_seconds:45}});
+ assert.match(extracted.detail,/80 converged \/ 80 requested modes/);
+ assert.match(extracted.detail,/8 extraction iterations/);
+ assert.match(extracted.detail,/maximum transformed residual 1\.00e-10/);
+ const recovered=a.phase({stage:'modal_solve',stage_category:'numerical',modal:{phase:'recovery',
+  label:'Verify physical modes',residual_kind:'original_pencil',residual:1e-8}});
+ assert.match(recovered.detail,/maximum original-pencil residual 1\.00e-8/);
  assert.equal(a.count,1);assert.equal(h.timers.size,1);assert.equal(h.element("activity-status").hidden,false);
  a.end(a.startup);a.startup=null;
  assert.equal(a.count,0);assert.equal(h.timers.size,0);assert.equal(h.element("activity-status").hidden,true);
@@ -85,6 +98,9 @@ async function activityChecks(){
  assert.match(a.phase({stage_category:'numerical',compilation_live:'not_separable'}).detail,/Julia compilation may occur/);
  const completed=a.phase({stage_category:'numerical',stage_state:'completed',stage_timing:{compilation_seconds:2,execution_seconds:3}});
  assert.match(completed.detail,/Measured compilation 2\.000 s; execution excluding compilation 3\.000 s/);assert(!completed.detail.includes('may occur'));
+ const parallel=a.phase({stage_category:'numerical',stage_state:'completed',stage_timing:{wall_seconds:32.7,compilation_seconds:634.2,execution_seconds:null}});
+ assert.match(parallel.detail,/Aggregate compiler work across threads 634\.200 s/);
+ assert.match(parallel.detail,/numerical wall time excluding compilation cannot be separated/);
  const failed=a.begin('Expected error',{state:'error'});assert.equal(h.element('activity-status').dataset.state,'error');assert.equal(h.element('activity-status').attributes['aria-busy'],'false');a.end(failed);
  a.announce('Completed',{state:'completed',duration:1000});assert.equal(a.count,0);assert.equal(h.element('activity-status').dataset.state,'completed');
  assert.equal(h.element('activity-status').attributes['aria-busy'],'false');await h.advance(1000);assert.equal(h.element('activity-status').hidden,true);assert.equal(h.timers.size,0);

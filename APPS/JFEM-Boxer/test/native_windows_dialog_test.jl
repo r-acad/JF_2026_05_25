@@ -8,6 +8,8 @@ const D=JFEMWindowsDialog
     @test D.wide("A\u03b2")==UInt16[0x41,0x03b2,0]
     @test D.choices(:save,"Test.toml","auto").extension=="toml"
     @test D.choices(:save,"Test.wingfem.json","auto").extension=="json"
+    @test D.choices(:save,"fuselage_edited.bdf","auto").extension=="bdf"
+    @test occursin("*.bdf;*.dat;*.nas",D.choices(:save,"fuselage_edited.bdf","auto").filter)
     @test occursin("*.inp.gz",D.choices(:open,"","abaqus").filter)
     @test_throws ArgumentError D.request(:bad)
     @test_throws ArgumentError D.request(:save;name="bad\0name")

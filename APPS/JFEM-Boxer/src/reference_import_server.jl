@@ -189,11 +189,35 @@ function handle_import_reference_pick(st,req)
     end
 end
 
+function handle_import_reference_folder_scan(st,req)
+    try
+        raw=JSON.parse(String(req.body))
+        result=reference_folder_scan(String(get(raw,"path",""));ignore_unresolved_includes=Bool(get(raw,"ignore_unresolved_includes",false)))
+        result["ok"]=true;json_response(result)
+    catch err
+        error_response("Scan Nastran fragments: "*describe_error(err))
+    end
+end
+
 function handle_import_reference(st::AppState,req)
     progress=request_progress(st,req)
     try
         started=time();progress("Reading model source and resolving INCLUDE files automatically")
-        raw=JSON.parse(String(req.body));source=imported_source(raw);source_seconds=time()-started
+        raw=JSON.parse(String(req.body))
+        input=if get(raw,"mode","")=="folder"
+            progress("Collecting and checking Nastran fragments in the selected folder and its subfolders")
+            reference_folder_source(String(get(raw,"path",""));primary_file=get(raw,"primary_file",nothing),
+                selected_files=get(raw,"selected_files",nothing),expected_scan=get(raw,"scan_id",nothing),
+                ignore_unresolved_includes=Bool(get(raw,"ignore_unresolved_includes",false)))
+        else
+            raw
+        end
+        source=imported_source(input);source_seconds=time()-started
+        folder_summary=get(raw,"mode","")=="folder" ? input["summary"] : nothing
+        if folder_summary!==nothing
+            source["source_file_count"]=folder_summary["files"]
+            source["source_bytes"]=get(input,"source_bytes",sizeof(source["text"]))
+        end
         repo,_=find_jfem(st.root;hint=String(st.params["jfem.repo"]));repo===nothing&&throw(ArgumentError("JFEM native parser is unavailable; configure the solver repository"))
         base=joinpath(st.deck_store_dir,"imports");mkpath(base);dir=mktempdir(base;prefix="deck_",cleanup=false)
         importparams=copy(st.params)
@@ -216,9 +240,16 @@ function handle_import_reference(st::AppState,req)
             Dict("source_seconds"=>source_seconds,"source_capture_seconds"=>capture_seconds,"server_restore_seconds"=>restore_seconds,
                 "server_seconds_before_encoding"=>time()-started))
         progress("Import timing: source $(round(source_seconds;digits=2)) s; parser/viewport $(round(timings["worker_seconds"];digits=2)) s; worker wait $(round(wait_timings["worker_wait_seconds"];digits=2)) s; restore $(round(restore_seconds;digits=2)) s")
+        bytes=read(joinpath(dir,"payload.msgpack"))
+        if folder_summary!==nothing
+            payload=unpack_view_payload(bytes)
+            payload["imported_deck"]["folder_collection"]=folder_summary
+            append!(payload["imported_deck"]["warnings"],String.(folder_summary["warnings"]))
+            bytes=MsgPack.pack(payload)
+        end
         st.model=model;progress("done")
         return HTTP.Response(200,["Content-Type"=>"application/x-msgpack","Cache-Control"=>"no-store",
-            "X-Wing-Import-Timings"=>JSON.json(timings)],read(joinpath(dir,"payload.msgpack")))
+            "X-Wing-Import-Timings"=>JSON.json(timings)],bytes)
     catch err
         return error_response("Read model deck: "*describe_error(err))
     end

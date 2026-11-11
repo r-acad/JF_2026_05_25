@@ -12,7 +12,7 @@
     ...(Ribs?.PARAM_KEYS || []), ...Gaps.PARAM_KEYS, "movable_surfaces.items",
     "box.rib_pitch", "ribs.masters", "fuel.enabled", "fuel.start_rib", "fuel.end_rib", "fuel.disabled_bays"])];
   const instances = new WeakMap();
-  const number = value => root.WingNumbers ? root.WingNumbers.format(value, 4) : Number(value.toPrecision(5)).toString();
+  const number = value => root.WingNumbers?.coordinate ? root.WingNumbers.coordinate(value) : Number(value.toPrecision(4)).toString();
   const escape = value => String(value).replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
 
   function derive(params) {

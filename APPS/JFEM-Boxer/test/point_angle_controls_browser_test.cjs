@@ -35,6 +35,22 @@ try{
    await middle.locator('[data-field="eta"]').fill('0');await middle.locator('[data-field="eta"]').press('Tab');assert.equal(await middle.locator('[data-field="eta"]').isDisabled(),false,'An invalid interior duplicate remains editable');assert.equal(await page.evaluate(()=>editor.validate().valid),false);await middle.locator('[data-field="eta"]').fill('.6');await middle.locator('[data-field="eta"]').press('Tab');assert.equal(await page.evaluate(()=>editor.validate().valid),true);
    checks.push(kind+' edge '+edge+': angle changes preceding offset only; cascades correctly through adjacent constraints; adding/reordering retains fields; release restores free offset');
   }
+  // A fixed incoming angle moves the previous point, not the selected
+  // outboard anchor. Test actual gestures, including an off-center grab.
+  await page.evaluate(kind=>{const key=(kind==='spars'?WingSparView:WingPlanformView).POINT_KEYS[0];makeFixture(kind,{[key]:[{eta:0,dxc:0},{eta:.37,dxc:.07,incoming_angle_deg:0},{eta:1,dxc:0}]});},kind);
+  const gesture=await page.evaluate(()=>{
+   const dot=document.querySelector('svg [data-edge="0"][data-eta="0.37"] .pf-point-dot'),matrix=dot.getScreenCTM(),inverse=matrix.inverse(),data=editor.validate(),transform=WingPlanformView.editorTransform(data),vertex=data.edgeVertices[keys[0]].find(p=>p.eta===.37),anchor=transform.map(vertex.position),x=Number(dot.getAttribute('cx')),y=Number(dot.getAttribute('cy'));
+   return{start:{x:matrix.a*x+matrix.c*y+matrix.e+5,y:matrix.b*x+matrix.d*y+matrix.f-3},expected:transform.unmap(anchor[0]+inverse.a*35+inverse.c*(-12),anchor[1]+inverse.b*35+inverse.d*(-12))};
+  });
+  await page.mouse.move(gesture.start.x,gesture.start.y);await page.mouse.down();await page.mouse.move(gesture.start.x+35,gesture.start.y-12,{steps:5});await page.mouse.up();
+  const dragged=await page.evaluate(()=>{const d=editor.validate();return{valid:d.valid,vertices:d.edgeVertices[keys[0]],rows:read()[keys[0]]};});
+  assert(dragged.valid);const moved=dragged.vertices.find(v=>v.eta>0&&v.eta<1);assert(Math.abs(moved.eta-gesture.expected.eta)<1e-10);assert(Math.abs(moved.position[0]-gesture.expected.x)<1e-10);
+  assert(Math.abs(dragged.vertices[0].position[0]-moved.position[0])<1e-10);assert.equal(moved.incoming_angle_deg,0);assert.equal(dragged.rows.at(-1).dxc,0);
+  assert.match(await page.locator('.planform-angle-status').textContent(),/also moves.*in x\/c/);
+  const rootDot=page.locator('svg [data-edge="0"][data-eta="0"] .pf-point-dot'),rootStart=await rootDot.evaluate(dot=>{const m=dot.getScreenCTM(),x=Number(dot.getAttribute('cx')),y=Number(dot.getAttribute('cy'));return{x:m.a*x+m.c*y+m.e,y:m.b*x+m.d*y+m.f};}),before=await page.evaluate(()=>read()[keys[0]]);
+  await page.mouse.move(rootStart.x,rootStart.y);await page.mouse.down();await page.mouse.move(rootStart.x,rootStart.y+20,{steps:3});await page.mouse.up();
+  assert.deepEqual(await page.evaluate(()=>read()[keys[0]]),before);assert.match(await page.locator('.planform-angle-status').textContent(),/x\/c set by.*fixed incoming angle.*endpoint's eta is fixed/);
+  checks.push(kind+': a constrained drag follows the grab displacement, retains the entered angle and moves the preceding x/c; a fully constrained root remains fixed with a visible explanation');
   const tipHandle=page.locator('svg [data-edge="0"][data-eta="1"]');await tipHandle.focus();await page.keyboard.press('ArrowLeft');assert.equal(await page.locator('svg [data-edge="0"][data-eta="1"]').count(),1);
   await page.locator('#editor').screenshot({path:path.join(out,kind+'-angle-controls.png')});
  }

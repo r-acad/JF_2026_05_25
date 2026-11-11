@@ -5304,7 +5304,7 @@ assemble_modal_mass(model,id_map,node_coords,node_R,ndof;kwargs...) =
 
         # Transformation
         e1 = (p2_mass - p1_mass) / L
-        vbar = resolve_bar_vref(bar, p1, id_map, node_coords)
+        vbar = resolve_bar_vref(bar, p1, id_map, node_coords; model=model)
         e2_raw = vbar - dot(vbar, e1)*e1
         e2_len = norm(e2_raw)
         e2 = e2_len > 1e-12 ? e2_raw/e2_len : SVector(0.0, 1.0, 0.0)
@@ -5524,7 +5524,7 @@ assemble_modal_mass(model,id_map,node_coords,node_R,ndof;kwargs...) =
 
         # Transformation
         e1 = (p2_mass - p1_mass) / L
-        vbar = resolve_bar_vref(beam, p1, id_map, node_coords)
+        vbar = resolve_bar_vref(beam, p1, id_map, node_coords; model=model)
         e2_raw = vbar - dot(vbar, e1)*e1
         e2_len = norm(e2_raw)
         e2 = e2_len > 1e-12 ? e2_raw/e2_len : SVector(0.0, 1.0, 0.0)
@@ -5800,7 +5800,64 @@ function _deterministic_sol103_start_vector(n::Int, ordinal::Int)
     return vector
 end
 
-function _sol103_shifted_factorization(K_ff, M_ff, mass_tol, stiff_tol, eigrl_v2)
+function _sol103_progress(phase, label, state; kwargs...)
+    event = Dict{String,Any}("schema_version" => 1,
+        "phase" => phase, "label" => label, "state" => state)
+    for (key, value) in kwargs
+        event[string(key)] = value
+    end
+    println("[JFEM_MODAL_PROGRESS] " * JSON.json(event))
+    flush(stdout)
+    return nothing
+end
+
+# KrylovKit reports convergence when an extraction finishes. During a long
+# extraction report actual operator work, never invent an iteration count or
+# percentage from the number of requested modes. The wrapper leaves the
+# operator and its returned values unchanged.
+function _sol103_run_eigsolve(operator, initial, requested, selector;
+        progress_label="Modal eigenvalue extraction", progress_interval_seconds=10.0,
+        kwargs...)
+    started = time_ns()
+    last_report = Ref(started)
+    applications = Ref(0)
+    _sol103_progress("extraction", progress_label, "started";
+        requested=requested, operator_applications=0, elapsed_seconds=0.0)
+    log_msg("[MODES] $progress_label: requesting $requested candidate modes; searching the modal subspace...")
+    function measured_operator(x)
+        result = operator(x)
+        applications[] += 1
+        current = time_ns()
+        if (current - last_report[]) / 1.0e9 >= progress_interval_seconds
+            elapsed = (current - started) / 1.0e9
+            _sol103_progress("extraction", progress_label, "running";
+                requested=requested, operator_applications=applications[],
+                elapsed_seconds=elapsed)
+            log_msg("[MODES] $progress_label: $(applications[]) operator applications in $(round(Int, elapsed)) s; convergence is checked by the eigensolver before modes are accepted")
+            last_report[] = current
+        end
+        return result
+    end
+    values, vectors, info = eigsolve(measured_operator, initial, requested, selector; kwargs...)
+    elapsed = (time_ns() - started) / 1.0e9
+    residual = info.normres isa Number ? info.normres : maximum(info.normres; init=0.0)
+    _sol103_progress("extraction", progress_label, "completed";
+        requested=requested, operator_applications=applications[], elapsed_seconds=elapsed,
+        iteration=info.numiter, converged=info.converged,
+        residual=isfinite(residual) ? residual : nothing, residual_kind="transformed")
+    log_msg("[MODES] $progress_label finished in $(round(Int, elapsed)) s: $(info.converged) converged candidates, $(info.numiter) iterations, $(applications[]) operator applications; verifying original-pencil residuals and independent modes next")
+    return values, vectors, info
+end
+
+function _sol103_shifted_factorization(K_ff, M_ff, mass_tol, stiff_tol, eigrl_v2;
+        shift_fraction::Float64=1.0e-3)
+    isfinite(shift_fraction) && shift_fraction > 0.0 || throw(ArgumentError(
+        "SOL103 positive mass shift fraction must be finite and positive"))
+    for (operator,label) in ((K_ff,"elastic stiffness"),(M_ff,"mass"))
+        values = operator isa SparseMatrixCSC ? nonzeros(operator) : operator
+        all(isfinite,values) || throw(ArgumentError(
+            "SOL103 $label matrix contains non-finite entries; inspect the element/property data and assembly before eigenvalue extraction"))
+    end
     kdiag = abs.(diag(K_ff))
     mdiag = abs.(diag(M_ff))
     ratios = Float64[]
@@ -5830,15 +5887,25 @@ function _sol103_shifted_factorization(K_ff, M_ff, mass_tol, stiff_tol, eigrl_v2
     max_mdiag = maximum(mdiag; init=0.0)
     max_mdiag > 0.0 || error("SOL103 positive mass shift unavailable: mass diagonal is zero")
     numerical_floor = 256.0 * eps(Float64) * (max_kdiag / max_mdiag)
-    alpha0 = max(1.0e-3 * lambda_reference, numerical_floor, eps(Float64))
+    alpha0 = max(shift_fraction * lambda_reference, numerical_floor, eps(Float64))
+    isfinite(alpha0) || throw(ArgumentError(
+        "SOL103 mass-shift scale is non-finite; the stiffness/mass scale exceeds floating-point range. No sparse matrix scaling was attempted."))
     attempts = Any[]
 
     for exponent in 0:2
         alpha = alpha0 * 10.0^exponent
         A = K_ff + alpha * M_ff
         issymmetric(A) || (A = 0.5 * (A + A'))
+        started = time_ns()
+        _sol103_progress("factorization", "Shifted sparse Cholesky", "started";
+            shift=alpha, attempt=exponent + 1, elapsed_seconds=0.0)
+        log_msg("[MODES] Factoring shifted stiffness K + alpha*M: sparse Cholesky attempt $(exponent + 1), alpha=$alpha, $(size(A, 1)) DOFs; sparse factorization may take time without iteration messages")
         try
             factor = _timed_factorization(cholesky,Symmetric(A); check=true)
+            elapsed = (time_ns() - started) / 1.0e9
+            _sol103_progress("factorization", "Shifted sparse Cholesky", "completed";
+                shift=alpha, attempt=exponent + 1, elapsed_seconds=elapsed)
+            log_msg("[MODES] Shifted sparse Cholesky factorization completed in $(round(Int, elapsed)) s")
             push!(attempts, Dict{String,Any}(
                 "alpha" => alpha,
                 "status" => "succeeded",
@@ -5846,6 +5913,8 @@ function _sol103_shifted_factorization(K_ff, M_ff, mass_tol, stiff_tol, eigrl_v2
             ))
             return factor, alpha, lambda_reference, numerical_floor, attempts
         catch err
+            (err isa OutOfMemoryError || err isa InterruptException) && rethrow()
+            log_msg("[MODES] Shifted sparse Cholesky attempt $(exponent + 1) failed after $(round(Int, (time_ns() - started) / 1.0e9)) s; trying the next admissible factorization")
             push!(attempts, Dict{String,Any}(
                 "alpha" => alpha,
                 "status" => "failed",
@@ -5863,8 +5932,16 @@ function _sol103_shifted_factorization(K_ff, M_ff, mass_tol, stiff_tol, eigrl_v2
     alpha = alpha0
     A = K_ff + alpha * M_ff
     issymmetric(A) || (A = 0.5 * (A + A'))
+    started = time_ns()
+    _sol103_progress("factorization", "Shifted sparse LU", "started";
+        shift=alpha, elapsed_seconds=0.0)
+    log_msg("[MODES] Factoring shifted stiffness with sparse LU for an indefinite pencil; $(size(A, 1)) DOFs")
     try
         factor = _timed_factorization(lu, A; check=true)
+        elapsed = (time_ns() - started) / 1.0e9
+        _sol103_progress("factorization", "Shifted sparse LU", "completed";
+            shift=alpha, elapsed_seconds=elapsed)
+        log_msg("[MODES] Shifted sparse LU factorization completed in $(round(Int, elapsed)) s")
         push!(attempts, Dict{String,Any}(
             "alpha" => alpha,
             "status" => "succeeded",
@@ -5872,6 +5949,7 @@ function _sol103_shifted_factorization(K_ff, M_ff, mass_tol, stiff_tol, eigrl_v2
         ))
         return factor, alpha, lambda_reference, numerical_floor, attempts
     catch err
+        (err isa OutOfMemoryError || err isa InterruptException) && rethrow()
         push!(attempts, Dict{String,Any}(
             "alpha" => alpha,
             "status" => "failed",
@@ -6164,6 +6242,17 @@ end
             K_factor = nothing
             factor_cache_hit = false
             factor_backend = "cholesky"
+            # On large models with concentrated inertia, diagonal K/M ratios
+            # measure local stiffness rather than the lowest global modes.
+            # An excessive shift clusters all requested transformed roots at
+            # one. Use a smaller positive shift for this bounded exact-support
+            # case; factorization, original-pencil residual and completeness
+            # checks remain unchanged. This changes only spectral conditioning.
+            mass_support_candidate = n_free >= 10000 && eigrl_v2 <= 0.0 ?
+                _sol103_mass_support(M_ff;
+                    max_support=max(solver_env_int("JFEM_SOL103_MASS_SUPPORT_MAX_DOF",4096),0)) : nothing
+            shift_fraction = mass_support_candidate !== nothing && mass_support_candidate.eligible ?
+                solver_env_float("JFEM_SOL103_MASS_SUPPORT_SHIFT_FRACTION",1.0e-6) : 1.0e-3
 
             # Sparse Cholesky can numerically accept a semidefinite free-body K,
             # so success is not a reliable nullspace test.  Use the exact
@@ -6209,7 +6298,7 @@ end
             if shifted
                 K_factor, alpha, lambda_reference, shift_floor, shift_attempts =
                     _sol103_shifted_factorization(
-                        K_ff, M_ff, mass_tol, stiff_tol, eigrl_v2)
+                        K_ff, M_ff, mass_tol, stiff_tol, eigrl_v2;shift_fraction)
                 factor_backend = get(last(shift_attempts), "factor_backend", "positive_mass_shift_cholesky")
                 log_msg("[MODES] Free/nullspace partition detected; using positive mass shift alpha=$alpha (reference lambda=$lambda_reference)")
             elseif factor_cache_hit
@@ -6225,6 +6314,7 @@ end
                 "alpha" => alpha,
                 "lambda_reference" => lambda_reference,
                 "numerical_floor" => shift_floor,
+                "shift_fraction" => shift_fraction,
                 "attempts" => shift_attempts,
             )
 
@@ -6238,16 +6328,70 @@ end
             sturm_reuse_modal = Base.RefValue{Any}(nothing)
             mass_neg = -M_ff
             indefinite_shift = factor_backend == "positive_mass_shift_lu"
+            mass_support = shifted && !indefinite_shift ?
+                (mass_support_candidate === nothing ?
+                    _sol103_mass_support(M_ff;
+                        max_support=max(solver_env_int("JFEM_SOL103_MASS_SUPPORT_MAX_DOF",4096),0)) :
+                    mass_support_candidate) :
+                (; eligible=false, reason="requires_positive_shift_cholesky")
+            diagnostics["mass_support_reduction"] = Dict{String,Any}(
+                "used"=>mass_support.eligible, "reason"=>mass_support.reason,
+                "full_dofs"=>n_free,
+                "supported_dofs"=>get(mass_support,:support_size,nothing),
+                "policy"=>"Exact nonzero mass support; full shifted stiffness solves; no static condensation or mass truncation")
+            if mass_support.eligible
+                bounded_mass_rank = mass_support.support_size
+                log_msg("[MODES] Exact mass-support extraction: $(mass_support.support_size) iterative coordinates instead of $n_free; all stiffness coordinates retained in every solve")
+            end
             sturm_origin_parameter = -512.0 * eps(Float64) * max(lambda_reference, abs(alpha), 1.0)
+            modal_inertia_cache = Dict{Float64,Int}()
+            function modal_inertia_count(parameter, label; try_positive_definite=false)
+                if haskey(modal_inertia_cache,parameter)
+                    log_msg("[MODES] $label: reusing unchanged-pencil inertia certificate at omega^2=$parameter")
+                    return modal_inertia_cache[parameter]
+                end
+                started = time_ns()
+                _sol103_progress("inertia", label, "started";
+                    omega_squared=parameter, elapsed_seconds=0.0)
+                log_msg("[MODES] $label: counting spectrum roots using sparse inertia at omega^2=$parameter; this is a completeness check, not modal extraction")
+                count_at_parameter = nothing
+                if try_positive_definite
+                    # A successful, checked Cholesky of this exact shifted
+                    # matrix certifies zero negative pivots at the origin.
+                    # Do not add regularization or change the inertia shift.
+                    # Indefinite/singular origins retain the general LDL path.
+                    try
+                        origin_matrix = K_ff + parameter * mass_neg
+                        _timed_factorization(cholesky, Symmetric(origin_matrix); check=true)
+                        count_at_parameter = 0
+                    catch err
+                        (err isa LinearAlgebra.PosDefException ||
+                         err isa LinearAlgebra.SingularException ||
+                         err isa LinearAlgebra.ZeroPivotException) || rethrow()
+                    end
+                end
+                if count_at_parameter === nothing
+                    count_at_parameter = _buckling_sturm_count(
+                        K_ff, mass_neg, parameter; reuse=sturm_reuse_modal)
+                end
+                elapsed = (time_ns() - started) / 1.0e9
+                _sol103_progress("inertia", label, "completed";
+                    omega_squared=parameter, negative_pivots=count_at_parameter,
+                    elapsed_seconds=elapsed)
+                log_msg("[MODES] $label finished in $(round(Int, elapsed)) s: " *
+                    (count_at_parameter === nothing ? "inertia certificate unavailable" : "$count_at_parameter negative pivots"))
+                count_at_parameter === nothing || (modal_inertia_cache[parameter] = count_at_parameter)
+                return count_at_parameter
+            end
             # For an indefinite pencil, inertia(K-lambda*M) contains the
             # negative stiffness of massless coordinates and negative finite
             # roots as a constant offset. Count a finite nonnegative interval
             # by subtracting its lower inertia, never by assuming it is zero.
-            sturm_origin = shifted ? _buckling_sturm_count(
-                K_ff, mass_neg, sturm_origin_parameter; reuse=sturm_reuse_modal) : 0
+            sturm_origin = shifted ? modal_inertia_count(
+                sturm_origin_parameter, "Modal inertia origin";
+                try_positive_definite=true) : 0
             nonnegative_inertia_count(bound) = begin
-                count_at_bound = _buckling_sturm_count(
-                    K_ff, mass_neg, bound; reuse=sturm_reuse_modal)
+                count_at_bound = modal_inertia_count(bound, "Modal interval completeness")
                 count_at_bound === nothing || sturm_origin === nothing || count_at_bound < sturm_origin ? nothing :
                     count_at_bound - sturm_origin
             end
@@ -6457,19 +6601,31 @@ end
 
             if shifted && !indefinite_shift && solver_env_bool("JFEM_SOL103_BLOCK_LANCZOS", true)
                 try
-                    starts = Block([next_modal_start() for _ in 1:min(block_size, nev)])
-                    backmap(y) = Vector{Float64}(K_factor.UP \ Vector(y))
-                    transformed_operator(y) = alpha .* Vector{Float64}(
-                        K_factor.PtL \ Vector(M_ff * backmap(y)))
-                    vals_block, vecs_block_y, info_block = eigsolve(
-                        transformed_operator, starts, nev, :LM;
-                        krylovdim=kd, maxiter=krylov_maxiter,
+                    block_dimension = mass_support.eligible ? mass_support.support_size : n_free
+                    block_nev = min(nev,block_dimension)
+                    block_kd = min(kd,block_dimension)
+                    starts = Block([begin
+                        modal_start_ordinal[] += 1
+                        _deterministic_sol103_start_vector(block_dimension,modal_start_ordinal[])
+                    end for _ in 1:min(block_size, block_nev)])
+                    transformed_operator, backmap = if mass_support.eligible
+                        _sol103_mass_support_operator(K_factor,mass_support,alpha)
+                    else
+                        map(y) = Vector{Float64}(K_factor.UP \ Vector(y))
+                        op(y) = alpha .* Vector{Float64}(K_factor.PtL \ Vector(M_ff * map(y)))
+                        op, map
+                    end
+                    vals_block, vecs_block_y, info_block = _sol103_run_eigsolve(
+                        transformed_operator, starts, block_nev, :LM;
+                        progress_label=mass_support.eligible ? "Mass-support Block Lanczos extraction" : "Block Lanczos extraction",
+                        krylovdim=block_kd, maxiter=krylov_maxiter,
                         tol=krylov_tol, eager=true, ishermitian=true)
                     added = harvest_modes!(
                         vals_block, vecs_block_y, info_block;
                         shifted_operator=true, vector_transform=backmap)
                     info_last = info_block
                     block_succeeded = added > 0
+                    log_msg("[MODES] Accepted $added residual-verified independent modes from Block Lanczos candidates")
                     diagnostics["block_lanczos"] = Dict{String,Any}(
                         "attempted" => true,
                         "succeeded" => block_succeeded,
@@ -6477,6 +6633,9 @@ end
                         "converged" => info_block.converged,
                         "returned" => length(vals_block),
                         "accepted" => added,
+                        "iterative_dimension" => block_dimension,
+                        "operator_applications" => info_block.numops,
+                        "iterations" => info_block.numiter,
                     )
                 catch err
                     block_error = sprint(showerror, err)
@@ -6500,14 +6659,16 @@ end
             scalar_nev = min(nev, max(n_free - 1, 1))
             scalar_runs = Ref(0)
             function run_scalar_start!()
-                vals_run, vecs_run, info_run = eigsolve(
+                vals_run, vecs_run, info_run = _sol103_run_eigsolve(
                     modal_operator, next_modal_start(), scalar_nev, :LM;
+                    progress_label="Arnoldi extraction start $(scalar_runs[] + 1)",
                     krylovdim=kd, maxiter=krylov_maxiter,
                     tol=krylov_tol, eager=true)
                 scalar_runs[] += 1
                 info_last = info_run
                 added = harvest_modes!(
                     vals_run, vecs_run, info_run; shifted_operator=shifted)
+                log_msg("[MODES] Arnoldi start $(scalar_runs[]): accepted $added additional modes; $(length(accepted_lambdas)) residual-verified independent modes retained")
                 return added, info_run
             end
 
@@ -6649,7 +6810,7 @@ end
                 log_msg("[MODES] Nullspace-preserving eigensolver converged ($n_out independent modes, backend=$backend)")
             end
         catch err
-            err isa _SOL103CompletenessError && rethrow()
+            (err isa _SOL103CompletenessError || err isa OutOfMemoryError || err isa InterruptException) && rethrow()
             diagnostics["solver_attempts"][end] = Dict{String,Any}(
                 "name" => "nullspace_preserving_shift_invert",
                 "status" => "failed",
@@ -6707,6 +6868,10 @@ end
 
     # Bind each reported root to the unchanged reduced K/M pencil before
     # dependent-coordinate reconstruction or output-frame normalization.
+    _sol103_progress("recovery", "Verify and reconstruct mode shapes", "started";
+        requested=num_modes, converged=n_out, elapsed_seconds=0.0)
+    log_msg("[MODES] Verifying $n_out eigenpairs against the original K/M matrices, then reconstructing dependent DOFs and global-coordinate mode shapes...")
+    recovery_started = time_ns()
     eigenpair_residuals = Float64[]
     eigenpair_scaled_residuals = Float64[]
     k_diag_scale = maximum(abs, diag(K_ff); init=1.0)
@@ -6754,12 +6919,19 @@ end
     # Transform to global coordinates
     mode_shapes_global = zeros(ndof, n_out)
     sorted_nodes = sort(collect(keys(id_map)))
-    for nid in sorted_nodes
-        idx = id_map[nid]; base = (idx-1)*6
-        for m in 1:n_out
-            u_loc = mode_shapes[base+1:base+6, m]
-            mode_shapes_global[base+1:base+3, m] = node_R[idx] * u_loc[1:3]
-            mode_shapes_global[base+4:base+6, m] = node_R[idx] * u_loc[4:6]
+    # Process contiguous mode columns without allocating small vectors for
+    # every node and mode (tens of millions of temporaries on aircraft decks).
+    for m in 1:n_out
+        for nid in sorted_nodes
+            idx = id_map[nid]; base = (idx-1)*6
+            R = node_R[idx]
+            @inbounds for offset in (0,3)
+                first = base + offset
+                a,b,c = mode_shapes[first+1,m],mode_shapes[first+2,m],mode_shapes[first+3,m]
+                mode_shapes_global[first+1,m] = R[1,1]*a + R[1,2]*b + R[1,3]*c
+                mode_shapes_global[first+2,m] = R[2,1]*a + R[2,2]*b + R[2,3]*c
+                mode_shapes_global[first+3,m] = R[3,1]*a + R[3,2]*b + R[3,3]*c
+            end
         end
     end
 
@@ -6792,6 +6964,11 @@ end
         end
     end
 
+    _sol103_progress("recovery", "Verify and reconstruct mode shapes", "completed";
+        requested=num_modes, converged=n_out,
+        elapsed_seconds=(time_ns() - recovery_started) / 1.0e9,
+        residual=maximum(eigenpair_residuals; init=0.0), residual_kind="original_pencil")
+    log_msg("[MODES] Eigenpair verification and global mode-shape reconstruction completed in $(round(Int, (time_ns() - recovery_started) / 1.0e9)) s")
     log_msg("[MODES] Natural frequencies:")
     for (i, f) in enumerate(frequencies)
         log_msg("  Mode $i: f = $(round(f, digits=4)) Hz (ω² = $(round(eigenvalues[i], sigdigits=6)))")

@@ -149,6 +149,10 @@ include("geometry_preview.jl")
 include("aerodynamic_jobs.jl")
 include("rf_section_updates.jl")
 include("reference_import_server.jl")
+include("reference_folder_import.jl")
+include("fe_edit_geometry.jl")
+include("fe_edit_deck.jl")
+include("fe_edit_server.jl")
 _startup_stage("Application code loaded; no FEM or analysis has been created")
 
 export Airfoil, naca_airfoil, Wing, make_wing, Model, BoxGrid

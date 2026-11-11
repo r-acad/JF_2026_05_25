@@ -4,22 +4,43 @@
     resolve_includes(lines, base_dir; depth=0)
 
 Recursively resolve INCLUDE cards in a Reference BDF file.
-Replaces each INCLUDE line with the contents of the referenced file.
-Supports quoted filenames, relative and absolute paths, and nested includes (max 10 levels).
+Replaces each INCLUDE statement with the contents of the referenced file.
+Quoted paths may continue on subsequent lines; continuation indentation is
+removed without adding path separators or spaces. Supports relative and
+absolute paths, embedded spaces, and nested includes (max 10 levels).
 """
 function resolve_includes(lines::Vector{String}, base_dir::String; depth::Int=0,
                           _active_paths::Set{String}=Set{String}())
     depth > 10 && throw(ArgumentError("INCLUDE nesting exceeds 10 levels in $base_dir"))
     result = String[]
     sizehint!(result, length(lines))
-    for line in lines
+    i = 1
+    while i <= length(lines)
+        line = lines[i]
+        source_line = i
+        i += 1
         stripped = strip(line)
         if occursin(r"^INCLUDE(?:\s|,|$)"i, stripped)
-            # Extract filename: INCLUDE 'filename' or INCLUDE "filename" or INCLUDE filename
-            spec = match(r"^INCLUDE\s*,?\s*(?:'([^']+)'|\"([^\"]+)\"|([^\s$]+))\s*(?:\$.*)?$"i, stripped)
-            spec === nothing && throw(ArgumentError("Malformed or unsupported multiline INCLUDE in $base_dir: $stripped"))
+            # Excluding quotes from the unquoted alternative is essential: an
+            # unfinished 'path/ must never be accepted as a literal filename.
+            pattern = r"^INCLUDE\s*,?\s*(?:'([^']+)'|\"([^\"]+)\"|([^\s$'\"]+))\s*(?:\$.*)?$"i
+            pending = String(stripped)
+            spec = match(pattern, pending)
+            while spec === nothing
+                filename = strip(replace(pending, r"^INCLUDE\s*,?\s*"i => ""; count=1))
+                quoted = !isempty(filename) && first(filename) in ('\'', '"')
+                unfinished = quoted && count(==(first(filename)), filename) % 2 == 1
+                unfinished || throw(ArgumentError("Malformed INCLUDE in $base_dir at line $source_line: $pending"))
+                i <= length(lines) || throw(ArgumentError("Unterminated quoted INCLUDE in $base_dir at line $source_line: $pending"))
+                continuation = strip(lines[i]); i += 1
+                (isempty(continuation) || startswith(continuation, '$')) && continue
+                ncodeunits(pending) + ncodeunits(continuation) <= 65536 || throw(ArgumentError(
+                    "Quoted INCLUDE path exceeds 65536 characters in $base_dir at line $source_line; check for a missing closing quote"))
+                pending *= continuation
+                spec = match(pattern, pending)
+            end
             inc_file = something(spec.captures...)
-            inc_file = strip(inc_file)
+            inc_file = replace(strip(inc_file), '\\' => '/')
             # Resolve path: if not absolute, resolve relative to base_dir
             if !isabspath(inc_file)
                 inc_file = joinpath(base_dir, inc_file)

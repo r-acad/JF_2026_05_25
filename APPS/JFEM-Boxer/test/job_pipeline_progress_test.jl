@@ -40,6 +40,40 @@ isempty(ARGS) || length(ARGS)==2 || error("Usage: job_pipeline_progress_test.jl 
         @test !haskey(W.job_progress(job),"stage_timing")
         @test W.job_progress(job)["compilation_live"]=="not_separable"
 
+        modal=Dict{String,Any}("schema_version"=>1,"phase"=>"extraction","state"=>"running",
+            "label"=>"Extracting normal modes","operator_applications"=>128,
+            "requested"=>80,"elapsed_seconds"=>12.)
+        W.append_job_lines!(job,["[JFEM_MODAL_PROGRESS] "*W.JSON.json(modal)])
+        @test W.job_progress(job)["modal"]["operator_applications"]==128
+        @test !haskey(W.job_progress(job)["modal"],"converged") # Work count is not convergence.
+        before=copy(job.progress)
+        for invalid in ("not JSON",W.JSON.json(merge(modal,Dict("operator_applications"=>-1))),
+                W.JSON.json(merge(modal,Dict("state"=>"unknown"))))
+            W.append_job_lines!(job,["[JFEM_MODAL_PROGRESS] "*invalid])
+            @test job.progress==before
+        end
+        event["resumed"]=false;emit(event)
+        @test !haskey(W.job_progress(job),"modal")
+
+        # The web server can still explain long native calls even when the
+        # solver's native library emits no intermediate output.
+        job.progress["_solver_output_at"]=100.;job.progress["_heartbeat_at"]=100.
+        job.progress["stage_started"]=95.;job.started=90.
+        @test W.solver_job_heartbeat!(job;now=114.)===nothing
+        notice=W.solver_job_heartbeat!(job;now=115.)
+        @test occursin("Stage elapsed 20 s; run elapsed 25 s",notice)
+        @test occursin("remaining time are not available",notice)
+        @test W.solver_job_heartbeat!(job;now=116.)===nothing
+        @test !haskey(W.job_progress(job),"_solver_output_at")
+        @test !haskey(W.job_progress(job),"_heartbeat_at")
+        job.progress["_solver_output_at"]=129.
+        @test W.solver_job_heartbeat!(job;now=130.)===nothing
+        job.cancel_requested=true
+        @test W.solver_job_heartbeat!(job;now=150.)===nothing
+        job.cancel_requested=false;job.state=:done
+        @test W.solver_job_heartbeat!(job;now=150.)===nothing
+        job.state=:running
+
         if length(ARGS)==2
             events=Any[];payload=nothing
             bytes=read(ARGS[1])

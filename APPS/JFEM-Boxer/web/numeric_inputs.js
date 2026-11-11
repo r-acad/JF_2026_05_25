@@ -8,14 +8,15 @@
  else {root.WingNumericInputs=api;if(root.document)api.install(root.document);}
 })(globalThis,function(){
  'use strict';
- const installations=new WeakMap(),internalEvents=new WeakSet(),steps=new WeakMap();
+ const installations=new WeakMap(),internalEvents=new WeakSet(),steps=new WeakMap(),displayValues=new WeakMap();
  const trim=text=>text.includes('.')?text.replace(/0+$/,'').replace(/\.$/,''):text;
- function format(value,{integer=false}={}){
+ function format(value,{integer=false,coordinate=false}={}){
   if(typeof value!=='number'||!Number.isFinite(value))return String(value);
   if(value===0)return '0';
   // Counts and identifiers must remain exact; rounding an entity ID selects
   // a different object. Integer-field validation remains the editor's job.
   if(integer&&Number.isInteger(value))return String(value);
+  if(coordinate)return String(Number(value.toPrecision(4)));
   const rounded=Number(value.toPrecision(5)),plain=String(rounded);
   if(Number.isFinite(rounded)&&Math.abs(rounded)<1e5&&!/[eE]/.test(plain)&&(!plain.includes('.')||plain.split('.')[1].length<=3))return plain;
   const exponent=3*Math.floor(Math.log10(Math.abs(value))/3);
@@ -45,6 +46,11 @@
  function isInteger(input){
   return input.dataset.numericPrecision==='integer'||input.inputMode==='numeric'||(steps.get(input)||input.step)==='1';
  }
+ const isCoordinate=input=>globalThis.WingCoordinates?.isField(input)===true;
+ // A rounded coordinate label must not alter a saved/snapped physical station.
+ // Editors use value() while that label is untouched; input clears this record.
+ function value(input){const exact=displayValues.get(input);return exact&&input.value===exact.text?exact.value:Number(input.value);}
+ function setValue(input,next){displayValues.delete(input);input.value=String(next??'');formatExact(input);}
  function reconcileStep(input){
   if(!isField(input)||input.type!=='number')return;
   const current=input.getAttribute('step'),step=current&&current!=='any'?current:steps.get(input);
@@ -55,11 +61,14 @@
   if(input.validity.stepMismatch)input.step='any';
  }
  function formatExact(input){
-  if(!isField(input)||input.value.trim()==='')return;
-  const old=Number(input.value),next=normalizeText(input.value,{integer:isInteger(input)});
+  if((!isField(input)&&!isCoordinate(input))||input.value.trim()==='')return;
+  const coordinate=isCoordinate(input),old=value(input),next=format(old,{integer:isInteger(input),coordinate});
   // A shorter spelling is safe on load only if every numeric reader still
   // receives the identical double. Values needing quantization wait for edits.
-  if(Number.isFinite(old)&&Number(next)===old)input.value=next;
+  if(Number.isFinite(old)&&(coordinate||Number(next)===old)){
+   input.value=next;
+   if(coordinate&&Number(next)!==old)displayValues.set(input,{text:next,value:old});else displayValues.delete(input);
+  }
   reconcileStep(input);
  }
  function install(doc){
@@ -68,13 +77,14 @@
   const key=input=>input.dataset.editorId||null;
   function mark(event){
    if(internalEvents.has(event)||!isField(event.target))return;
+   displayValues.delete(event.target);
    dirty.add(event.target);const id=key(event.target);if(id)recreated.add(id);
    reconcileStep(event.target);
   }
   function commit(input){
    if(!isField(input)||!dirty.has(input)&&!(key(input)&&recreated.has(key(input))))return false;
    dirty.delete(input);if(key(input))recreated.delete(key(input));
-   const old=input.value,next=normalizeText(old,{integer:isInteger(input)});
+   const old=input.value,next=normalizeText(old,{integer:isInteger(input),coordinate:isCoordinate(input)});
    if(next===old){reconcileStep(input);return false;}
    input.value=next;
    reconcileStep(input);
@@ -111,5 +121,5 @@
   const api={commit,commitAll,observer};installations.set(doc,api);return api;
  }
  function commitAll(doc){install(doc).commitAll();}
- return {format,normalizeText,isField,isInteger,formatExact,reconcileStep,install,commitAll};
+ return {format,normalizeText,value,setValue,isField,isInteger,formatExact,reconcileStep,install,commitAll};
 });

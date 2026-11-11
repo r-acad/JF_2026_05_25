@@ -3,6 +3,7 @@
  const duration=value=>Number.isFinite(value)&&value>=0?(value>0&&value<0.1?value.toPrecision(3):value.toFixed(1))+' s':'unavailable';
  function completion(job){
   const timing=job.timings;
+  const aggregateCompiler=timing?.stages?.some(stage=>stage.inclusive?.compilation_seconds>stage.inclusive?.wall_seconds);
   const compute=(job.worker_timings||job.progress?.worker_timings||job.result?.worker_timings)?.sensitivity_compute;
   if(!timing?.available&&compute&&Number.isFinite(compute.wall_seconds))return[
    'JFEM calculation '+(job.state&&job.state!=='done'?job.state:'completed')+': execution excluding measured compilation '+duration(compute.execution_seconds)+'; measured Julia compilation '+duration(compute.compilation_seconds)+'.',
@@ -10,7 +11,8 @@
   ];
   if(!timing?.available||!Number.isFinite(timing.solution_seconds))return[
    'JFEM finished; measured solution time is unavailable. Total elapsed: '+duration(job.seconds)+'. Reading available results…',
-   'This run did not report separate solution and compilation timings. Total elapsed is not a solution-time measurement.'
+   aggregateCompiler?'Aggregate compiler work across threads exceeds a stage wall time; numerical wall time excluding compilation cannot be separated. Total elapsed remains the measured request duration.':
+    'This run did not report separate solution and compilation timings. Total elapsed is not a solution-time measurement.'
   ];
   return[
    (job.state&&job.state!=='done'?'JFEM '+job.state+'; measured numerical execution ': 'JFEM solution completed in ')+duration(timing.solution_seconds)+' (compilation excluded); reading available results…',
@@ -26,12 +28,14 @@
   if(stages?.length)result.push({kind:'info',text:label+' timing detail: inclusive parent and child times overlap; do not add them. Category totals use exclusive execution only. Recompilation is part of compilation; garbage collection is part of wall time.'});
   for(const stage of stages||[]){
    const title=stage.label||stage.phase||'Unnamed phase',inclusive=stage.inclusive||{},exclusive=stage.exclusive||{},prefix=label+(stage.case_id!==undefined?' case '+stage.case_id:'')+(stage.solution?' SOL'+stage.solution:'')+' phase · '+title;
+   const aggregateCompiler=exclusive.compilation_seconds>exclusive.wall_seconds;
    result.push({kind:'info',text:prefix+' — '+(stage.calls??1)+' call(s); inclusive wall '+duration(inclusive.wall_seconds??stage.wall_seconds)+
     (stage.parent?'; within '+stage.parent:'')+'.'});
    result.push({kind:stage.category==='numerical'?'numerical':'preparation',text:'  exclusive '+(stage.category==='numerical'?'numerical execution':'execution')+' '+duration(exclusive.execution_seconds)+
     ' (child phases and measured compilation excluded); exclusive wall '+duration(exclusive.wall_seconds)+'.'});
-   result.push({kind:'compilation',text:'  exclusive Julia compilation '+duration(exclusive.compilation_seconds)+
-    '; recompilation '+duration(exclusive.recompilation_seconds)+'; garbage collection '+duration(exclusive.gc_seconds)+'.'});
+   result.push({kind:'compilation',text:'  exclusive '+(aggregateCompiler?'aggregate compiler work across threads ':'Julia compilation ')+duration(exclusive.compilation_seconds)+
+    '; recompilation '+duration(exclusive.recompilation_seconds)+'; garbage collection '+duration(exclusive.gc_seconds)+'.'+
+    (aggregateCompiler?' Numerical wall time excluding compilation cannot be separated for this stage.':'')});
   }
   return result;
  }

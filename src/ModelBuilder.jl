@@ -890,8 +890,8 @@ function build_model(cards, cc)
                                haskey(cards,"CQUADR") ? ReferenceParser.extract_shells(cards["CQUADR"]) : Dict(),
                                haskey(cards,"CQUAD8") ? ReferenceParser.extract_shells(cards["CQUAD8"]) : Dict(),
                                haskey(cards,"CSHEAR") ? ReferenceParser.extract_shells(cards["CSHEAR"]) : Dict()),
-        "CBARs"       => haskey(cards,"CBAR")   ? ReferenceParser.extract_cbar(cards["CBAR"]) : Dict(),
-        "CBEAMs"      => haskey(cards,"CBEAM")  ? ReferenceParser.extract_cbeam(cards["CBEAM"]) : Dict(),
+        "CBARs"       => haskey(cards,"CBAR")   ? ReferenceParser.extract_cbar(cards["CBAR"]; defaults=get(cards,"BAROR",Any[])) : Dict(),
+        "CBEAMs"      => haskey(cards,"CBEAM")  ? ReferenceParser.extract_cbeam(cards["CBEAM"]; defaults=get(cards,"BEAMOR",Any[])) : Dict(),
         "CRODs"       => haskey(cards,"CROD")   ? ReferenceParser.extract_crod(cards["CROD"]) : Dict(),
         "CONRODs"     => haskey(cards,"CONROD") ? ReferenceParser.extract_conrod(cards["CONROD"]) : Dict(),
         "CELASs"      => _merge_entity_groups_preserve_ids(

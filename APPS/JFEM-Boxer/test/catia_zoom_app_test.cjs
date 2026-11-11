@@ -2,6 +2,7 @@
 // Full app controls, native Chromium mouse-button chords and real Babylon
 // camera inputs. No solver fixture or server is needed.
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
+const asset=file=>{const relative=file.replace(/^[\\/]+/,'');return relative.startsWith('shared/')?path.join(web,'../..',relative.slice(7)):path.join(web,relative);};
 const {chromium}=require(process.argv[3]),out=path.resolve(process.argv[2]),web=path.resolve(__dirname,'../web');
 const near=(a,b)=>assert(Math.abs(a-b)<1e-8,`${a} != ${b}`),samePose=(a,b)=>{near(a.alpha,b.alpha);near(a.beta,b.beta);a.target.forEach((x,i)=>near(x,b.target[i]));};
 (async()=>{
@@ -9,10 +10,10 @@ const near=(a,b)=>assert(Math.abs(a-b)<1e-8,`${a} != ${b}`),samePose=(a,b)=>{nea
  const page=await browser.newPage({viewport:{width:1500,height:1000}}),errors=[],checks=[];page.on('pageerror',e=>errors.push(e.stack));
  try{
   const html=fs.readFileSync(path.join(web,'index.html'),'utf8');
-  await page.route('http://127.0.0.1:43979/**',route=>{const name=new URL(route.request().url()).pathname;return route.fulfill(name.endsWith('.js')?{contentType:'application/javascript',body:fs.readFileSync(path.join(web,name),'utf8')}:{contentType:'text/html',body:html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/g,'').replace(/<link\b[^>]*>/g,'')});});
+  await page.route('http://127.0.0.1:43979/**',route=>{const name=new URL(route.request().url()).pathname;return route.fulfill(name.endsWith('.js')?{contentType:'application/javascript',body:fs.readFileSync(asset(name),'utf8')}:{contentType:'text/html',body:html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/g,'').replace(/<link\b[^>]*>/g,'')});});
   await page.goto('http://127.0.0.1:43979/');
-  for(const[,file]of html.matchAll(/<link\s+rel="stylesheet"\s+href="([^"]+)"/g))await page.addStyleTag({path:path.join(web,file)});
-  for(const[,file]of html.matchAll(/<script\s+src="([^"]+)"/g))if(file!=='app.js')await page.addScriptTag({path:path.join(web,file)});
+  for(const[,file]of html.matchAll(/<link\s+rel="stylesheet"\s+href="([^"]+)"/g))await page.addStyleTag({path:asset(file)});
+  for(const[,file]of html.matchAll(/<script\s+src="([^"]+)"/g))if(file!=='app.js')await page.addScriptTag({path:asset(file)});
   const app=fs.readFileSync(path.join(web,'app.js'),'utf8');await page.addScriptTag({content:app.slice(0,app.indexOf('(async function start()'))});
   await page.evaluate(()=>{
    initScene();state.engine.stopRenderLoop();state.bbox={min:[-2,-2,-2],max:[2,2,2]};state.diag=7;

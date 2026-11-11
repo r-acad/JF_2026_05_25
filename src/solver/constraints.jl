@@ -632,7 +632,7 @@ function assemble_constraints(model, id_map, node_coords, node_R, I_idx, J_idx, 
         ref_gid = rbe["REFGRID"]
         ref_idx = _constraint_grid_index(id_map, ref_gid, "RBE3 $id reference")
 
-        refc_digits = _component_digits(rbe["REFC"])
+        refc_digits = sort!(_constraint_grid_components(rbe["REFC"], "RBE3 $id reference"))
         if isempty(refc_digits); continue; end
 
         p_ref = SVector{3}(node_coords[ref_idx,1], node_coords[ref_idx,2], node_coords[ref_idx,3])
@@ -650,7 +650,7 @@ function assemble_constraints(model, id_map, node_coords, node_R, I_idx, J_idx, 
             wt = Float64(group isa AbstractDict ? group["wt"] : group.wt)
             isfinite(wt) || throw(ArgumentError("RBE3 $id has a non-finite weight"))
             comps_raw = group isa AbstractDict ? group["comps"] : group.comps
-            comps_digits = _component_digits(comps_raw)
+            comps_digits = sort!(_constraint_grid_components(comps_raw, "RBE3 $id independent weight group"))
             if isempty(comps_digits); continue; end
             grids_raw = group isa AbstractDict ? group["grids"] : group.grids
             for dg in grids_raw

@@ -4,6 +4,15 @@
  * annotations, edges and inspection use the same set of drawn entities. */
 (function(root,factory){const api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.WingRFFieldVisibility=api;})(globalThis,function(){
  'use strict';
+ // A property-only update may continue drawing its last accepted frame. This
+ // is display retention, never a claim that the old RFs assess the new section.
+ // Geometry, Study, load or solver changes cannot borrow this exception.
+ function retainDuringUpdate({field,source,current,pending=false,compatible=false}={}){
+  return !!field?.contour&&!field.contour.stale&&pending===true&&compatible===true&&
+   source?.generated===true&&current?.generated===true&&!source.sourceUnits&&!current.sourceUnits&&!current.running&&
+   source.studyEpoch!=null&&source.meshIdentity!=null&&source.studyEpoch===current.studyEpoch&&source.meshIdentity===current.meshIdentity&&
+   (!source.layoutToken||!current.layoutToken||source.layoutToken===current.layoutToken);
+ }
  function geometry({indices,elementIds,primitiveSize=3,faceElements,facesPerElement=1},allowed,elementVisible=()=>true){
   const picked=[],owners=[];
   for(let p=0;p<indices.length/primitiveSize;p++){
@@ -111,5 +120,5 @@
   }
   return{sync,restore:()=>sync(null)};
  }
- return{geometry,create,createMovableStyle};
+ return{geometry,create,createMovableStyle,retainDuringUpdate};
 });

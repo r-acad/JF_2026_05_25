@@ -2869,6 +2869,40 @@ function build_buckling_export_payload(eigenvalues, mode_shapes, id_map;
     return payload
 end
 
+"""Modal metadata alongside the native Float32 viewer binary.
+
+When both formats are requested, vectors are already present in the .jfem
+file. Avoid constructing and serializing millions of duplicate GRID objects.
+JSON-only export retains its historical self-contained nodal representation.
+"""
+function export_modal_metadata_json(filename, output_dir, results)
+    _export_validate_modes(results["eigenvalues"],results["_raw_mode_shapes"],results["id_map"];
+        frequencies=results["frequencies"])
+    modes=Any[];subcases=Any[]
+    for sc in results["subcases"]
+        metadata=Dict{String,Any}(string(key)=>deepcopy(value) for (key,value) in sc
+            if !startswith(string(key),"_") && string(key)!="mode_shapes")
+        push!(subcases,metadata)
+        for i in eachindex(sc["eigenvalues"])
+            push!(modes,Dict("mode_number"=>length(modes)+1,"binary_mode_index"=>length(modes)+1,
+                "sid"=>sc["sid"],"subcase_mode_index"=>i,
+                "eigenvalue"=>sc["eigenvalues"][i],"frequency_hz"=>sc["frequencies"][i]))
+        end
+    end
+    payload=Dict{String,Any}("analysis_type"=>"SOL103_MODES","coordinate_frame"=>"BASIC_GLOBAL",
+        "mode_shape_status"=>"available_binary","mode_shape_storage"=>Dict(
+            "format"=>"jfem","path"=>_export_base_name(filename)*".jfem","numeric_type"=>"Float32"),
+        "modes"=>modes,"subcases"=>subcases,"eigenvalues"=>results["eigenvalues"],
+        "frequencies"=>results["frequencies"],"mass_summary"=>get(results,"mass_summary",nothing),
+        "modal_effective_mass"=>get(results,"modal_effective_mass",nothing),
+        "solver_diagnostics"=>get(results,"solver_diagnostics",nothing))
+    merge!(payload,_export_backend_metadata(results));sanitize!(payload)
+    path=joinpath(output_dir,_export_base_name(filename)*".BUCKLING.JSON")
+    _export_write_json(path,payload)
+    println(">>> Modal metadata JSON exported: $path (mode vectors in companion .jfem)")
+    return path
+end
+
 function build_jfem_element_tables(model, id_map)
     jfem_node_ids = sort(collect(keys(id_map)))
     pshells = model["PSHELLs"]

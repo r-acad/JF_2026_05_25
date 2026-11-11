@@ -1030,7 +1030,7 @@ function _resolve_loads!(model, sid::Int, scale, id_map, elem_map, node_coords,
             L = norm(p2g - p1g)
             if L < 1e-9; continue; end
             vx = normalize(p2g - p1g)
-            vref = resolve_bar_vref(bar, p1g, id_map, node_coords)
+            vref = resolve_bar_vref(bar, p1g, id_map, node_coords; model=model)
             if norm(vref) < 1e-6 || abs(dot(vx, vref) / max(norm(vref), 1e-30)) > 0.999
                 vref = abs(vx[3]) < 0.9 ? SVector(0.0, 0.0, 1.0) : SVector(0.0, 1.0, 0.0)
             end
@@ -1409,7 +1409,7 @@ function resolve_thermal_loads(model, temp_sid, scale, id_map, elem_map, node_co
             abs(dT_avg) < 1e-30 && continue
 
             vx = normalize(p2_eff - p1_eff)
-            v_ref = resolve_bar_vref(bar, p1, id_map, node_coords)
+            v_ref = resolve_bar_vref(bar, p1, id_map, node_coords; model=model)
             if norm(v_ref) < 1e-6
                 v_ref = SVector(0.0, 0.0, 1.0)
                 abs(dot(vx, v_ref)) > 0.9 && (v_ref = SVector(0.0, 1.0, 0.0))
@@ -1471,7 +1471,7 @@ function resolve_thermal_loads(model, temp_sid, scale, id_map, elem_map, node_co
             abs(dT_avg) < 1e-30 && continue
 
             vx = normalize(p2_eff - p1_eff)
-            v_ref = resolve_bar_vref(bar, p1, id_map, node_coords)
+            v_ref = resolve_bar_vref(bar, p1, id_map, node_coords; model=model)
             if norm(v_ref) < 1e-6
                 v_ref = SVector(0.0, 0.0, 1.0)
                 abs(dot(vx, v_ref)) > 0.9 && (v_ref = SVector(0.0, 1.0, 0.0))

@@ -57,6 +57,7 @@
   <link rel="stylesheet" href="ui_consistency.css">
   <link rel="stylesheet" href="mesh_quality_review.css">
   <link rel="stylesheet" href="form_help.css">
+  <link rel="stylesheet" href="fe_edit.css">
 </head>
 <body>
 
@@ -81,7 +82,7 @@
         <button id="btn-view-toml" disabled title="Inspect the current definition as TOML, or read the configured server TOML file. This does not save or reload anything.">View TOML</button>
         <span id="toml-help" class="file-tooltip" role="tooltip">TOML stores model parameters, constraints, load cases, all loaded reference placements and cache paths, and the Plan view background image. Saving caches unlinked references without overwriting the server input. Reference paths depend on this server's input folder; use Save Study to move embedded geometry, all display settings, other images and notes between computers. Import validates before replacing the current Study.</span>
       </span>
-      <button id="btn-read-reference" disabled title="Choose a local Nastran deck; its INCLUDE files are read automatically. Review native properties, solve its load cases and compute supported sensitivities. Save Study embeds the complete deck source.">Read Nastran</button>
+      <button id="btn-read-reference" disabled title="Read a local Nastran deck with its INCLUDE files, or collect loose fragments recursively from a folder. Review native properties and load cases; Save Study embeds the complete source.">Read Nastran</button>
       <button id="btn-read-abaqus" disabled title="Read a local Abaqus .inp or .inp.gz file, including node sets and surfaces. Mesh-only inputs can be given an explicit material and static or modal analysis setup.">Read Abaqus</button>
       <button id="btn-read-results" disabled title="Open a stored .jfem binary with its own mesh and result states. No source deck or solver run is required.">Open JFEM results…</button>
       <input id="results-file" type="file" accept=".jfem" hidden>
@@ -140,6 +141,7 @@
       </section>
       <details id="imported-deck-info" hidden><summary id="imported-deck-title"></summary><p>Imported deck is authoritative. Review source cases in Loads → Cases and boundary conditions in Model → Constraints. These forms are read-only; selecting a case updates the loads and constraints in the viewport. Review properties in Display → Properties or Inspect; use Analysis, Sensitivity and Results normally. Read Nastran replaces the deck; New Study returns to generated geometry. Save Study embeds the complete source, including INCLUDE content. TOML describes generated lifting surfaces only.</p><ul id="imported-deck-warnings"></ul></details>
       <div id="form"><p class="muted">reading parameters&hellip;</p></div>
+      <section id="panel-feedit" class="workspace-panel" data-workspace-panel="feedit" role="tabpanel" aria-labelledby="tab-feedit" hidden></section>
       <section id="panel-material-allowables" class="workspace-panel" data-workspace-panel="material" role="tabpanel" aria-labelledby="tab-material" hidden></section>
       <section class="workspace-panel" data-workspace-panel="cases" data-imported-only role="tabpanel" aria-labelledby="tab-cases" hidden><div id="imported-cases" hidden></div></section>
       <section class="workspace-panel" data-workspace-panel="supports" data-imported-only role="tabpanel" aria-labelledby="tab-supports" hidden><div id="imported-supports" hidden></div></section>
@@ -806,7 +808,9 @@
 <script src="rib_bay_filter.js" defer></script>
 <script src="inspect_highlight.js" defer></script>
 <script src="rf_property_editor.js" defer></script>
+<script src="rf_assembly_editor.js" defer></script>
 <script src="reserve_factor_table_window.js" defer></script>
+<script src="rf_property_pick.js" defer></script>
 <script src="stress_report_snapshot.js" defer></script>
 <script src="rf_incremental.js" defer></script>
 <script src="rf_compute_client.js" defer></script>
@@ -814,6 +818,8 @@
 <script src="panel_override_review.js" defer></script>
 <script src="mesh_quality_review.js" defer></script>
 <script src="form_help.js" defer></script>
+<script src="fe_edit.js" defer></script>
+<script src="fe_edit_viewport.js" defer></script>
 <script src="app.js" defer></script>
 </body>
 </html>

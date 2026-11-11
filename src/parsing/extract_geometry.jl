@@ -240,28 +240,71 @@ clean residual.
     return (startswith(tok, "+") || startswith(tok, "*")) ? 11 : 10
 end
 
-function extract_cbar(cards)
+"""Read the single optional BAROR/BEAMOR default record.
+
+The relevant fields occupy the same positions as on CBAR/CBEAM: PID is
+field 3, X1/G0 through X3 are fields 6 through 8, and OFFT is field 9.
+Defaults apply to blank corresponding fields on every element of that type;
+PID is a default property ID, not a filter on the affected elements.
+"""
+function _bar_orientation_default(defaults)
+    isempty(defaults) && return nothing
+    label = string(safe_get(first(defaults), 2, "BAROR/BEAMOR"))
+    length(defaults) == 1 || throw(ArgumentError(
+        "Only one $label default entry is allowed"))
+    card = only(defaults)
+    default_pid_raw = strip(string(safe_get(card, 4, "")))
+    default_pid = isempty(default_pid_raw) ? 0 : to_id(parse_reference_number(default_pid_raw, 0))
+    x1 = strip(string(safe_get(card, 7, "")))
+    x2 = strip(string(safe_get(card, 8, "")))
+    x3 = strip(string(safe_get(card, 9, "")))
+    offt = uppercase(strip(string(safe_get(card, 10, ""))))
+    g0 = 0
+    v = nothing
+    if tryparse(Int, x1) !== nothing && isempty(x2) && isempty(x3)
+        g0 = to_id(parse_reference_number(x1, 0))
+    elseif any(!isempty, (x1, x2, x3))
+        v = [parse_reference_number(x1, 0.0), parse_reference_number(x2, 0.0), parse_reference_number(x3, 0.0)]
+    end
+    return (pid=default_pid, g0=g0, v=v, offt=offt)
+end
+
+function _extract_bar_orientation(card, default)
+    x1_raw = strip(string(safe_get(card, 7, "")))
+    x2_raw = strip(string(safe_get(card, 8, "")))
+    x3_raw = strip(string(safe_get(card, 9, "")))
+    g0 = 0
+    v = nothing
+    if tryparse(Int, x1_raw) !== nothing && isempty(x2_raw) && isempty(x3_raw)
+        g0 = to_id(parse_reference_number(x1_raw, 0))
+    elseif any(!isempty, (x1_raw, x2_raw, x3_raw))
+        fallback = default === nothing || default.v === nothing ? zeros(3) : default.v
+        v = [parse_reference_number(safe_get(card, k + 6),fallback[k]) for k in 1:3]
+    end
+    if v === nothing && g0 == 0 && default !== nothing
+        g0 = default.g0
+        v = default.v === nothing ? [0.0, 0.0, 1.0] : copy(default.v)
+    end
+    v === nothing && (v = [0.0, 0.0, 1.0])
+    offt = uppercase(strip(string(safe_get(card, 10, ""))))
+    isempty(offt) && default !== nothing && (offt = default.offt)
+    isempty(offt) && (offt = "GGG")
+    return g0, v, offt
+end
+
+function extract_cbar(cards; defaults=Any[])
     d = Dict()
+    default = _bar_orientation_default(defaults)
     for c in cards
         id = to_id(parse_reference_number(safe_get(c, 3)))
-        pid = to_id(parse_reference_number(safe_get(c, 4)))
+        pid_raw = strip(string(safe_get(c, 4, "")))
+        pid = isempty(pid_raw) ? 0 : to_id(parse_reference_number(pid_raw, 0))
+        pid == 0 && default !== nothing && (pid = default.pid)
+        pid == 0 && (pid = id)
         ga = to_id(parse_reference_number(safe_get(c, 5)))
         gb = to_id(parse_reference_number(safe_get(c, 6)))
 
-        # Detect G0 (grid point) vs X1,X2,X3 (vector) format
-        x1_raw = strip(string(safe_get(c, 7, "")))
-        x2_raw = strip(string(safe_get(c, 8, "")))
-        x3_raw = strip(string(safe_get(c, 9, "")))
-
-        g0 = 0
-        v = [0.0, 0.0, 0.0]
-        if tryparse(Int, x1_raw) !== nothing && isempty(x2_raw) && isempty(x3_raw)
-            # G0 format: integer grid ID, X2/X3 blank
-            g0 = to_id(parse_reference_number(x1_raw, 0))
-        else
-            v = [parse_reference_number(safe_get(c, 7),0.0), parse_reference_number(safe_get(c, 8),0.0), parse_reference_number(safe_get(c, 9),0.0)]
-        end
-        if g0 == 0 && norm(v) < 1e-6; v = [0.0, 0.0, 1.0]; end
+        g0, v, offt = _extract_bar_orientation(c, default)
 
         # Parse PA/PB pin flags and WA/WB offsets from the continuation line,
         # skipping the continuation marker when the deck emits one. See
@@ -272,31 +315,24 @@ function extract_cbar(cards)
         wa = [parse_reference_number(safe_get(c, b + 3), 0.0), parse_reference_number(safe_get(c, b + 4), 0.0), parse_reference_number(safe_get(c, b + 5), 0.0)]
         wb = [parse_reference_number(safe_get(c, b + 6), 0.0), parse_reference_number(safe_get(c, b + 7), 0.0), parse_reference_number(safe_get(c, b + 8), 0.0)]
 
-        d[string(id)] = Dict{String,Any}("ID"=>id, "PID"=>pid, "GA"=>ga, "GB"=>gb, "V"=>v, "G0"=>g0, "PA"=>pa, "PB"=>pb, "WA"=>wa, "WB"=>wb, "TYPE"=>"CBAR")
+        d[string(id)] = Dict{String,Any}("ID"=>id, "PID"=>pid, "GA"=>ga, "GB"=>gb, "V"=>v, "G0"=>g0, "OFFT"=>offt, "PA"=>pa, "PB"=>pb, "WA"=>wa, "WB"=>wb, "TYPE"=>"CBAR")
     end
     return d
 end
 
-function extract_cbeam(cards)
+function extract_cbeam(cards; defaults=Any[])
     d = Dict()
+    default = _bar_orientation_default(defaults)
     for c in cards
         id = to_id(parse_reference_number(safe_get(c, 3)))
-        pid = to_id(parse_reference_number(safe_get(c, 4)))
+        pid_raw = strip(string(safe_get(c, 4, "")))
+        pid = isempty(pid_raw) ? 0 : to_id(parse_reference_number(pid_raw, 0))
+        pid == 0 && default !== nothing && (pid = default.pid)
+        pid == 0 && (pid = id)
         ga = to_id(parse_reference_number(safe_get(c, 5)))
         gb = to_id(parse_reference_number(safe_get(c, 6)))
 
-        x1_raw = strip(string(safe_get(c, 7, "")))
-        x2_raw = strip(string(safe_get(c, 8, "")))
-        x3_raw = strip(string(safe_get(c, 9, "")))
-
-        g0 = 0
-        v = [0.0, 0.0, 0.0]
-        if tryparse(Int, x1_raw) !== nothing && isempty(x2_raw) && isempty(x3_raw)
-            g0 = to_id(parse_reference_number(x1_raw, 0))
-        else
-            v = [parse_reference_number(safe_get(c, 7),0.0), parse_reference_number(safe_get(c, 8),0.0), parse_reference_number(safe_get(c, 9),0.0)]
-        end
-        if g0 == 0 && norm(v) < 1e-6; v = [0.0, 0.0, 1.0]; end
+        g0, v, offt = _extract_bar_orientation(c, default)
 
         # Same continuation-marker shift as CBAR; see _bar_continuation_base.
         b = _bar_continuation_base(c)
@@ -305,7 +341,7 @@ function extract_cbeam(cards)
         wa = [parse_reference_number(safe_get(c, b + 3), 0.0), parse_reference_number(safe_get(c, b + 4), 0.0), parse_reference_number(safe_get(c, b + 5), 0.0)]
         wb = [parse_reference_number(safe_get(c, b + 6), 0.0), parse_reference_number(safe_get(c, b + 7), 0.0), parse_reference_number(safe_get(c, b + 8), 0.0)]
 
-        d[string(id)] = Dict("ID"=>id, "PID"=>pid, "GA"=>ga, "GB"=>gb, "V"=>v, "G0"=>g0, "PA"=>pa, "PB"=>pb, "WA"=>wa, "WB"=>wb, "TYPE"=>"CBEAM")
+        d[string(id)] = Dict{String,Any}("ID"=>id, "PID"=>pid, "GA"=>ga, "GB"=>gb, "V"=>v, "G0"=>g0, "OFFT"=>offt, "PA"=>pa, "PB"=>pb, "WA"=>wa, "WB"=>wb, "TYPE"=>"CBEAM")
     end
     return d
 end

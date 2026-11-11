@@ -32,4 +32,10 @@ check('Unassessed movable shells are wireframe only during RF views, with WebGPU
  controller.sync({byId:new Map(),stale:true});assert.equal(a.material.wireframe,true);assert.equal(b.material.wireframe,true);
  controller.restore();assert.deepEqual(a.material,{wireframe:false,zOffset:-1,zOffsetUnits:2});assert.equal(b.material.wireframe,false);
 });
+check('Only a verified same-mesh property update may retain its accepted RF frame',()=>{
+ const field={contour:{stale:false}},source={generated:true,studyEpoch:4,meshIdentity:'mesh-A',layoutToken:'layout-A'},current={...source,running:false};
+ const request={field,source,current,pending:true,compatible:true};
+ assert.equal(V.retainDuringUpdate(request),true);
+ for(const patch of[{pending:false},{compatible:false},{field:{contour:{stale:true}}},{source:{generated:true}},{current:{...current,studyEpoch:5}},{current:{...current,meshIdentity:'mesh-B'}},{current:{...current,layoutToken:'layout-B'}},{current:{...current,running:true}},{current:{...current,sourceUnits:true}},{current:{...current,generated:false}}])assert.equal(V.retainDuringUpdate({...request,...patch}),false);
+});
 console.log(passed+' RF visibility tests passed.');

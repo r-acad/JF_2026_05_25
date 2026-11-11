@@ -3,6 +3,7 @@
   "use strict";
   const finite=value=>value!==null&&value!==undefined&&value!==""&&Number.isFinite(Number(value))?Number(value):null;
   const fmt=(value,digits=3)=>finite(value)===null?"—":Number(value).toFixed(digits);
+  const coordinate=value=>finite(value)===null?'—':String(Number(Number(value).toPrecision(4)));
   function actionsFor(quality){
     const unique=new Map();
     for(const issue of quality?.issues||[])for(const point of issue.nearby_controls||[]){
@@ -51,11 +52,13 @@
           list.append(row);continue;
         }
         row.append(node("strong",point.label+" near R"+point.nearest_rib));
-        row.append(node("p",fmt(point.distance_mm)+" mm separates this point from the rib. If they should coincide, set its η to "+String(point.rib_eta)+". Otherwise move either feature farther apart or refine the long element direction."));
+        row.append(node("p",fmt(point.distance_mm)+" mm separates this point from the rib. If they should coincide, use Snap to rib in the editor to preserve the exact station. Otherwise move either feature farther apart or refine the long element direction."));
         row.append(node("p","Location: "+point.menu+(point.master_rib_row?" · Ribs / master-rib row "+point.master_rib_row:"")+" · "+point.regions.join("; "),"mesh-quality-location"));
-        const eta=node("code",String(point.rib_eta));eta.title="Exact rib eta; retain all digits when aligning this geometry point.";
+        const eta=node("code",coordinate(point.rib_eta));eta.title="Rounded display; Snap to rib and Copy exact η retain the exact target station.";
+        const copy=node('button','Copy exact η');copy.type='button';copy.title='Copy the full-precision rib eta for use in another application. Prefer Snap to rib when aligning this Study.';
+        copy.onclick=async()=>{try{await doc.defaultView.navigator.clipboard.writeText(String(point.rib_eta));copy.textContent='Copied';}catch{const field=node('input');field.type='text';field.value=String(point.rib_eta);field.readOnly=true;field.setAttribute('aria-label','Exact rib eta for copying');row.append(field);field.focus();field.select();copy.textContent='Select and copy';}};
         const edit=node("button","Open "+point.menu);edit.type="button";edit.onclick=()=>locate(point);edit.title="Open the relevant editor and focus the nearby geometry point. This does not change any values.";
-        row.append(edit,node("span"," Target η: "),eta);list.append(row);
+        row.append(edit,node("span"," Target η: "),eta,copy);list.append(row);
       }
       if(!actions.length)list.append(node("li","Review the rib positions and boundary directions in the regions below. Separate near-coincident features, reduce boundary obliquity or subdivide the long element direction."));
       if(!(quality?.actions||[]).some(a=>a.kind==="review_refinement"))list.append(node("li","For thin spanwise cells, increase spar-height subdivisions on webs or chordwise subdivisions on skins. Refinement must improve corner angles; adding more parallel narrow strips does not help."));

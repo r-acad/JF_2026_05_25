@@ -32,7 +32,7 @@ const [url,fixture,correctedPath,out,modulePath='playwright']=process.argv.slice
   checks.push('Unchanged Study opens with a generated FEM, original geometry and quality warnings (22 main-box faces plus movable warnings)');
   await page.locator('#btn-mesh-quality').click();
   assert.equal(await page.locator('#mesh-quality-dialog').isVisible(),true);
-  assert.equal(await page.locator('#mesh-quality-dialog [data-action="review_geometry_control"] button').count(),2);
+  assert.equal(await page.locator('#mesh-quality-dialog [data-action="review_geometry_control"]').getByRole('button',{name:/^Open /}).count(),2);
   assert.match(await page.locator('#mesh-quality-dialog').innerText(),/17\.464 mm/);
   assert.match(await page.locator('#mesh-quality-dialog').innerText(),/4\.311 mm/);
   await page.screenshot({path:path.join(out,'mesh-quality-guidance.png')});

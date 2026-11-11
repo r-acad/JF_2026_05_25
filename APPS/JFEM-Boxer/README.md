@@ -20,6 +20,14 @@ These retain the authored geometry, controls and analysis settings; mesh and
 solver results are created locally. Run the repository-root setup first.
 The [Python sizing example](../../utils/python_client/README.md) demonstrates
 repeated property updates through a warm JFEM process.
+The solver log names the active numerical stage and reports elapsed time,
+modal extraction work, convergence and verification. Quiet native calls produce
+periodic activity notices. After a solver source change, setup or first use may
+compile Julia methods; the running solver worker retains them for later cases.
+For normal-mode runs with binary and JSON output, keep the `.jfem` file beside
+its `.BUCKLING.JSON` metadata when moving results. Boxer reads the mode vectors
+directly from that binary instead of storing a duplicate in JSON. JSON-only
+exports remain self-contained.
 The [illustrated RF methods report](../../Reference_documentation/06_JFEM-Boxer/Structures/JFEM_Boxer_Reserve_Factor_Methods.pdf)
 explains internal-load recovery, strength and buckling calculations, load
 policy, mathematical assumptions and worked examples.
@@ -36,9 +44,11 @@ stiffnesses usable: for example, `70.85e-3` m and `100e-6` m⁴. The limit appli
 when an edit is committed, including an active field when saving a Study.
 Imported coordinate datasets, such as airfoil coordinates and mesh arrays,
 and computed result arrays retain their source precision; entity identifiers
-remain exact. Authored definition fields for eta, x/c and z/c retain the existing
-limit of five significant digits, including loaded definitions. Other untouched
-loaded numeric values are not quantized by the edit policy. Numeric arrows
+remain exact. Coordinate labels and committed edits for eta, x/c and z/c use at
+most four significant figures, with simple decimals such as `0.337` rather than
+`337e-3`. Untouched loaded and snapped station values retain their exact stored
+precision despite their shorter display. Other untouched loaded numeric values
+are not quantized by the edit policy. Numeric arrows
 retain the field's configured increment, including valid values between those
 increments.
 
@@ -167,8 +177,10 @@ values are illustrative and should be replaced with the intended equivalent
 engine section. The beam is centered at the CG and aligned with BASIC X
 (flight direction). Define the front mount by its physical front-spar rib,
 and the aft mount by its physical rib and local airfoil x/c. Both mounts may
-use the same rib. Create FEM refreshes the available ribs after a geometry
-edit. Definitions are saved with the Study.
+use the same rib. The selectors follow the current draft rib layout even before
+creating FEM. If no valid catalog is available, enter the physical rib number
+directly and correct the layout before generating the model. Definitions are
+saved with the Study.
 
 The front RBE3 connects the **beam midpoint / CG** directly to the
 **upper front-spar-cap** nodes at the immediately adjacent physical ribs,
@@ -902,8 +914,12 @@ initial section dimensions as **minimum gauges**. Local property overrides may
 increase these dimensions, but an edit below the corresponding minimum is
 rejected with an explanation; the generator never silently changes the requested
 section. An empty local override inherits its minimum. You may deliberately
-edit a family minimum in Properties. This changes the model and requires updated
-FE results. For sandwich skins, both the active face/core minima and total
+edit a family minimum in Properties. Committing a higher family minimum raises
+existing smaller local dimensions to that floor and reports the changes; larger
+sized overrides are preserved. Lowering the minimum does not shrink local
+properties. Reconciliation waits until the edit is committed, so a partial
+engineering-notation number cannot accidentally resize the structure. This
+changes the model and requires updated FE results. For sandwich skins, both the active face/core minima and total
 thickness minimum apply. Zero-width shell stringers omit the flange when the
 minimum flange width is zero. Disabled stiffeners do not impose dormant bounds.
 Movable-surface structures likewise define four minimum skin/web/rib thicknesses;
@@ -1059,9 +1075,29 @@ and unavailable assessments are excluded. Existing entity visibility still
 applies; clearing the field restores the previous display. The separate
 **Only RF < 1** table filter also applies to CSV, Markdown and HTML exports.
 
+For a blanket sizing change, increase a component's minimum thickness or section
+dimension under **Properties**. Committing the input raises every smaller local
+dimension in that component to the new minimum. Larger local dimensions and
+material assignments remain. Sandwich face/core minimum edits also reconcile
+smaller local layers and legacy rib/spar totals. Lowering a minimum does not
+reduce previously sized properties. The new RFs use the last solved internal
+loads until you regenerate and rerun the FE analysis.
+
+In **Inspect**, double-click a shell or bar region in the 3D model to open its
+RF table and property editor directly. The table focuses the picked property
+even if the normal RF table has other filters. It reuses the selected available
+assessment; unavailable RFs appear in grey. Opening this view does not launch an
+FE solve or RF calculation. Generated properties remain editable before an
+assessment; imported properties retain their read-only source-file explanation.
+
 Each generated-property cell has **Edit property**. The dialog edits the actual
-local skin, stringer, spar, rib or leading-edge override in mm. Shared physical
-checks offer the properties they involve. A shell stringer's web and flange
+local skin, stringer, spar, rib or leading-edge override in mm. A stiffened
+region shows its **skin and stringer sections together**. A failing Euler-column
+check also exposes the actual adjacent skin properties included in that column;
+its RF describes the complete stringer-plus-skin section between ribs, so a
+skin-only thickness change may not resolve the failure. Review the displayed
+critical modes and edit either or both sections, then **Apply properties** to
+commit all valid changes together. A shell stringer's web and flange
 remain one physical section and update together. Values below an enforced
 minimum gauge turn the input and source cell red and cannot be applied. Cancel
 leaves the Study unchanged. Apply marks the model and previous results out of
@@ -1071,6 +1107,10 @@ affected by the edited property are recalculated, including any shared physical
 skin/column checks; unrelated assessment rows are reused. Numeric assessment
 runs in a background worker. The model and previous field remain visible while
 an inline status reports the update, without the full-assessment progress card.
+With **RF < 1 only**, the previous visibility mask remains until the new
+assessment is ready. Boxer then updates colors and visibility together, so a
+newly passing region disappears only after its new RF is available. Geometry,
+loads, constraints or Study changes still prevent using incompatible old RFs.
 This works with Live mesh off. Property edits do not regenerate the FEM or run
 another equilibrium solution, even when Live mesh is on. Continue editing, then
 explicitly create the FEM and rerun analysis to synchronize it. Element
@@ -1563,7 +1603,8 @@ range, the nearest value is held constant; one station defines a constant
 schedule. Airfoil shape interpolation remains a separate choice in Airfoils.
 The same interpolation and endpoint rules apply to vertical shift. Newly added
 Loft stations use four significant figures and appear immediately in eta order;
-eta values are limited to five significant figures on load or committed edits.
+eta labels and committed edits use four significant figures; untouched loaded
+or snapped stations retain their exact stored coordinates.
 Other schedule values retain their entered precision.
 
 In **Movable surfaces**, use **Add movable surface** to define a flap, aileron,
@@ -1800,13 +1841,13 @@ Studies, TOML and SVG exports.
 
 In the Planform and Spars point editors, **Add point** rounds the generated
 values to four significant figures and immediately orders the rows by eta.
-Changing eta also reorders rows. All definition values for **eta**, **x/c** and
-**z/c** are limited to at most **five significant figures**, including typed,
-dragged and loaded values. Inputs are rounded when a change is committed and
-normalized consistently for generation, Study/TOML and deck signatures.
+Changing eta also reorders rows. Labels and committed edits for **eta**, **x/c**
+and **z/c** use at most **four significant figures** with ordinary decimal
+notation where practical. A shorter display never moves an untouched saved or
+snapped station: its original coordinates remain in generation, Study/TOML and
+deck signatures. **Snap to rib** retains the exact computed target station.
 Derived Cartesian FE coordinates, loads and material constants retain their
-calculation precision. Recreate the FEM and rerun old results when this input
-rounding changes a loaded model definition.
+calculation precision. Recreate the FEM and rerun after changing the definition.
 
 The Planform and Spars point tables show explicit root and tip rows. Their eta
 values stay locked at **0** and **1** during numeric, keyboard and mouse edits;
@@ -2244,7 +2285,8 @@ explicit property values and local sizing overrides.
    a perturbation point moves its eta onto the nearest available rib datum while
    preserving delta x/c; it also handles oblique rib datums. This is a one-time
    edit, not a persistent geometric constraint. Eta and x/c field arrows use 0.1
-   increments; eta/x/c definitions are limited to five significant figures.
+   increments; coordinate labels and committed eta/x/c edits use four significant
+   figures. Snapping retains the exact computed station.
 4. Define materials, skins, stringers, ribs, spars and leading-edge properties
    under **Model / Properties**. Detached panel tables assign local overrides;
    blank entries inherit the shared values. Rows are stringers, columns are rib
@@ -2471,6 +2513,114 @@ sources; it does not depend on an old server token. **Write deck** produces a
 self-contained deck with INCLUDE text expanded. Wing geometry/property forms
 and TOML export are disabled for imported models. **New Study**, **Load TOML**
 or loading a generated Study returns to the wing generator.
+
+### Collect Nastran fragments from a folder
+
+In **Read Nastran**, choose **Folder fragments**, select a directory and scan
+it. Boxer lists plausible deck files recursively, including subfolders, before
+you read the combined model. This is useful when a model was delivered as loose
+bulk-data fragments and its INCLUDE hierarchy is missing or unclear.
+
+Supported filename extensions include `.bdf`, `.dat`, `.nas`, `.bulk`, `.blk`,
+`.fem`, `.pch`, `.inc`, `.include` and their gzip versions. Nastran `.inp` files
+are accepted; Abaqus inputs are skipped. The scan does not search `.f06` or
+`.op2` outputs. Dependencies with other extensions are included when a valid
+INCLUDE names them.
+
+Review the file list and, when needed, choose the file providing the executive
+and case-control sections. Identical entity definitions can be consolidated;
+conflicting GRID, element, property or material IDs require correction rather
+than an arbitrary overwrite. Repeated load cards are not unique entity
+definitions: review collection warnings and the resulting load cases carefully.
+When paths in an old INCLUDE hierarchy cannot be resolved, explicitly enable
+**Ignore unresolved INCLUDE paths** and rescan. Boxer then collects available
+fragments inside the selected folder and reports every ignored dependency.
+Review these warnings before analysis; the switch does not supply missing data.
+
+The folder operation leaves source files untouched. **Save Study** embeds the
+combined source, and the Utils workflow below can export an edited BDF.
+
+### Cut and stretch an FE model in Utils
+
+Open **Utils** to edit an imported Nastran model or a Boxer-generated FEM.
+Start an editable copy before cutting. This freezes the generated mesh into
+an explicit deck: subsequent edits operate on nodes and elements, rather than
+the wing's parametric definition. Keep the original Study if you also need its
+geometry forms. Original disk files remain unchanged.
+
+1. Define the cutting plane by its **point X/Y/Z**, **normal X/Y/Z**, and square
+   **side length**. The normal defines the positive side. Values use the source
+   deck's consistent length units; generated Boxer models use metres. Preview
+   the plane and make it large enough to cross the complete fuselage section.
+   **Pick plane point in 3D** uses a clicked GRID's stored BASIC coordinates.
+   The point is the centre of the square, so a point picked on the fuselage
+   perimeter may require a larger side length to cover the opposite wall.
+   The plane is translucent; the yellow intersection line shows the first cut,
+   and a pink line shows the second slice boundary. Neither changes the mesh.
+2. Apply the cut. Linear shell and beam elements intersecting the plane are
+   split with shared intersection nodes. Enable **Duplicate cut nodes** to
+   separate the two sides, creating independent interfaces for a stretch.
+   The connected parts appear in different colors immediately after a
+   successful cut. Use **Pick part in 3D** and click the required component;
+   its amber glow, label and element count confirm the selection.
+3. Choose **Move selected region** or **Copy selected region**, enter the
+   displacement vector or direction and distance, then press **Apply**.
+   Copy keeps the original part at its current position. The action becomes
+   available after selecting a part. To deliberately select a positive or
+   negative half-space instead, use **Use plane / slice selection**; shared
+   interfaces must be detached before moving just one side.
+   **Pick vector from two GRIDs in 3D** uses `B - A`. Both endpoint IDs,
+   coordinates and the original delta are shown. Edit X, Y or Z independently
+   to zero an unwanted component before moving. **Cancel pick** or Escape
+   keeps the previous inputs; picking uses stored, undeformed coordinates.
+4. For a repeated fuselage section, make a second parallel cut, then select
+   the **slice between two planes** and use the plane/slice selection. Open
+   **Advanced · repeat copies** to specify more than one copy. Each repeat is
+   offset by another multiple of the vector;
+   its GRID and element IDs are new, while material/property IDs are shared.
+5. Set **New-overlap tolerance** in the model's length units before moving or
+   copying. Afterwards, Boxer highlights and lists only the new coincidences
+   caused by that operation; preexisting and unrelated coincidences are
+   excluded. Review each group, choose the surviving **Keep GRID** when several
+   existing anchors coincide, then select the groups and press **Equivalence**.
+   Only the chosen anchor and new affected nodes are joined; other existing
+   anchors stay separate. This updates element connectivity and can be undone.
+   Magenta markers and review notes identify affected nodes that cannot be
+   grouped safely. Zero automatically mergeable groups can still require manual
+   review; read the reported warnings before proceeding.
+   A separate **Advanced · global node search** also finds preexisting
+   coincidences. Review these independently, especially intentional joint nodes
+   and opposite faces of a thin structure. Nothing is merged automatically.
+6. Use **Undo** to reverse edits or **Reset** to return to the starting copy.
+   Export the final **BDF**, or **Save Study** to embed the edited source with
+   display settings and references. Reopen the saved model and rerun its FE
+   analysis after editing; previous results no longer apply to its mesh.
+
+When an RBE lies on the cut seam or spans the selected and stationary parts,
+Boxer keeps that rigid connection on its **original nodes and coordinates**.
+The selected structure receives separate attachment-node aliases, including
+off-plane attachments when necessary, so it can move without pulling the
+stationary structure or the retained rigid connection. Original nodal loads,
+supports and rigid DOFs remain on the original nodes. Warnings identify the
+retained connections, and BDF comments record the alias mapping. After adding
+replacement slices, review coincident nodes and merge compatible interfaces
+explicitly. Connections wholly within the moved part follow that part.
+
+Affected CBAR/CBEAM orientations with an explicit GRID (`G0`) field are converted
+automatically to explicit BASIC-coordinate vectors using the pre-edit geometry.
+An external orientation GRID can therefore stay in place while the beam moves
+or is copied. Stationary beams are also protected when their G0 moves with
+another part. End-offset flags and values and end releases retain their
+authored definitions; the original orientation GRID is not deleted. Degenerate
+or numerically ambiguous orientation definitions require correction first.
+
+The initial cutting support covers linear `CTRIA3`/`CQUAD4` shells and
+`CBAR`/`CBEAM`/rod elements. Unsupported intersected elements or source-card
+relationships are reported before committing an edit. A square that covers
+only part of an intersected element must be enlarged; it is not a solid-model
+Boolean cutting surface. Source loads, constraints and rigid links require
+particular care when copying or separating sections; review all reported
+warnings and the final supports and load cases before analysis.
 
 ### Read an Abaqus input
 

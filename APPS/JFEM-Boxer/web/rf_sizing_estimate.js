@@ -11,7 +11,7 @@
  const fail=reason=>({reason}),near=(a,b,tol=1e-9)=>finite(a)&&finite(b)&&Math.abs(a-b)<=tol*Math.max(Math.abs(a),Math.abs(b),Number.MIN_VALUE);
  const sectionCertificates=new WeakMap(),certificates=new WeakMap(),cache=new WeakMap(),laminateCache=new WeakMap();
  const NOTE='Model and results are not in sync. Estimated reserve factors use the edited sections with the last solved element forces and moments held fixed. They ignore load redistribution, changes in mass loads, aeroelastic loads and nonlinear equilibrium. Rerun the FE analysis to confirm the design.';
- const ALLOWED=/^(properties\.|material\.|materials\.)|^assessment\.(strength_safety_factor|buckling_policy_factor)$|^stringers\.(euler_fixity_coefficient|skin_fixity_coefficient)$/;
+ const ALLOWED=/^(properties\.|material\.|materials\.)|^assessment\.(strength_safety_factor|buckling_policy_factor)$|^stringers\.(euler_fixity_coefficient|skin_fixity_coefficient)$|^leading_edge\.(t_skin|t_rib)$/;
  const geometryKeys=['elements','nodeIds','nodePositions','panels','componentGroups','eulerColumns','stringerBlades','skinBucklingPanels','componentBuckling'];
  const certifiedKeys=[...geometryKeys,'cases','signature','meshIdentity','studyEpoch','topologySignature','definitionSignature','allowables','assessmentPolicy','assessmentPolicyWarnings','componentFixities','eulerFixityCoefficient','skinFixityCoefficient','generated','sourceUnits','expectedCases'];
  function signatureRows(signature){try{const rows=JSON.parse(signature);return Array.isArray(rows)&&rows.every(r=>Array.isArray(r)&&r.length===2&&typeof r[0]==='string')?new Map(rows):null;}catch{return null;}}

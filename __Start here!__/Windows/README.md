@@ -4,8 +4,13 @@
 
 ## Install once
 
-1. Install **Julia 1.13.1 (64-bit)** from [Julia downloads](https://julialang.org/downloads/manual-downloads/).
-   **Tick Add Julia to PATH**, then reopen any terminal/File Explorer window.
+1. Check an existing Julia installation with `julia --version` in a new
+   PowerShell window. This checkout records **Julia 1.13.1**; setup accepts the
+   **1.13** release line. An existing 1.13.x installation can be reused.
+   If Julia is missing, install **Julia 1.13 (64-bit)** from
+   [Julia downloads](https://julialang.org/downloads/manual-downloads/).
+   **Tick Add Julia to PATH**, then reopen the terminal/File Explorer window.
+   For an older Julia installation, see **Repair and updates** below.
 2. Download the complete JFEM ZIP from GitHub and choose **Extract All**. Keep
    the entire extracted folder together in a writable location.
 3. Open the repository root and double-click **setup.cmd**.
@@ -40,10 +45,30 @@ To try the solver, choose `utils/examples/precompile/sol101_quad_static.bdf`.
 The console reports the output location. In Results viewer, use **Struct /
 Choose File** for Model A and open the resulting `.jfem` file.
 
-Commands below assume PowerShell opened in this Windows folder.
+Run the setup/repair commands below in PowerShell at the **repository root**:
+the folder containing `Project.toml`, `Manifest.toml` and `setup.cmd`.
 
 ## Repair and updates
 
+- **An older Julia is already installed:** if you use Juliaup, run
+  `juliaup status`, `juliaup add 1.13`, then `juliaup default 1.13`.
+  The last command changes the default Julia for your other projects too.
+  Reopen PowerShell and check `julia --version` before running `.\setup.cmd`.
+  Without Juliaup, install 1.13 alongside the older version using step 1 above.
+  Keep your existing Julia installations and package cache. If the old Julia
+  still starts, use `where.exe julia` to inspect PATH, or set `JFEM_JULIA` to
+  the full matching `julia.exe` path. Do not include `+1.13` or other flags in
+  that variable. An old `WINGFEGEN_JULIA` setting can override it for Boxer;
+  remove that old setting or point both variables to the same executable.
+- **Updating JFEM:** save your Studies, close the app and its console, and
+  update the complete repository. Keep your Studies/decks and Julia depot.
+  Run `.\setup.cmd` at the updated repository root, then launch Boxer normally.
+  Setup reuses cached packages and a current eligible image; it does not start
+  every package download from zero. Julia source, runtime or dependency changes
+  can require a long image rebuild. A fresh ZIP contains no generated image,
+  so its first setup builds one even when packages are already cached. UI-only
+  or documentation edits in an existing checkout do not themselves invalidate
+  the compiled Julia image; reload the browser after restarting the app.
 - **Julia not found:** put the tested Julia executable on PATH and reopen the
   terminal or launcher. `JFEM_JULIA` can name its full executable path without flags.
 - **Download failure:** restore network/proxy access and rerun setup; completed

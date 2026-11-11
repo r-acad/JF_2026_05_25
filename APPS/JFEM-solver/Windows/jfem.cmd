@@ -4,7 +4,7 @@ set "JFEM_BIN=%JFEM_JULIA%"
 if not defined JFEM_BIN set "JFEM_BIN=julia"
 where "%JFEM_BIN%" >nul 2>&1
 if errorlevel 1 if not exist "%JFEM_BIN%" (
-  echo Julia was not found. Install Julia and run the setup.cmd launcher in __Start here!__\Windows.
+  echo Julia was not found. Install Julia, add it to PATH, then run setup.cmd at the repository root.
   exit /b 1
 )
 if "%~1"=="" (

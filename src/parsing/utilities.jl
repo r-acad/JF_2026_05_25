@@ -152,7 +152,20 @@ function get_reference_fields_from_line(line::AbstractString; large_field::Bool=
             append!(fields, get_reference_fixed_fields_from_line(prefix; large_field=large_field, truncate_to_line_length=true))
         end
         for k in 2:length(segments)
-            push!(fields, strip(segments[k]))
+            segment = rstrip(segments[k])
+            width = large_field ? 16 : 8
+            # A tab may separate fixed-field runs, rather than every field.
+            # Keep blank tab slots, but unpack a following aligned run (for
+            # example a component followed by two GRID IDs) into its fields.
+            # A single long token remains one tab-delimited value.
+            if ncodeunits(segment) > width && occursin(r"\s", strip(segment))
+                cells = [strip(segment[i:min(i+width-1,end)]) for i in 1:width:ncodeunits(segment)]
+                if all(cell -> !occursin(r"\s", cell), cells)
+                    append!(fields, cells)
+                    continue
+                end
+            end
+            push!(fields, strip(segment))
         end
         while length(fields) < 8; push!(fields, ""); end
     else

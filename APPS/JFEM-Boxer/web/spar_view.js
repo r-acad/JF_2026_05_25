@@ -3,7 +3,7 @@
  "use strict";
  const POINT_KEYS=["box.front_spar_points","box.rear_spar_points"],ANCHOR_KEYS=["box.front_spar_xc","box.rear_spar_xc"];
  const PARAM_KEYS=[...P.PARAM_KEYS,...ANCHOR_KEYS,...POINT_KEYS,"box.stringer_angle","box.stringer_angle_reference","box.stringer_segment_angles","box.rib_pitch","ribs.masters"],views=new WeakMap();
- const number=value=>root.WingNumbers?root.WingNumbers.format(value,6):Number(value.toPrecision(6)).toString();
+ const number=value=>root.WingNumbers?.coordinate?root.WingNumbers.coordinate(value):Number(value.toPrecision(4)).toString();
  function sample(data,edge,eta){
   const vertices=data.edgeVertices[POINT_KEYS[edge]];if(!vertices||!Number.isFinite(eta)||eta<0||eta>1)throw new Error("Spar samples need edge 0 or 1 and eta between 0 and 1.");
   let i=1;while(i<vertices.length-1&&vertices[i].eta<eta)i++;const a=vertices[i-1],b=vertices[i],f=(eta-a.eta)/(b.eta-a.eta),c=data.rootChord*(1-(1-data.taper)*eta),untouched=data.controls[POINT_KEYS[edge]].length===0,q=untouched?data.anchors[edge]*c:a.q+f*(b.q-a.q),xc=untouched?data.anchors[edge]:q/c,reference=data.points.rootReference;

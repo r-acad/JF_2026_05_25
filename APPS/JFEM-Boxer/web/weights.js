@@ -58,6 +58,8 @@
       }
       host.append(el("h3","","Component breakdown"));
       host.append(massTable(data.components.map(row=>({id:row.id,label:row.label,mass:row.mass_kg,weight:row.weight_N,note:row.note})),"weights-table weights-components"));
+      const movable=data.components.find(row=>row.id==="movable_surfaces");
+      if(movable){const note=el("p","pick-note",movable.label+": "+format(movable.mass_kg)+" kg. "+(movable.note||"Already included in dry structural mass."));note.id="weights-movable-summary";host.append(note);}
       const details=el("details","weights-details");details.append(el("summary","","Calculation basis and element counts"));
       for(const row of data.components){
         if(row.kind==="engine_mass"){

@@ -163,6 +163,7 @@ end
     native["SPCADDs"][201]=[201]
     @test_throws ArgumentError N.Solver.selected_spc_sets(native,201)
     native["SPCADDs"][202]=[999]
-    @test_throws ArgumentError N.Solver.selected_spc_sets(native,202)
+    missing=@test_logs (:warn,r"SPCADD 202.*undefined.*ignored") N.Solver.selected_spc_sets(native,202)
+    @test isempty(missing)
  end
 end

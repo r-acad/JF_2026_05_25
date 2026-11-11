@@ -18,7 +18,7 @@
   // Exact root/tip anchors keep the physical end stations. Interior handles
   // cannot cross their neighbours or create coincident interpolation anchors.
   if(initial===0||initial===1)return initial;
-  const bounded=Math.max(lower,Math.min(upper,value)),round=value=>Number(formatter?formatter(value):value.toPrecision(5));
+  const bounded=Math.max(lower,Math.min(upper,value)),round=value=>Number(formatter?formatter(value,{coordinate:true}):value.toPrecision(4));
   const rounded=round(bounded);
   if(Number.isFinite(rounded)&&rounded>=lower&&rounded<=upper)return rounded;
   const edge=rounded<lower?lower:upper,direction=rounded<lower?1:-1;

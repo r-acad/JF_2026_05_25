@@ -223,7 +223,14 @@ function weights_payload(m::Model)
     register_shell_stringer_mass_geometry!(p,m.groups,m.xyz,m.grid)
     rows=Any[weight_component(m,id,label,names) for (id,label,names) in WEIGHT_COMPONENTS]
     movable_names=("MOVABLE_UPPER_SKIN","MOVABLE_LOWER_SKIN","MOVABLE_HINGE_WEB","MOVABLE_SPAR_WEB","MOVABLE_RIB_WEBS","MOVABLE_HINGE_LUGS")
-    if movable_enabled(p);push!(rows,weight_component(m,"movable_surfaces","Movable-surface structures",movable_names));end
+    if movable_enabled(p)
+        movable=weight_component(m,"movable_surfaces","Movable-surface structures",movable_names)
+        names=String[surface["name"] for surface in movable_structure_data(m)["surfaces"]]
+        movable["surface_names"]=names
+        movable["note"]="Includes the generated skins, spar webs, ribs and triangular hinge fittings of "*
+            join(names,", ")*". Already included in the dry structural and loaded mass totals; do not add this mass again. Geometry-only previews have no FE mass until their structure is defined. Ideal constraints and actuator stiffness have no material mass."
+        push!(rows,movable)
+    end
     recognized=Set(vcat([name for (_,_,names) in WEIGHT_COMPONENTS for name in names],collect(movable_names)))
     for (id,label,names) in (("leading_edge_skins","Leading-edge skins",("LE_UPPER_SKIN","LE_LOWER_SKIN")),
                             ("leading_edge_ribs","Leading-edge ribs",("LE_RIB_WEBS","LE_RIB_NOSE")))

@@ -60,6 +60,9 @@ const profile=id=>({version:1,id,name:id,source_kind:'uiuc',source_url:'https://
   await page.locator('#airfoil-tip-use').click();assert.equal(JSON.parse(await value('tip')).id,'new.dat');assert.equal(await page.evaluate(()=>edits.length),beforeEdits+1);
   assert.equal(await page.locator('#airfoil-tip-card .airfoil-browser').isHidden(),true);
   assert.match(await page.locator('#airfoil-tip-card .airfoil-selected strong').textContent(),/new.dat/);
+  await page.evaluate(()=>editor.refresh());
+  assert.equal(await page.locator('#airfoil-tip-card .airfoil-applied-status').isVisible(),true);
+  assert.match(await page.locator('#airfoil-tip-card .airfoil-applied-status').textContent(),/Applied new.dat.*preview updates automatically.*Create FEM/);
   checks.push('Use commits only the validated candidate exactly once and closes the chooser');
   await page.locator('#airfoil-tip-browse').click();await ready('tip');await page.evaluate(()=>{locked=true;document.getElementById('host').dispatchEvent(new Event('parameterlockchange'));});
   assert.equal(await page.locator('#airfoil-tip-use').isDisabled(),true);assert.equal(await page.locator('#airfoil-tip-cancel').isDisabled(),true);

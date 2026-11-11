@@ -10,6 +10,12 @@ const W=require("../web/workspace.js");
   activated=false;assert(called);const destination=await requested;
   assert.equal(destination.name,"chosen.wingfem.json");assert.equal(destination.method,"picker");
   assert.equal(options.suggestedName,"suggested.wingfem.json");assert.deepEqual(options.types[0].accept,{"application/json":[".wingfem.json"]});
+  let deckOptions;
+  const deckDestination=await W.requestStudyDestination('fuselage_edited.bdf',{saveAs:true,preferNative:true},{isSecureContext:true,
+    fetch:async()=>({ok:true,status:200,json:async()=>({ok:true,available:false})}),
+    showSaveFilePicker:opts=>{deckOptions=opts;return Promise.resolve({name:'fuselage_edited.bdf'});}});
+  assert.equal(deckDestination.name,'fuselage_edited.bdf');
+  assert.deepEqual(deckOptions.types[0].accept,{'text/plain':['.bdf','.dat','.nas']});
   await W.writeDestination(destination,"study contents","application/json",null);
   assert.equal(written,"study contents");assert(closed);
   const cancel=await W.requestSaveDestination("toml","input.toml",{showSaveFilePicker:()=>Promise.reject(Object.assign(new Error("cancelled"),{name:"AbortError"}))});

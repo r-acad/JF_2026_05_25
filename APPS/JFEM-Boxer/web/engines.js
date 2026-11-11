@@ -15,7 +15,7 @@
     'The front RBE3 joins the beam midpoint / CG directly to the upper front-spar-cap nodes at the physical ribs immediately inboard and outboard of the selected front rib: two nodes, excluding intermediate mesh nodes and the node on the selected rib. The aft RBE3 joins the aft beam end directly to the corresponding two lower front-spar-cap nodes at the adjacent physical ribs around the selected aft rib, plus the existing lower-surface node on that rib nearest the requested x/c. Both attachments may use the same rib. There are no intermediate rigid mounting arms.',
     'Aft x/c is measured from the leading edge as a fraction of the complete local aerodynamic chord. The point snaps to an existing lower-rib node; a target outside the structural box selects its nearest boundary node. Inspect the aft RBE3 to see requested and actual x/c. Refine the rib mesh if a closer point is needed. Each selected rib needs a physical rib on both sides; choose an interior rib if generation reports insufficient support ribs. Spanwise mesh refinement does not change the selected attachment nodes.',
     'RBE3 interpolation transfers forces and moments without making the wing patch rigid. Cap-node translations are used; a collinear or nearly collinear patch also uses the cap rotation needed to recover rotation about that line. This avoids a singular attachment without adding wing nodes elsewhere. No separate elastic pylon-shell structure is defined.',
-    'Rib choices follow the numbered physical ribs shown in the current FEM. After changing the wing or rib layout, Create FEM refreshes those choices; existing engine definitions are preserved for review. Selecting a different rib changes its attachment location, while the engine centre stays at its entered coordinates.',
+    'Rib choices follow the numbered physical ribs in the wing. Before a numbered rib list is available, enter the attachment rib number directly. Create FEM verifies the selected numbers against the new layout; existing engine definitions are preserved for review. Selecting a different rib changes its attachment location, while the engine centre stays at its entered coordinates.',
     'Enabled engines contribute mass and inertia to the FE model. Their inertial loads use each load case\'s acceleration when structural inertia is enabled. Disable an engine to omit it from the FEM without deleting its definition. Engine definitions are saved with the Study. Create FEM and rerun the analysis after making changes.'
   ];
 
@@ -81,7 +81,7 @@
     pickerLabel.append(picker); footer.append(create);
     editor.append(intro, pickerLabel, add, status, error, list, footer); host.append(editor);
     let rows = [], selected = null, initialError = '', destroyed = false;
-    const numeric = input => input.value.trim() === '' ? null : Number(input.value);
+    const numeric = input => input.value.trim() === '' ? null : (globalThis.WingNumericInputs?.value(input) ?? Number(input.value));
     const fromDisplay = (key, input) => { const value = numeric(input); return value === null ? null : ['E', 'G'].includes(key) ? Number((value * 1e9).toPrecision(15)) : value; };
     function drafts() {
       return rows.map(row => Object.fromEntries(Object.entries(row.inputs).map(([key, input]) =>
@@ -160,14 +160,22 @@
     function updateRibChoices(row, catalog) {
       for (const key of ['front_rib', 'aft_rib']) {
         const select = row.selects[key], value = row.inputs[key].value;
-        select.replaceChildren();
-        for (const rib of catalog) {
-          const option = make('option', '', 'R' + rib.index + ' · eta ' + Number(rib.eta).toPrecision(5));
-          option.value = String(rib.index); select.append(option);
-        }
-        if (!catalog.some(rib => String(rib.index) === value)) {
-          const option = make('option', '', 'R' + value + (catalog.length ? ' · unavailable' : ' · awaiting FEM'));
-          option.value = value; select.prepend(option);
+        // A missing/stale catalog must not make an attachment impossible to
+        // edit (or require generating an engine with the wrong attachment).
+        // Retain a direct rib-number input until the draft/FEM catalog returns.
+        row.inputs[key].type = catalog.length ? 'hidden' : 'number';
+        select.hidden = !catalog.length;
+        const options = catalog.map(rib => [String(rib.index), 'R' + rib.index + ' · eta ' + Number(rib.eta.toPrecision(4))]);
+        if (!catalog.some(rib => String(rib.index) === value)) options.unshift([value, 'R' + value + (catalog.length ? ' · unavailable' : ' · awaiting FEM')]);
+        const signature = JSON.stringify(options);
+        // Ordinary field edits call refresh. Do not rebuild an unchanged
+        // native list while the user is choosing a rib with mouse/keyboard.
+        if (select.dataset.options !== signature) {
+          select.replaceChildren();
+          for (const [number, label] of options) {
+            const option = make('option', '', label); option.value = number; select.append(option);
+          }
+          select.dataset.options = signature;
         }
         select.value = value; select.disabled = isLocked() || !catalog.length;
       }
@@ -218,7 +226,7 @@
     function updateStatus() {
       const active = drafts().filter(row => row.enabled), count = active.length;
       status.textContent = (count ? count + ' engine' + (count === 1 ? '' : 's') + ' enabled. ' : 'No engines included in the FEM. ') +
-        (ribs().length ? 'Attachment choices use the current numbered physical ribs. ' : 'Create FEM to update the attachment rib choices. ') +
+        (ribs().length ? 'Attachment choices use the numbered physical ribs. ' : 'Enter front and aft rib numbers; Create FEM verifies them against the wing layout. ') +
         'Create FEM and rerun the analysis after editing.';
     }
     function refresh() {

@@ -39,6 +39,12 @@ for the workflow and a [JuliaFEM/FEModels](https://github.com/JuliaFEM/FEModels)
 example. Boxer renders solid surfaces and preserves all ten nodes of quadratic
 tetrahedra, including when opening current `.jfem` result files.
 
+**Read Nastran / Folder fragments** collects loose input fragments recursively
+with a reviewed file list and conflict checks. Boxer's **Utils** tab can cut
+linear shell/beam models, move and repeat sections, review coincident nodes,
+and save an edited deck or portable Study. See the
+[FE editing workflow](APPS/JFEM-Boxer/README.md#cut-and-stretch-an-fe-model-in-utils).
+
 Supporting decks, images, automation helpers and solver regression tests are grouped
 in [`utils/`](utils/README.md). Generated Julia images in `sysimage/` stay local;
 setup builds the appropriate image on each computer.

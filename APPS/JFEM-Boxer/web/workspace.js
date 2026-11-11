@@ -329,8 +329,8 @@
     let request;
     try {
       request=host.showSaveFilePicker({id:"wingfegen-"+kind,suggestedName:name,
-        types:[{description:kind==="study" ? "JFEM-Boxer Study" : "JFEM-Boxer TOML parameters",
-          accept:kind==="study" ? {"application/json":[".wingfem.json"]} : {"text/plain":[".toml"]}}]});
+        types:[{description:kind==="deck" ? "Nastran finite-element model" : kind==="study" ? "JFEM-Boxer Study" : "JFEM-Boxer TOML parameters",
+          accept:kind==="deck" ? {"text/plain":[".bdf",".dat",".nas"]} : kind==="study" ? {"application/json":[".wingfem.json"]} : {"text/plain":[".toml"]}}]});
     } catch(error) { request=Promise.reject(error); }
     // Resolve cancellations/errors immediately to avoid an unhandled rejection
     // while the interface yields to paint its busy state.
@@ -347,13 +347,14 @@
     return data;
   }
   async function requestNativeDestination(name,host,{browserFallback=false}={}) {
+    const fallbackKind=/\.(bdf|dat|nas)$/i.test(name)?"deck":/\.toml$/i.test(name)?"toml":"study";
     try{
       const data=await nativeFileRequest("pick",{name},host);
       if(data.cancelled)return {cancelled:true};
       if(data.available!==false)return {method:"native",handle:data.handle,name:data.handle.name,path:data.handle.path};
-      if(browserFallback&&typeof host.showSaveFilePicker==="function"&&host.isSecureContext!==false)return requestSaveDestination("study",name,host);
+      if(browserFallback&&typeof host.showSaveFilePicker==="function"&&host.isSecureContext!==false)return requestSaveDestination(fallbackKind,name,host);
       return requestDownloadFallback(name,data.reason||"Neither a browser nor a system Save dialog is available.",host);
-    }catch(error){if(browserFallback&&typeof host.showSaveFilePicker==="function"&&host.isSecureContext!==false)return requestSaveDestination("study",name,host);return requestDownloadFallback(name,"The system Save dialog is unavailable: "+(error?.message||String(error)),host);}
+    }catch(error){if(browserFallback&&typeof host.showSaveFilePicker==="function"&&host.isSecureContext!==false)return requestSaveDestination(fallbackKind,name,host);return requestDownloadFallback(name,"The system Save dialog is unavailable: "+(error?.message||String(error)),host);}
   }
   function requestDownloadFallback(name,reason,host){
     const accepted=typeof host.confirm==="function"&&host.confirm(reason+"\n\nDownload this file instead? Your browser download settings choose the folder. Enable 'Ask where to save each file' in the browser to select a location. Cancel keeps your changes unsaved.");

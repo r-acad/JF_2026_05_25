@@ -5,7 +5,7 @@ if not defined BOXER_JULIA set "BOXER_JULIA=%JFEM_JULIA%"
 if not defined BOXER_JULIA set "BOXER_JULIA=julia"
 where "%BOXER_JULIA%" >nul 2>&1
 if errorlevel 1 if not exist "%BOXER_JULIA%" (
-  echo Julia was not found. Install Julia and run the setup.cmd launcher in __Start here!__\Windows.
+  echo Julia was not found. Install Julia, add it to PATH, then run setup.cmd at the repository root.
   if not "%OPENJFEM_NO_PAUSE%"=="1" pause
   exit /b 1
 )

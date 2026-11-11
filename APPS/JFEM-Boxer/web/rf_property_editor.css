@@ -26,4 +26,9 @@
 .rf-property-editor footer{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}
 .rf-property-editor button.rf-property-apply{background:#176daf;border-color:#5ba8e2}
 .rf-property-editor [hidden]{display:none!important}
+.rf-assembly-editor{width:min(1280px,calc(100vw - 32px))}
+.rf-assembly-sections{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(330px,100%),1fr));gap:12px;align-items:start}
+.rf-assembly-section{margin:0;padding:12px;border:1px solid #67849a;border-radius:9px;min-width:0}
+.rf-assembly-section>h3{margin:0 0 10px;font-size:16px;color:#b7dcff}
+.rf-assembly-editor footer{position:sticky;bottom:-20px;background:#142536;padding:12px 0;z-index:1}
 @media(max-width:520px){.rf-property-fields{grid-template-columns:1fr}}

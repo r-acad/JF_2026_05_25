@@ -74,7 +74,7 @@
   if(![span,semispan,rootChord,tipChord,mac,actualHalfArea,chordSquaredIntegral,...all.flat(),...points.tipReference,...(boxEnd?.leading||[]),...(boxEnd?.trailing||[])].every(Number.isFinite)||![span,rootChord,tipChord,xmax-xmin,ymax-ymin].every(v=>v>0))return{valid:false,error:"The dimensions cannot be resolved at these input magnitudes or root offsets.",invalid:PARAM_KEYS.slice()};
   return{valid:!surfaceError,drawable:true,error:surfaceError,invalid:surfaceError?POINT_KEYS.slice():[],version:2,coordinateSystem:"FE basic axes: x aft, y toward the modeled tip, z up; metres",basis:"Untwisted projected planform",area:S,halfArea:S/2,aspectRatio:AR,taper,span,semispan,rootChord,tipChord,mac,sweepDeg:sweep,sweepRef,dihedralDeg:dihedral,twistTipDeg:values["planform.twist_tip"],twistAxis:values["planform.twist_axis_xc"],points,right,left,baseRight,boxEnd,controls,edgeVertices,actualArea:actualHalfArea*2,actualHalfArea,actualAspectRatio:span*span/(2*actualHalfArea),actualTaper:actualChords.at(-1)/actualChords[0],actualRootChord:actualChords[0],actualTipChord:actualChords.at(-1),actualMAC:chordSquaredIntegral/actualHalfArea,bounds:{xmin,xmax,ymin,ymax}};
  }
- const number=value=>root.WingNumbers?root.WingNumbers.format(value,6):Number(value.toPrecision(6)).toString();
+ const number=value=>root.WingNumbers?.coordinate?root.WingNumbers.coordinate(value):Number(value.toPrecision(4)).toString();
  function drawing(data,{mirror=false,id="planform"}={}){
   if(!data.valid)return"";
   const rootPoint=data.points.rootReference,minY=mirror?data.bounds.ymin:rootPoint[1],width=mirror?data.span:data.semispan,height=data.bounds.xmax-data.bounds.xmin,scale=Math.min(700/width,330/height),left=130+(700-width*scale)/2,top=125+(330-height*scale)/2;
@@ -138,12 +138,13 @@
   const viewport=globalThis.WingSVGViewport?.install(svg,{host:svg.parentElement,title:config.name||"Planform",exportName:svg.dataset.viewKey+".svg",snapSelector:"polygon,polyline,.pf-point-dot,.pf-box-end,.sf-rib-datum line",isGeometryTarget:target=>{const handle=target.closest?.("[data-edge]");return !!handle&&handle.getAttribute("aria-disabled")!=="true";},onChange:options.onViewChange});
   const angleHelp=doc.createElement("p");angleHelp.className="planform-editor-help";angleHelp.textContent="Root and tip controls always stay at eta 0 and 1; edit their offsets to move them chordwise. Fix incoming angle anchors the selected point and moves the preceding point in x/c. The angle is measured from BASIC +Y towards +X (0 degrees is perpendicular to the symmetry plane). Adjacent fixed angles propagate changes inboard. Release the angle checkbox to edit the preceding offset freely.";tables.after(angleHelp);
   const warning=doc.createElement("p");warning.className="planform-editor-warning";warning.hidden=true;error.after(warning);
+  const angleStatus=doc.createElement("p");angleStatus.className="planform-editor-help planform-angle-status";angleStatus.setAttribute("role","status");angleStatus.hidden=true;metrics.after(angleStatus);
   let selected=null,drag=null,lastValid=null,contextError="",notifiedDrafts=null,sortingTables=false;
   const supported=keys.every(key=>doc.getElementById("p-"+key));
   const locked=()=>!supported||!!options.isLocked?.(),read=()=>options.readValues();
   const canDraw=data=>data.valid||!!(config.editInvalid&&data.drawable);
   const setError=message=>{error.hidden=!message;error.textContent=message||"";};
-  function readDrafts(){const params={...read()};for(let edge=0;edge<keys.length;edge++){const key=keys[edge],table=tables.querySelector(`[data-key="${key}"]`);params[key]=table?Array.from(table.querySelectorAll("tbody tr")).map(row=>{const result=row.dataset.pointId?{point_id:row.dataset.pointId}:{};for(const field of ["eta","dxc",...extraFields[edge].map(f=>f.key)]){const input=row.querySelector(`[data-field="${field}"]`);result[field]=input.value.trim()===""?NaN:Number(input.value);}if(row.querySelector('[data-field="fix_incoming_angle"]')?.checked){const angle=row.querySelector('[data-field="incoming_angle_deg"]');result.incoming_angle_deg=angle.value.trim()===""?NaN:Number(angle.value);}return result;}):endpointRows(params[key]||[],key,params);}return params;}
+  function readDrafts(){const params={...read()};for(let edge=0;edge<keys.length;edge++){const key=keys[edge],table=tables.querySelector(`[data-key="${key}"]`);params[key]=table?Array.from(table.querySelectorAll("tbody tr")).map(row=>{const result=row.dataset.pointId?{point_id:row.dataset.pointId}:{};for(const field of ["eta","dxc",...extraFields[edge].map(f=>f.key)]){const input=row.querySelector(`[data-field="${field}"]`);result[field]=input.value.trim()===""?NaN:(globalThis.WingNumericInputs?.value(input)??Number(input.value));}if(row.querySelector('[data-field="fix_incoming_angle"]')?.checked){const angle=row.querySelector('[data-field="incoming_angle_deg"]');result.incoming_angle_deg=angle.value.trim()===""?NaN:Number(angle.value);}return result;}):endpointRows(params[key]||[],key,params);}return params;}
   function assignPointIdentity(key,eta,id){const table=tables.querySelector(`[data-key="${key}"]`),row=table&&[...table.querySelectorAll('tbody tr')].find(r=>Number(r.querySelector('[data-field="eta"]').value)===eta);if(!row)return false;row.dataset.pointId=id;return true;}
   function notifyDraftEdits(params){const next=Object.fromEntries(keys.map(key=>[key,JSON.stringify(params[key])])),changed=notifiedDrafts?keys.filter(key=>next[key]!==notifiedDrafts[key]):[];notifiedDrafts=next;for(const key of changed)options.onEdit?.(key);}
   function render(data,{fixed=null,message=""}={}){
@@ -165,6 +166,13 @@
    const shortReturns=[];for(const key of keys){const vertices=data.edgeVertices?.[key]||[];for(let i=1;i<vertices.length;i++){const a=vertices[i-1],b=vertices[i],delta=b.eta-a.eta;if(delta>0&&delta<.005&&(a.eta===0||b.eta===1)&&Math.abs(Math.atan2(b.position[0]-a.position[0],b.position[1]-a.position[1])/RAD)>70)shortReturns.push(`${edgeNames[keys.indexOf(key)]}: very short, steep segment at the ${a.eta===0?"root":"tip"}. Check the visible endpoint offset; nearby interior points do not replace the eta 0 or 1 endpoint.`);}}
    warning.hidden=!shortReturns.length;warning.textContent=shortReturns.join(" ");
    config.onRender?.(drafts,data);
+   let guidance="";
+   if(selected&&data.controls){
+    const rows=data.controls[keys[selected.edge]]||[],i=rows.findIndex(point=>point.eta===selected.eta),point=rows[i],next=rows[i+1],name=prefixes[selected.edge]+(i+1);
+    if(next?.incoming_angle_deg!==undefined)guidance=name+" has its x/c set by "+prefixes[selected.edge]+(i+2)+"'s fixed incoming angle. Move that outboard point to shift the segment chordwise, or clear its Fix angle checkbox. "+((point?.eta===0||point?.eta===1)?"This endpoint's eta is fixed.":"You can still move this point spanwise.");
+    else if(point?.incoming_angle_deg!==undefined&&i>0)guidance="Moving "+name+" also moves "+prefixes[selected.edge]+i+" in x/c to preserve the fixed incoming angle. Other connected fixed angles propagate the change inboard.";
+   }
+   angleStatus.textContent=guidance;angleStatus.hidden=!guidance;
   }
   function refresh(){if(drag)return;const data=deriveData(readDrafts());render(data);if(view.dialog?.open)view.refresh();}
   function tableFocus(edge,index,field="eta"){const input=tables.querySelectorAll("tbody")[edge]?.children[index]?.querySelector(`[data-field="${field}"]`);input?.focus();input?.select();}

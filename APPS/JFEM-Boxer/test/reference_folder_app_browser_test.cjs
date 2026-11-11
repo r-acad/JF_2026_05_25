@@ -1,0 +1,46 @@
+'use strict';
+// Actual Boxer server, recursive file collection and native deck parser.
+// node reference_folder_app_browser_test.cjs URL PRIVATE_OUTPUT PLAYWRIGHT [CHROME]
+const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto'),zlib=require('node:zlib'),assert=require('node:assert/strict');
+const[url,outArg,modulePath,chromeArg]=process.argv.slice(2),out=path.resolve(outArg),fixture=path.join(out,'synthetic-folder-model');
+const{chromium}=require(path.resolve(modulePath));fs.mkdirSync(out,{recursive:true});
+const files={
+ 'main.bdf':'SOL 101\nCEND\nTITLE = Recursive native import fixture\nSUBCASE 1\n SPC = 1\n LOAD = 2\nBEGIN BULK\nINCLUDE \'geometry/nodes.inc\'\nINCLUDE \'old_layout/missing.inc\'\nINCLUDE \'unterminated_path\nGRID,5,,2.,0.,0.\nENDDATA\n',
+ 'geometry/nodes.inc':'GRID,1,,0.,0.,0.\nGRID,2,,1.,0.,0.\nGRID,3,,1.,1.,0.\nGRID,4,,0.,1.,0.\n',
+ 'geometry/repeated.include':'GRID,1,,0.,0.,0.\n',
+ 'geometry/nastran.inp':'GRID,5,,2.,0.,0.\n',
+ 'geometry/abaqus.inp':'*HEADING\nAbaqus input, deliberately not a Nastran fragment\n*NODE\n1,0,0,0\n',
+ 'properties/material.bulk.gz':zlib.gzipSync('MAT1,1,7.0E10,,.3,2700.\nPSHELL,1,1,.002\n'),
+ 'structure/skin.fem':'CQUAD4,101,1,1,2,3,4\n',
+ 'loads/boundaries.dat':'SPC1,1,123456,1,2\nFORCE,2,3,0,100.,0.,0.,1.\n',
+ 'notes.txt':'This is a synthetic component test fixture, not a model fragment.\n'
+};
+for(const[name,text]of Object.entries(files)){const destination=path.join(fixture,name);fs.mkdirSync(path.dirname(destination),{recursive:true});fs.writeFileSync(destination,text);}
+const signatures=()=>Object.fromEntries(Object.keys(files).map(name=>{const full=path.join(fixture,name),stat=fs.statSync(full);return[name,{sha256:crypto.createHash('sha256').update(fs.readFileSync(full)).digest('hex'),bytes:stat.size,mtimeMs:stat.mtimeMs}];}));
+const before=signatures();
+(async()=>{
+ const browser=await chromium.launch({headless:true,...(chromeArg?{executablePath:chromeArg}:{channel:'chrome'}),args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']}),page=await browser.newPage({viewport:{width:1600,height:1100}}),errors=[],checks=[],network=[];page.setDefaultTimeout(300000);page.on('pageerror',error=>errors.push(error.stack));page.on('request',request=>{if(request.url().includes('/api/import_reference'))network.push({method:request.method(),url:request.url(),body:request.method()==='POST'?request.postDataJSON():undefined});});
+ try{
+  const strict=await page.request.post(url.replace(/\/$/,'')+'/api/import_reference/folder/scan',{data:{path:fixture}}),strictData=await strict.json();assert(!strict.ok());assert.match(strictData.error,/Missing INCLUDE|Malformed INCLUDE|Unterminated INCLUDE/);
+  const scanResponse=await page.request.post(url.replace(/\/$/,'')+'/api/import_reference/folder/scan',{data:{path:fixture,ignore_unresolved_includes:true}});const scan=await scanResponse.json();assert(scanResponse.ok(),scan.error);assert.equal(scan.files.length,7);assert(scan.files.some(file=>file.path==='properties/material.bulk.gz'));assert(!scan.files.some(file=>file.path==='geometry/abaqus.inp'));assert.equal(scan.total_bytes,scan.files.reduce((sum,file)=>sum+before[file.path].bytes,0));assert(scan.warnings.some(text=>/Missing INCLUDE/.test(text)));assert(scan.warnings.some(text=>/Unterminated INCLUDE/.test(text)));assert(scan.warnings.some(text=>/Skipped Abaqus/.test(text)));assert(scan.scan_id);
+  fs.writeFileSync(path.join(out,'production-folder-scan.json'),JSON.stringify({strict:strictData,scan},null,2));checks.push('The actual recursive endpoint rejects missing INCLUDEs by default; explicit ignore mode reports missing/malformed paths, finds seven nested fragments including gzip and skips Abaqus contents');
+  await page.goto(url);await page.getByRole('button',{name:'Start new study',exact:true}).waitFor();await page.evaluate(()=>{document.getElementById('auto-mesh').checked=false;document.getElementById('auto-save').checked=false;});await page.getByRole('button',{name:'Start new study',exact:true}).click();await page.waitForFunction(()=>state.autoMeshReady&&!state.workspaceBusy);
+  const original=await page.evaluate(()=>({signature:state.modelSignature,nodes:state.nodeIds?.length||0}));
+  await page.evaluate(()=>{state.referenceImport.open({mode:'folder',browse:false});});await page.locator('#reference-folder-path').fill(fixture);assert.equal(await page.locator('#reference-folder-ignore-includes').isChecked(),false);await page.locator('#reference-folder-scan').click();await page.waitForFunction(()=>document.getElementById('reference-folder-scan-cancel').hidden&&!document.getElementById('reference-import-error').hidden);assert(await page.locator('#reference-read').isDisabled());
+  assert.deepEqual(await page.evaluate(()=>({signature:state.modelSignature,nodes:state.nodeIds?.length||0})),original);
+  await page.locator('#reference-folder-ignore-includes').check();await page.locator('#reference-folder-scan').click();await page.locator('#reference-folder-review').waitFor();assert.equal(await page.locator('#reference-scan-rows tr').count(),7);assert((await page.locator('#reference-folder-summary').innerText()).includes('7 / 7 files'));assert.equal(await page.locator('#reference-folder-primary').inputValue(),'main.bdf');
+  await page.waitForFunction(()=>document.getElementById('reference-read').dataset.ready==='true');await page.waitForTimeout(180);assert.equal(await page.locator('#reference-read').evaluate(el=>getComputedStyle(el).backgroundColor),'rgb(27, 129, 80)');await page.screenshot({path:path.join(out,'production-folder-ready.png')});
+  checks.push('The production importer retains the displayed model after a strict scan failure, requires an explicit ignore choice, reviews all files and turns green only after scanning and parser preparation');
+  await page.locator('#reference-read').click();await page.waitForFunction(()=>!document.querySelector('.reference-import-dialog').open&&!state.workspaceBusy);
+  const loaded=await page.evaluate(()=>({source:state.importedDeck?.source,nodeIds:Array.from(state.nodeIds||[]),element101:state.elements.has(101),warnings:state.importedDeck?.warnings||[],uiWarnings:document.getElementById('imported-deck-warnings')?.textContent,folder:state.importedDeck?.folder_collection}));
+  assert(loaded.source?.kind==='reference'&&loaded.element101);assert.deepEqual(loaded.nodeIds.slice().sort((a,b)=>a-b),[1,2,3,4,5]);assert.equal((loaded.source.text.match(/^GRID,/gm)||[]).length,5);assert.match(loaded.source.text,/MAT1,1,/);assert.match(loaded.source.text,/PSHELL,1,/);assert.match(loaded.source.text,/CQUAD4,101,/);assert.match(loaded.source.text,/FORCE,2,/);assert.match(loaded.source.text,/SPC1,1,/);assert(!/^INCLUDE\b/im.test(loaded.source.text));assert.match(loaded.uiWarnings,/Missing INCLUDE|Ignored unresolved INCLUDE/);assert.match(loaded.uiWarnings,/Unterminated INCLUDE/);
+  const folderRequest=network.findLast(item=>new URL(item.url).pathname==='/api/import_reference'&&item.body?.mode==='folder');assert(folderRequest);assert.equal(folderRequest.body.ignore_unresolved_includes,true);assert.equal(folderRequest.body.selected_files.length,7);assert.equal(folderRequest.body.primary_file,'main.bdf');assert(folderRequest.body.scan_id);
+  await page.screenshot({path:path.join(out,'production-folder-loaded.png')});checks.push('The root import flow preserves folder mode, selected files and ignore policy; the native parser loads the shell, five unique nodes, material, property, load and support with explicit warnings');
+  const study=await page.evaluate(async()=>await WingWorkspace.snapshot(state.values,state.reference,WingWorkspace.captureView(document,state,workspaceUI),{modelSource:state.importedDeck.source,notes:state.studyNotes,identification:state.studyWatermark?.capture()}));
+  assert.equal(study.model_source.text,loaded.source.text);assert.deepEqual(study.model_source.includes,[]);fs.writeFileSync(path.join(out,'synthetic-folder-portable.wingfem.json'),JSON.stringify(study,null,2));fs.writeFileSync(path.join(out,'synthetic-folder-combined.bdf'),loaded.source.text);
+  assert(await page.evaluate(async data=>await loadModelDefinition({name:'synthetic-folder-portable.wingfem.json',text:async()=>JSON.stringify(data)},{recent:true}),study));assert.deepEqual(await page.evaluate(()=>Array.from(state.nodeIds).sort((a,b)=>a-b)),[1,2,3,4,5]);assert.deepEqual(signatures(),before);assert.deepEqual(errors,[]);
+  checks.push('Save Study embeds the complete consolidated source, native reopening succeeds, and byte hashes, sizes and timestamps of every original fragment remain unchanged');
+  fs.writeFileSync(path.join(out,'production-folder-summary.json'),JSON.stringify({passed:true,checks,errors,scanFiles:scan.files.map(file=>file.path),warnings:loaded.warnings,network,originalFilesUnchanged:true},null,2));console.log(JSON.stringify({passed:true,checks}));
+ }catch(error){fs.writeFileSync(path.join(out,'production-folder-failure.json'),JSON.stringify({error:error.stack,checks,errors,network},null,2));await page.screenshot({path:path.join(out,'production-folder-failure.png')}).catch(()=>{});throw error;}
+ finally{await browser.close();}
+})().catch(error=>{console.error(error);process.exitCode=1;});

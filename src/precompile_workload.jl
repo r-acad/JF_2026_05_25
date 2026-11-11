@@ -35,6 +35,10 @@ function _jfem_default_precompile_bdfs()
     candidates = String[
         joinpath(precompile_dir, "sol101_quad_static.bdf"),
         joinpath(precompile_dir, "sol103_quad_modes.bdf"),
+        # A clamped CBAR chain with mass only at four GRIDs forces the
+        # nullspace-preserving sparse modal path and exact mass-support
+        # operator, including its full-stiffness backmap and binary export.
+        joinpath(precompile_dir, "sol103_concentrated_mass_beam.bdf"),
         joinpath(precompile_dir, "sol105_quad_buckling.bdf"),
         # ~1000-DOF mixed CQUAD4/CTRIA3 plate with ranged EIGRL + STATSUB:
         # exercises the SPARSE eigsolve/Sturm/augmentation branches (the tiny

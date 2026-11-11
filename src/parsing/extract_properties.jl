@@ -91,7 +91,7 @@ function extract_pbarl(cards)
             4
         elseif type == "I"
             6
-        elseif type == "CHAN"
+        elseif type == "CHAN" || type == "CHAN2"
             4
         elseif type == "HAT"
             4
@@ -106,9 +106,29 @@ function extract_pbarl(cards)
         end
         dims = numeric_values[1:min(expected_dim_count, length(numeric_values))]
         nsm = length(numeric_values) > expected_dim_count ? numeric_values[expected_dim_count + 1] : 0.0
+        if type == "CHAN2"
+            # Keep dimension positions: a blank DIM must not be filled by the
+            # following dimension or NSM. The compact native/JSON route places
+            # dimensions immediately after TYPE; normal decks reserve fields.
+            fields=Any[x for x in c if !(x isa AbstractString && _is_continuation_marker(x))]
+            first_dim=dim_start_idx==7 && length(fields)>=14 &&
+                all(k->isempty(strip(string(safe_get(fields,k,"")))),7:10) ? 11 : dim_start_idx
+            raw_dims=[parse_reference_number(safe_get(fields,k),nothing) for k in first_dim:first_dim+3]
+            all(x->x isa Real && isfinite(x) && x>0,raw_dims) ||
+                throw(ArgumentError("PBARL $pid CHAN2 requires four finite positive dimensions"))
+            dims=Float64.(raw_dims)
+            raw_nsm=safe_get(fields,first_dim+4,"")
+            nsm=isempty(strip(string(raw_nsm))) ? 0.0 : parse_reference_number(raw_nsm,nothing)
+            nsm isa Real && isfinite(nsm) || throw(ArgumentError("PBARL $pid CHAN2 NSM must be finite"))
+            any(k->!isempty(strip(string(safe_get(fields,k,"")))),first_dim+5:length(fields)) &&
+                throw(ArgumentError("PBARL $pid CHAN2 has data after its four dimensions and NSM"))
+        end
 
         A, I1, I2, J = 1.0, 1.0, 1.0, 1.0
         K1, K2 = 0.0, 0.0
+        if type == "CHAN2" && length(dims)!=4
+            throw(ArgumentError("PBARL $pid CHAN2 requires exactly four section dimensions"))
+        end
         if type == "ROD" && length(dims) >= 1
             R = dims[1]; A = pi*R^2; I1 = pi*R^4/4; I2 = I1; J = pi*R^4/2
         elseif (type == "TUBE" || type == "TUBE2") && length(dims) >= 2
@@ -150,6 +170,11 @@ function extract_pbarl(cards)
             I1 = (tw*hw^3)/12 + 2*(bf*tf^3/12 + bf*tf*((h-tf)/2)^2)
             I2 = (hw*tw^3)/12 + 2*(tf*bf^3/12 + bf*tf*(bf/2 - yc)^2) + hw*tw*yc^2
             J = (2*bf*tf^3 + hw*tw^3) / 3
+        elseif type == "CHAN2"
+            geometry=chan2_section_geometry(dims...)
+            section=chan2_section_warping(dims...)
+            A,I1,I2,J=geometry.A,geometry.I1,geometry.I2,section.J
+            K1,K2=section.K1,section.K2
         elseif type == "HAT" && length(dims) >= 4
             w_top = dims[1]; t = dims[2]; w_bot = dims[3]; h_hat = dims[4]
             h_web = h_hat - t
@@ -207,6 +232,11 @@ function extract_pbarl(cards)
         elseif type == "BOX" && length(dims) >= 2
             w2 = dims[1]/2; h2 = dims[2]/2
             C1=h2; C2=w2; D1=-h2; D2=w2; E1=-h2; E2=-w2; F1=h2; F2=-w2
+        elseif type == "CHAN2"
+            yc=chan2_section_geometry(dims...).yc
+            height,width=dims[3],dims[4]
+            C1=height-yc;C2=width/2;D1=-yc;D2=width/2
+            E1=-yc;E2=-width/2;F1=height-yc;F2=-width/2
         end
         # Auto-compute shear factors if not provided (PBARL doesn't have K1/K2 fields)
         if K1 == 0.0 && K2 == 0.0 && !isempty(dims)
@@ -215,6 +245,12 @@ function extract_pbarl(cards)
         d[string(pid)] = Dict("PID"=>pid, "MID"=>mid, "A"=>A, "I"=>I1, "I1"=>I1, "I2"=>I2, "J"=>J, "TYPE"=>type, "K1"=>K1, "K2"=>K2,
             "C1"=>C1, "C2"=>C2, "D1"=>D1, "D2"=>D2, "E1"=>E1, "E2"=>E2, "F1"=>F1, "F2"=>F2, "DIMS"=>copy(dims), "NSM"=>Float64(nsm))
         type=="T" && (d[string(pid)]["TORSION_FORMULATION"]="saint_venant_2d")
+        if type=="CHAN2"
+            d[string(pid)]["I12"]=0.0
+            d[string(pid)]["SECTION_CENTROID_Y"]=chan2_section_geometry(dims...).yc
+            d[string(pid)]["TORSION_FORMULATION"]="saint_venant_2d"
+            d[string(pid)]["SECTION_RELATIVE_CHANGE"]=section.relative_change
+        end
     end
     return d
 end
@@ -398,6 +434,10 @@ function extract_pbeaml(cards)
         prop["LIBRARY_CARD"]="PBEAML"
         if prop["TYPE"] == "T"
             section=t_section_warping(prop["DIMS"]...)
+            prop["N1A"]=prop["N1B"]=section.N1
+            prop["N2A"]=prop["N2B"]=0.0
+        elseif prop["TYPE"] == "CHAN2"
+            section=chan2_section_warping(prop["DIMS"]...)
             prop["N1A"]=prop["N1B"]=section.N1
             prop["N2A"]=prop["N2B"]=0.0
         end
@@ -792,6 +832,9 @@ function compute_pbarl_shear_factors(type::String, dims::Vector{Float64}, nu::Fl
         K2 = min(bf*tf / A, 1.0)  # horizontal shear through flange
         return (K1, K2)
 
+    elseif type == "CHAN2" && length(dims) == 4
+        section=chan2_section_warping(dims...)
+        return section.K1,section.K2
     elseif type == "CHAN" && length(dims) >= 4
         bf = dims[1]; h = dims[2]; tw = dims[3]; tf = dims[4]
         hw = h - 2*tf

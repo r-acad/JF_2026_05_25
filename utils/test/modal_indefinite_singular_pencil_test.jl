@@ -70,9 +70,38 @@ function checks()
     # Ordinary positive-definite pencils retain the original factor route.
     _,_,_,_,attempts=S._sol103_shifted_factorization(sparse(Diagonal([4.,12.])),sparse(Diagonal([1.,2.])),1e-12,1e-12,0.)
     @test attempts[end]["factor_backend"]=="positive_mass_shift_cholesky"
+    # A non-finite scalar would turn implicit sparse zeros into NaNs and
+    # request a dense-sized allocation. Reject invalid operators first.
+    @test_throws ArgumentError S._sol103_shifted_factorization(
+        sparse(Diagonal([NaN,12.])),sparse(Diagonal([1.,2.])),1e-12,1e-12,0.)
+    @test_throws ArgumentError S._sol103_shifted_factorization(
+        sparse(Diagonal([4.,12.])),sparse(Diagonal([1.,Inf])),1e-12,1e-12,0.)
 end
 end
 
 @testset "Finite modes of indefinite stiffness and singular mass" begin
     ModalIndefiniteSingularPencilFixture.checks()
+end
+
+@testset "Failed modal extraction cannot produce a successful empty analysis" begin
+    # Both operators share a nontrivial nullspace. An exact positive mass
+    # shift cannot repair this pencil, so the analysis entry point must fail.
+    K=Matrix{Float64}(I,6,6);K[1:2,1:2].=1.
+    M=zeros(6,6);M[1:2,1:2].=1.
+    cc=Dict{String,Any}("SUBCASES"=>Dict(1=>Dict("MODES"=>2)))
+    model=Dict{String,Any}("SOL"=>103,"PARAM_AUTOSPC"=>false,"SPC1s"=>Any[],"CASE_CONTROL"=>cc)
+    error=withenv("JFEM_SOL103_DENSE_MAX_DOF"=>"0") do
+        try
+            OpenJFEM._solve_sol103(model,cc,sparse(K),Dict(1=>1),zeros(1,3),6,
+                [Matrix{Float64}(I,3,3)],maximum(abs,K),
+                Dict{Int,Vector{Tuple{Int,Float64}}}(),diag(K),[1],nothing;
+                modal_mass_builder=(args...)->sparse(M))
+            nothing
+        catch exception
+            exception
+        end
+    end
+    @test error isa ErrorException
+    @test occursin("SOL 103 subcase 1 failed to extract eigenvalues",sprint(showerror,error))
+    @test occursin("joint K/M nullspace",sprint(showerror,error))
 end

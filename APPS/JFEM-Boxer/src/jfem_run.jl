@@ -297,6 +297,23 @@ end
 """Describe observed solver stages without inventing numerical percentages."""
 function update_job_stage!(job::JfemJob,line::AbstractString)
     isempty(job.runs)||return
+    if startswith(line,"[JFEM_MODAL_PROGRESS] ")
+        try
+            data=JSON.parse(chopprefix(line,"[JFEM_MODAL_PROGRESS] "))
+            get(data,"schema_version",nothing)==1 || return
+            get(data,"phase",nothing) isa AbstractString || return
+            get(data,"label",nothing) isa AbstractString || return
+            get(data,"state",nothing) in ("started","running","completed","failed","start","complete") || return
+            for key in ("elapsed_seconds","operator_applications","requested","converged","iteration","residual")
+                value=get(data,key,nothing)
+                value===nothing || (value isa Real && isfinite(value) && value>=0) || return
+            end
+            job.progress["modal"]=data
+        catch
+            # Optional numerical telemetry must never interrupt log transport.
+        end
+        return
+    end
     if startswith(line,"[JFEM_PROGRESS] ")
         try
             data=JSON.parse(chopprefix(line,"[JFEM_PROGRESS] "))
@@ -306,7 +323,10 @@ function update_job_stage!(job::JfemJob,line::AbstractString)
                 get(data,"state",nothing) in ("started","completed","failed")
             valid || return
             p=job.progress;state=String(data["state"])
+            state=="started" && get(data,"resumed",false)!==true && delete!(p,"modal")
             p["stage_source"]="structured";p["stage"]=String(data["phase"])
+            # Modal detail belongs to its numerical phase, not subsequent export.
+            data["category"]=="numerical" || delete!(p,"modal")
             p["stage_category"]=String(data["category"]);p["stage_state"]=state
             p["stage_id"]=get(data,"id","");p["stage_parent"]=get(data,"parent",nothing)
             p["stage_depth"]=get(data,"depth",0)
@@ -438,6 +458,8 @@ function job_progress(job::JfemJob)
     end
     lock(job.lk) do
         result=copy(job.progress)
+        pop!(result,"_solver_output_at",nothing)
+        pop!(result,"_heartbeat_at",nothing)
         stage_started=pop!(result,"stage_started",nothing)
         stage_started===nothing || (result["stage_seconds"]=get(result,"stage_state","") in ("completed","failed") ?
             get(result,"stage_completed_seconds",0.) : max(0.,(job.finished===nothing ? time() : job.finished)-stage_started))
@@ -523,6 +545,7 @@ function finish_jfem_process!(job::JfemJob,exitcode::Integer;failure_reason::Abs
             path===nothing && error("no solver results JSON was written")
             startswith(String(get(data,"analysis_type","")),"SOL"*solution) ||
                 error("the result analysis type does not match SOL$solution")
+            modal_binary_result_path(path,data) # A metadata-only result needs its companion vectors.
             if solution=="106"
                 for spec in load_case_specs(job.model.params)
                     convergence=nonlinear_case_convergence(data,spec.id)
@@ -865,6 +888,8 @@ function start_jfem_comparison(model,params,root,bdf,id)
 end
 
 # --- reading the results ---------------------------------------------------
+
+include("modal_binary_results.jl")
 
 """
     find_results_json(outdir) -> (path, dict)
@@ -1553,6 +1578,7 @@ function jfem_case_results_payload(job::JfemJob, path::AbstractString, d::Abstra
     end
 
     if mode_kind != "none"
+        binary_modes=modal_binary_vectors(path,d,idx,n)
         meff = Dict{Int,Any}()
         for e in get(d, "modal_effective_mass", Any[])
             mno = get(e, "mode", nothing)
@@ -1573,7 +1599,9 @@ function jfem_case_results_payload(job::JfemJob, path::AbstractString, d::Abstra
                     "peak_translation"=>get(md,"peak_translation",nothing)))
                 continue
             end
-            shape, mx = gather_translations(get(md, "mode_shape", Any[]), idx, n)
+            binary=binary_modes===nothing ? nothing : get(binary_modes,mno,nothing)
+            shape, mx = binary===nothing ? gather_translations(get(md, "mode_shape", Any[]), idx, n) :
+                (binary.shape,binary.max_disp)
             push!(modes, Dict{String,Any}(
                 "mode" => mno,
                 "freq_hz" => fnum(get(md, "frequency_hz", 0.0)),
@@ -1584,7 +1612,7 @@ function jfem_case_results_payload(job::JfemJob, path::AbstractString, d::Abstra
                 "meff_y" => e === nothing ? 0.0 : fnum(get(e, "meff_y", 0.0)),
                 "meff_z" => e === nothing ? 0.0 : fnum(get(e, "meff_z", 0.0)),
                 "shape" => blob_f32(shape),
-                "rotation" => blob_f32(gather_rotations(get(md, "mode_shape", Any[]), idx, n)),
+                "rotation" => blob_f32(binary===nothing ? gather_rotations(get(md, "mode_shape", Any[]), idx, n) : binary.rotation),
                 "peak_translation"=>get(md,"peak_translation",nothing),
                 "element_energy"=>get(md,"element_energy",nothing),
                 "energy_contours"=>element_energy_contours(m,get(md,"element_energy",nothing)),

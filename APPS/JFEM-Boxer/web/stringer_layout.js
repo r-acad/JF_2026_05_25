@@ -2,7 +2,7 @@
 (function(root,factory){const api=factory(root,typeof module==='object'&&module.exports?require('./spar_view.js'):root.WingSparView,typeof module==='object'&&module.exports?require('./planform_view.js'):root.WingPlanformView);if(typeof module==='object'&&module.exports)module.exports=api;else root.WingStringerLayout=api;})(globalThis,function(root,Spar,Planform){
  'use strict';
  const PARAM_KEYS=[...new Set([...Spar.PARAM_KEYS,'box.stringer_pitch','mesh.stringer_runout_ratio','box.rib_pitch','ribs.masters','mesh.elements_between_ribs'])];
- const number=v=>root.WingNumbers?root.WingNumbers.format(v,5):Number(v.toPrecision(6)).toString();
+ const number=v=>root.WingNumbers?.coordinate(v)??Number(v.toPrecision(4)).toString();
  const escape=value=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  function ribAPI(){return root.WingRibLayout||(typeof require==='function'?require('./rib_layout.js'):null);}
  function segments(points){

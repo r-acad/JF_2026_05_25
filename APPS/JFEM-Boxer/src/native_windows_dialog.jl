@@ -66,6 +66,11 @@ end
 
 function choices(mode,name,format)
     if mode===:save
+        if occursin(r"(?i)\.(bdf|dat|nas)$",name)
+            extension=lowercase(last(split(name,'.')))
+            return (filter="Nastran model (*.bdf;*.dat;*.nas)\0*.bdf;*.dat;*.nas\0All files (*.*)\0*.*\0",extension=extension,
+                title="Save edited Nastran model - choose a folder and filename")
+        end
         extension=endswith(lowercase(name),".toml") ? "toml" : "json"
         label=extension=="toml" ? "JFEM-Boxer parameters (*.toml)" : "JFEM-Boxer Study (*.wingfem.json;*.json)"
         pattern=extension=="toml" ? "*.toml" : "*.wingfem.json;*.json"

@@ -40,3 +40,11 @@ for(const [alpha,beta] of [[20,-20],[-17,9],[0,0],[1.3,-2.1]]){
  for(const key of ['alpha','beta'])assert.deepEqual(angles[key].label,angles[key].points[(angles[key].points.length-1)/2]);
 }
 console.log('PASS Signed and zero-angle label anchors coincide exactly with the sampled angular midpoint.');
+
+for(const label of ['x/c','X / C','η','Eta (span)','Span η','z/c [-]'])assert(P.coordinateAxis(label),label);
+for(const label of ['Beta (deg)','CL','Delta Cp','Span (m)','Speed (m/s)'])assert(!P.coordinateAxis(label),label);
+assert.equal(P.axisFormat(.337123456789,'x/c',8),'0.3371');assert.equal(P.axisFormat(.337,'η',8),'0.337');
+assert.equal(P.axisFormat(.337123456789,'Delta Cp',8),'0.33712346');
+const coordinatePlot={title:'Pressure profile',xlabel:'x/c',ylabel:'Delta Cp',series:[{name:'Strip',points:[[.337123456789,1.23456789123]]}]},beforeCoordinate=JSON.stringify(coordinatePlot),coordinateSVG=P.svg(coordinatePlot);
+assert(coordinateSVG.includes('<title>Strip: (0.3371, 1.2346)</title>'));assert.equal(P.dataRows([coordinatePlot])[0].x,.337123456789);assert.equal(P.dataRows([coordinatePlot])[0].y,1.23456789123);assert.equal(JSON.stringify(coordinatePlot),beforeCoordinate);
+console.log('PASS Eta/x-c axes and point labels use four significant figures; physical hover precision and full-precision export values are preserved.');

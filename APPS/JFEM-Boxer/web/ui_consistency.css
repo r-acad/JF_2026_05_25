@@ -125,6 +125,9 @@ dialog :where(button,input,select,textarea,summary):focus-visible {
 #workspace-content .field-label { min-width: 0; line-height: 1.4; overflow-wrap: anywhere; }
 #workspace-content .display-control { font-size: 12px; margin: 9px 0; gap: 8px 12px; min-width: 0; }
 #workspace-content .display-control > input[type=number] { width: 120px; flex: 0 0 120px; max-width: 55%; }
+/* Imported settings stack the label above its field. A width-sized flex basis
+   becomes a tall input in that column layout; keep the standard field height. */
+#workspace-content #imported-analysis .display-control > input[type=number] { flex: 0 0 auto; height: var(--ui-field-height); }
 #workspace-content .display-control:has(> select),
 #workspace-content .display-control:has(> input[type=range]) { display: grid; grid-template-columns: minmax(0,1fr); align-items: start; gap: 5px; }
 #workspace-content .display-control > :is(select,input[type=range]) { width: 100%; max-width: 100%; min-width: 0; }

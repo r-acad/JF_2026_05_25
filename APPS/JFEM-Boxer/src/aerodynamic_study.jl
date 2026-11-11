@@ -7,7 +7,7 @@ aerodynamic_plain(v::AbstractString)=String(v)
 aerodynamic_plain(v)=v
 
 function aerodynamic_geometry(flat::AbstractDict)
-    p=default_params();input=round_coordinate_inputs(flat)
+    p=default_params();input=flat
     for (key,value) in input
         aerodynamic_geometry_key(key)||continue
         haskey(SCHEMA_BY_KEY,key)||throw(ArgumentError("Unknown aerodynamic geometry input $key"))

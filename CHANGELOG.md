@@ -5,6 +5,119 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Wing modelling and structural sizing
+
+- Double-click a structural property in Inspect to open its RF table and local
+  property editor. Reuse an available assessment or show unavailable values in
+  grey without starting an unsolicited analysis.
+- Retain the accepted model colors and RF < 1 mask throughout section and RF
+  updates, then publish the latest completed assessment together. Ignore
+  superseded updates and keep incompatible geometry/load changes guarded.
+- Apply blanket minimum-size increases across local overrides, including
+  sandwich face/core minima and leading-edge section updates at fixed loads.
+- Align root stringer nodes with their prescribed paths on twisted skins in
+  both ordinary and inclined-rib meshes, avoiding unintended first-element kinks.
+- Keep engine attachment ribs editable before FEM generation and after rib-layout
+  changes; retain selected ribs through form updates. Restore clear selection
+  feedback for every custom-constraint degree of freedom.
+- Show skin and stringer properties together when editing stiffened regions
+  from reserve factors or Inspect. Identify the complete Euler-column scope,
+  expose its actual participating properties and apply related edits together.
+  Release closed-editor draft ownership so detached tables receive updated RFs.
+- Display eta and x/c with at most four significant figures in readable decimal
+  notation. Preserve untouched saved and snapped coordinates through round trips;
+  mesh diagnostics offer exact-station copying alongside concise labels.
+- When a higher minimum gauge is committed, raise smaller local overrides while
+  preserving larger sections and material assignments. Unfinished numeric edits
+  do not change local dimensions.
+- Identify movable-surface mass explicitly in mass reports, confirm applied
+  airfoil choices visibly and distinguish inviscid span efficiency from Oswald
+  efficiency without clipping the computed value.
+- Explain existing Julia installations and shared-cache reuse in the OS guides;
+  correct setup repair commands and launcher guidance to use the repository root.
+
+### CHAN2 sections and imported analysis forms
+
+- Implement CHAN2 geometric properties, finite-thickness torsion and shear
+  factors, recovery points and uniform PBEAML neutral/shear-axis coupling.
+  Validate section dimensions explicitly instead of using a circular fallback.
+- Keep imported-analysis numeric inputs at the standard control height,
+  including Requested modes in narrow and expanded panes.
+
+### Modal performance and live solver activity
+
+- Report modal factorization, spectrum completeness, extraction work,
+  convergence, original-pencil verification and recovery in Boxer. Show
+  elapsed-stage notices during quiet native calls; display readable stage
+  messages instead of transport JSON in the browser log.
+- Solve large concentrated-mass modal problems on their exact mass support
+  while retaining every stiffness coordinate in the linear solves. Improve
+  spectral conditioning and reuse unchanged inertia certificates; retain
+  general full-pencil fallbacks and residual/completeness checks.
+- Avoid duplicate modal matrices, per-GRID dictionaries and small-vector
+  allocations. With binary plus JSON output, store modal vectors once in the
+  companion `.jfem` file and load them directly in Boxer. JSON-only exports
+  remain self-contained.
+- Include a synthetic concentrated-mass beam in installation precompilation.
+
+### Faster FE part editing and reviewed seam equivalence
+
+- Keep FE Utils node and part picking independent of Inspect and reserve-factor
+  assessment. Show connected parts after cutting, retain a glowing selection,
+  and offer a single Move/Copy action for that part.
+- Reduce whole-model copying and allocation in cutting, translation, previews
+  and connectivity discovery. Reuse viewport layers and revision-bound part
+  results; release obsolete models owned by the editing session.
+- Identify coincident nodes introduced by the latest move or copy. Review the
+  surviving GRID before equivalence; keep unrelated, pre-existing and ambiguous
+  coincidences outside automatic merge groups. Reject stale reviews and merges
+  that would collapse elements, duplicate structure or corrupt constraints.
+
+### Complex input decks and modal failure reporting
+
+- Read quoted INCLUDE paths continued across lines and mixed fixed-field runs
+  separated by tabs, preserving independent RBE3 weight groups and GRID IDs.
+- Accept BAROR/BEAMOR default records during native import, applying their
+  property, section orientation and OFFT defaults to blank CBAR/CBEAM fields.
+  Retain explicit OFFT flags on parsed beam records.
+- Resolve beam orientation vectors in the GA GRID displacement coordinate
+  system consistently across stiffness, mass, geometric stiffness, loads,
+  stress recovery and sensitivities, preventing invalid local frames and
+  non-finite assembled stiffness values.
+- Treat undefined SPCADD member sets as warned empty members of the union,
+  preserving defined selected constraints and permanent GRID constraints.
+- Release parser token tables before numerical assembly. Propagate memory
+  exhaustion and cancellation from modal extraction, and fail the analysis when
+  all modal solvers fail instead of exporting a successful empty result.
+
+### Pick FE editing geometry and retain seam connections
+
+- Convert affected CBAR/CBEAM orientation GRID references to explicit BASIC
+  vectors during FE edits, allowing parts to move or be copied independently
+  of external orientation nodes. Preserve the pre-edit section direction and
+  the remaining offset/release fields, including stationary beams whose G0 moves.
+- Pick a plane point from one GRID or a translation vector from two GRIDs in
+  the 3D view. Show exact stored coordinates and B-minus-A components, which
+  can be edited independently before movement.
+- Preview translucent cutting planes, their actual finite intersections and
+  colored connected parts; click a part to select it for moving or copying.
+- Retain spanning/coplanar rigid connections on their original nodes when
+  cutting or translating, separating selected structure with new node aliases
+  for later reviewed equivalence. Record retained-link provenance in the deck.
+- Make inspected-node spheres translucent.
+
+### Cut, stretch and repeat finite-element sections
+
+- Add a Utils workspace for plane cuts, optional interface-node duplication,
+  part translation, repeated section copies and reviewed node equivalence.
+- Keep an undoable working deck, validate edited connectivity before display,
+  and export the edited deck or embed it in a portable Study. Preserve the
+  camera when applying FE edits and invalidate results for the changed mesh.
+- Highlight the cutting plane, selected elements and coincident-node candidates
+  in the viewport. Make the ready-to-read Nastran action visibly green.
+- Add reviewed recursive folder collection in Read Nastran for loose model
+  fragments, with explicit case-control selection and conflicting-ID reports.
+
 ### Repair external deck-reader startup
 
 - Import the shared ForwardDiff types before including the native model
