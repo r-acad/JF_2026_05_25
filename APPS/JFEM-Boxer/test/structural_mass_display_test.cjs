@@ -8,6 +8,9 @@ const bay={kind:'structural',index:2,start_rib:2,end_rib:3,reference_node:9,refe
 const checks=[];
 try{
  const display=Mass.create({BABYLON:B,scene,parent,kind:'structural'});
+ const hidden=display.update({enabled:false,fuel:{bays:[bay]}});
+ assert.equal(hidden.bays.length,1);assert.equal(hidden.errors.length,0);assert.equal(display.meshes.length,0);
+ checks.push('Hidden mass overlays retain numerical bay details without allocating display geometry');
  const first=display.update({enabled:true,fuel:{bays:[bay]},showCG:true});assert.equal(first.errors.length,0);
  for(const suffix of ['ellipsoid','principal-axes','principal-ellipses','reference']){
   const mesh=display.meshes.find(m=>m.name===`structural-mass-${suffix}-2`);assert(mesh.isEnabled());close(mesh.position.asArray(),Mass.toView(bay.reference_m));

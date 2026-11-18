@@ -34,7 +34,7 @@
   const analysis=host('group-analysis');
   group(doc,analysis,'analysis-solution-fields','Solution',[row('output.solution')]);
   group(doc,analysis,'analysis-eigen-fields','Eigenvalue extraction',[row('output.n_modes'),row('output.buckling_max_factor'),host('analysis-eigrl-note')]);
-  group(doc,analysis,'analysis-nonlinear-fields','Nonlinear solution',['load_steps','max_iterations','max_cutbacks','displacement_tolerance','residual_tolerance'].map(key=>row('nonlinear.'+key)));
+  group(doc,analysis,'analysis-nonlinear-fields','Nonlinear solution',['method','load_steps','max_iterations','max_cutbacks','displacement_tolerance','residual_tolerance'].map(key=>row('nonlinear.'+key)));
   group(doc,analysis,'analysis-buckling-fields','Buckling output',['output.buckling_deformation_energy','output.buckling_compact'].map(row));
   // Technical file/export settings remain together, below the solve controls.
   const source=host('panel-input');
@@ -56,8 +56,24 @@
   sync(doc);
  }
  function sync(doc){
-  const solution=doc.getElementById('p-output.solution')?.value;
+  // The imported source/override selector, when active, is authoritative.
+  // Hidden controls keep their saved values when another solution is selected.
+  const imported=doc.getElementById('imported-analysis');
+  const solution=imported&&!imported.hidden&&imported.dataset.analysisSolution||doc.getElementById('p-output.solution')?.value;
   for(const[id,shown]of[['analysis-eigen-fields',['103','105'].includes(solution)],['analysis-nonlinear-fields',solution==='106'],['analysis-buckling-fields',solution==='105']]){const el=doc.getElementById(id);if(el)el.hidden=!shown;}
+  for(const row of doc.querySelectorAll('[id^="row-nonlinear."]'))row.hidden=solution!=='106';
+  for(const key of ['output.n_modes','output.buckling_max_factor','output.buckling_deformation_energy','output.buckling_energy_density','output.buckling_compact']){
+   const row=doc.getElementById('row-'+key);if(!row)continue;
+   row.hidden=key==='output.n_modes'?!['103','105'].includes(solution):key==='output.buckling_energy_density'||solution!=='105';
+  }
+  const countLabel=doc.getElementById('row-output.n_modes')?.querySelector('.field-label label');
+  if(countLabel)countLabel.textContent=solution==='105'?'Requested buckling roots':'Requested modes';
+  const policy=['101','105','106'].includes(solution);
+  for(const id of ['analysis-policy-options','group-sizing-load-policy']){const el=doc.getElementById(id);if(el)el.hidden=!policy;}
+  const strength=doc.getElementById('row-assessment.strength_safety_factor');if(strength)strength.hidden=!['101','106'].includes(solution);
+  const buckling=doc.getElementById('row-assessment.buckling_policy_factor');if(buckling)buckling.hidden=!policy;
+  const policyNote=doc.getElementById('sizing-load-policy-note');
+  if(policyNote){policyNote.dataset.staticText??=policyNote.textContent;policyNote.textContent=solution==='105'?'Buckling RF = critical load multiplier / buckling policy factor. The policy sets the required load level relative to the defined LIMIT preload and does not change the raw eigenvalues or applied loads.':policyNote.dataset.staticText;}
   const aeroThickness=doc.getElementById('row-output.t_aero_shell');if(aeroThickness)aeroThickness.hidden=!doc.getElementById('p-output.include_aero_shells')?.checked;
   const panels=doc.getElementById('panel-inspection-options'),toggle=doc.getElementById('show-panels');if(panels)panels.hidden=!toggle||toggle.disabled;
  }

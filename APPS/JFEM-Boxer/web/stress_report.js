@@ -1,12 +1,12 @@
 /* Results / Stress Report: property statistics across physical load cases. */
 (function(root){
  'use strict';
- function install({document,host,readContext,onEditProperty,onShowField,onClearField,readFieldState,onRefresh,onEditLoadPolicy}){
+ function install({document,host,readContext,onEditProperty,onShowField,onClearField,readFieldState,onRefresh,onEditLoadPolicy,onFieldRequestChange}){
   const data=root.WingStressReportData,tableData=root.WingReserveFactorTableData,finite=Number.isFinite;
   const modeInfo=mode=>tableData.modeInfo(mode),rfFormat=value=>tableData.formatRF(value),rfDisplay=row=>rfFormat(row.reserveFactor)+(row.governingApproximation?' (100-term approx.)':row.approximation?' (includes approx.)':'');
   const evaluator=root.WingRFCompute?.create();let lastBuildInput=null;
-  let report=null,cache=null,table='stress',page=0,lastContext=null,liveContext=null,sourceContext=null,validationError='';
-  let pending=null,refreshAgain=false,destroyed=false,lastRequest=null,requested=null;
+  let report=null,cache=null,table='reserve',page=0,lastContext=null,liveContext=null,sourceContext=null,validationError='',reportEpoch=0,draftSuspended=false;
+  let pending=null,refreshAgain=false,destroyed=false,lastRequest=null,requested=null,assessmentActivity=null;
   const snapshots=root.WingStressReportSnapshot.create();const palettes={stress:'viridis',reserve:'signed'};
   const pageSize=100;
   function el(tag,text,cls){const node=document.createElement(tag);if(text!==undefined)node.textContent=text;if(cls)node.className=cls;return node;}
@@ -26,8 +26,8 @@
   const controls=el('div',undefined,'stress-report-controls');
   const scope=select('stress-report-case',[['all','All eligible load cases']]);
   const failureMode=select('stress-report-failure-mode',[['minimum_rf','Minimum RF'],['von_mises','Von Mises stress'],['principal_strain','Laminate principal strain'],['euler_column','Euler column buckling'],['stringer_blade','Stringer blade instability'],['skin_buckling','Skin panel buckling'],...['spar_web_buckling','rib_web_buckling','spar_cap_buckling','rib_stiffener_buckling','rib_stiffener_blade'].map(mode=>[mode,modeInfo(mode).label])]);
-  failureMode.value='von_mises';
-  const palette=select('stress-report-palette',root.WingReserveFactorTableData.PALETTES);palette.value=palettes.stress;
+  failureMode.value='minimum_rf';
+  const palette=select('stress-report-palette',root.WingReserveFactorTableData.PALETTES);palette.value=palettes.reserve;
   failureMode.title='Minimum RF compares all applicable failure checks and selected load cases for each property, retaining the full scope of physical plate and column checks. Von Mises compares recovered isotropic stress with material allowables. Euler compares a physical stringer column\u2019s critical axial load with recovered compression at each section cut. Blade instability compares the elastic free-web buckling stress with the signed average axial bar stress between ribs. Skin panel buckling combines averaged biaxial membrane stress and shear over each recorded skin panel. Spar and rib web checks use physical web compartments; spar cap and rib stiffener column checks use isolated members between recorded restraints. These stability checks require generated physical-region metadata; an imported property ID alone cannot define a restrained region.';
   palette.title='Choose the table colors and the numerical 3D RF colors. Reserve-factor scales use fixed limits 0 and 2; larger values retain the color at 2 and use dark-orange numbers. RFs above 999 display as 999; uncapped values still select the critical case. Truncated plate checks are marked as approximations.';
   const method=select('stress-report-method',[['maximum','Maximum'],['mean','Average'],['trimmed_mean','Average below percentile']]);
@@ -37,7 +37,7 @@
   percentile.title='Compute the percentile of element peak stresses separately for each property and case. Average values at or below the cutoff; retain ties and discard only values strictly above it.';
   const search=el('input');search.id='stress-report-search';search.type='search';search.placeholder='Property ID, name or material';
   controls.append(field('Assessment',failureMode),field('Load cases',scope),field('Stress envelope',method),percentileField);
-  const switcher=el('div',undefined,'stress-report-tabs');switcher.setAttribute('role','group');switcher.setAttribute('aria-label','Stress report tables');
+  const switcher=el('div',undefined,'stress-report-tabs');switcher.hidden=true;switcher.setAttribute('role','group');switcher.setAttribute('aria-label','Stress report tables');
   const stressButton=el('button','LIMIT stress values'),reserveButton=el('button','RF values');stressButton.id='stress-report-stress';reserveButton.id='stress-report-reserve';
   stressButton.title='Show the recovered physical LIMIT stress envelope in MPa. Strength reserve factors use this demand multiplied by the strength safety factor.';reserveButton.title='Switch this table to reserve factors: allowable stress divided by the ULTIMATE stress envelope (strength safety factor times recovered LIMIT stress). This changes presentation only and does not run a solver. Choose Minimum RF in Assessment to combine all implemented failure checks.';for(const button of[stressButton,reserveButton])button.type='button';switcher.append(stressButton,reserveButton);
   const actions=el('div',undefined,'stress-report-actions');
@@ -48,7 +48,7 @@
   const fields3D=el('fieldset',undefined,'stress-report-field-controls');fields3D.id='stress-report-3d-fields';fields3D.hidden=typeof onShowField!=='function';fields3D.append(el('legend','3D model fields'));
   // A single assessment controls both tables and the numerical 3D field.
   const fieldMode=select('stress-report-field-kind',[
-   ['rf:von_mises','Reserve factor for selected assessment'],
+   ['minimum_rf','Reserve factor for selected assessment'],
    ['critical_case','Critical load case (minimum RF)'],['critical_failure','Critical failure mode (minimum RF)']]);
   fieldMode.title='The RF field follows Assessment above. Critical case and critical failure mode use Minimum RF across all applicable checks and switch Assessment accordingly.';
   const fieldTools=el('div',undefined,'stress-report-field-tools'),showField=el('button','Show field','mini'),clearField=el('button','Clear field','mini');showField.type=clearField.type='button';showField.id='stress-report-show-field';clearField.id='stress-report-clear-field';showField.disabled=clearField.disabled=true;fieldTools.append(showField,clearField);
@@ -63,11 +63,12 @@
   function fieldAssessment(){return fieldMode.value.startsWith('rf:')?fieldMode.value.slice(3):'minimum_rf';}
   function alignAssessmentToField(){const value=fieldAssessment(),changed=failureMode.value!==value;failureMode.value=value;table='reserve';alignFieldToAssessment();return changed;}
   function alignFieldToAssessment(){const previous=fieldMode.value,value=failureMode.value==='minimum_rf'?'minimum_rf':'rf:'+failureMode.value;fieldMode.options[0].value=value;fieldMode.value=failureMode.value==='minimum_rf'&&['critical_case','critical_failure'].includes(previous)?previous:value;}
-  function setOnlyBelowOne(value){onlyFailing.checked=value===true;page=0;render();requestField(true);}
+  function setOnlyBelowOne(value){onlyFailing.checked=value===true;page=0;notifyFieldRequest();render();requestField(true);}
   function getFieldRequest(){const value=fieldMode.value;return{kind:value.startsWith('rf:')?'failure_rf':value,...(value.startsWith('rf:')?{failureMode:value.slice(3)}:{}),caseId:scope.value==='all'?'all':Number(scope.value),method:method.value,percentile:Number(percentile.value),palette:palettes.reserve,onlyBelowOne:onlyFailing.checked};}
+  function notifyFieldRequest(){onFieldRequestChange?.(getFieldRequest());}
   function fieldState(){return readFieldState?.()||localFieldState;}
   function fieldBlockReason(){return validationError||(pending?'Reserve factors are updating; wait for the current assessment.':!report?'Create a current Stress Report first.':report.stale||(liveContext?.modelDirty&&!report.estimated)||liveContext?.pendingDrafts?'The model and results are not in sync. Tables retain the last analysed model; run a current analysis before showing an RF field.':liveContext?.running?'An analysis is running. RF fields are withheld until current results are available.':!report.includedCases.length?'No eligible current SOL101 or full-load SOL106 result is available.':'');}
-  function syncFieldState(next){if(next&&typeof next==='object')localFieldState={...localFieldState,...next};const current=fieldState(),blocked=fieldBlockReason();showField.disabled=fieldPending||!!blocked;clearField.disabled=!current.active&&!fieldPending;showField.setAttribute('aria-pressed',String(!!current.active));fieldStatus.textContent=fieldPending?'Preparing the 3D field…':blocked||fieldActionError||(current.message||(!current.active?'Choose a field to color the full model.':'Field shown in the 3D model.'));fieldStatus.dataset.active=String(!!current.active);fieldStatus.dataset.blocked=String(!!blocked||!!fieldActionError);}
+  function syncFieldState(next){if(next&&typeof next==='object')localFieldState={...localFieldState,...next};const current=fieldState(),blocked=fieldBlockReason();showField.disabled=fieldPending||!!blocked;clearField.disabled=!current.active&&!current.pending&&!fieldPending;showField.setAttribute('aria-pressed',String(!!current.active));fieldStatus.textContent=fieldPending?'Preparing the 3D field…':current.draft?current.message:blocked||fieldActionError||(current.message||(!current.active?'Choose a field to color the full model.':'Field shown in the 3D model.'));fieldStatus.dataset.active=String(!!current.active);fieldStatus.dataset.blocked=String(!current.draft&&(!!blocked||!!fieldActionError));}
   function requestField(refresh=false){
    if(typeof onShowField!=='function'||refresh&&!fieldState().active)return;
    // The accepted field remains the complete visible frame while a new report
@@ -80,11 +81,11 @@
    catch(error){failed(error);}
   }
   showField.onclick=async()=>{const changed=alignAssessmentToField();await refresh(changed);render();requestField(false);};clearField.onclick=()=>{fieldEpoch++;fieldPending=false;fieldActionError='';const next=onClearField?.();syncFieldState(next||{active:false,message:'RF field cleared.'});};
-  fieldMode.onchange=()=>{if(alignAssessmentToField())refresh(true);else{render();requestField(true);}};
+  fieldMode.onchange=()=>{const changed=alignAssessmentToField();notifyFieldRequest();if(changed)refresh(true);else{render();requestField(true);}};
   onlyFailing.onchange=()=>setOnlyBelowOne(onlyFailing.checked);
   const status=el('p',undefined,'stress-report-status');status.id='stress-report-status';status.setAttribute('role','status');status.setAttribute('aria-live','polite');
   const staleNotice=el('p',undefined,'stress-report-stale');staleNotice.id='stress-report-stale';staleNotice.hidden=true;staleNotice.setAttribute('role','status');
-  const detached=root.WingReserveFactorTables?.connect({readSnapshot:()=>({report:pending?null:report,requestedFailureMode:failureMode.value,onlyBelowOne:onlyFailing.checked,error:pending?'Updating reserve factors for the current assessment and load policy.':validationError,panels:lastContext?.panels||[],componentGroups:lastContext?.componentGroups||[],generated:!!lastContext?.generated,caseScopeLabel:scope.selectedOptions[0]?.textContent||'All eligible load cases'}),onEditProperty:(pid,doc,hooks)=>onEditProperty?.(pid,doc,{...hooks,sourceContext}),onOnlyBelowOne:setOnlyBelowOne,onFailureMode:async value=>{failureMode.value=value;alignFieldToAssessment();if(value!=='von_mises')table='reserve';await refresh(true);if(report?.failureMode!==value)throw new Error(validationError||'The selected assessment is unavailable.');},onError:message=>{status.textContent=message;status.dataset.complete='false';}});
+  const detached=root.WingReserveFactorTables?.connect({readSnapshot:()=>({report:pending?null:report,requestedFailureMode:failureMode.value,onlyBelowOne:onlyFailing.checked,error:pending?'Updating reserve factors for the current assessment and load policy.':validationError,panels:lastContext?.panels||[],componentGroups:lastContext?.componentGroups||[],generated:!!lastContext?.generated,caseScopeLabel:scope.selectedOptions[0]?.textContent||'All eligible load cases'}),onEditProperty:(pid,doc,hooks)=>onEditProperty?.(pid,doc,{...hooks,sourceContext}),onOnlyBelowOne:setOnlyBelowOne,onFailureMode:async value=>{failureMode.value=value;alignFieldToAssessment();if(value!=='von_mises')table='reserve';notifyFieldRequest();await refresh(true);if(report?.failureMode!==value)throw new Error(validationError||'The selected assessment is unavailable.');},onError:message=>{status.textContent=message;status.dataset.complete='false';}});
   detached?.installButton(actions);
   const legend=el('div',undefined,'stress-report-legend');
   const viewport=el('div',undefined,'stress-report-table-scroll');viewport.tabIndex=0;viewport.setAttribute('role','region');viewport.setAttribute('aria-label','Property results table');
@@ -132,7 +133,7 @@
    if(!report)return;
    staleNotice.hidden=!report.stale&&!report.estimated;staleNotice.textContent=report.estimateMessage||report.staleMessage||'';staleNotice.dataset.estimated=String(!!report.estimated);
    const shown=filteredReport(),rows=shown.rows,unit=report.stressUnit,info=modeInfo(report.failureMode),minimum=report.failureMode==='minimum_rf',principal=report.failureMode==='principal_strain',euler=info.kind==='column',blade=info.kind==='blade',skin=info.kind==='plate',instability=euler||blade||skin||minimum||principal,isReserve=table==='reserve';
-   palette.value=palettes[table];palette.options[0].textContent=isReserve?'Red below 1 / blue above 1':'Signed red (-) / blue (+)';stressButton.disabled=instability;stressButton.hidden=instability;reserveButton.disabled=false;
+   palette.value=palettes[table];palette.options[0].textContent=isReserve?'Red below 1 / blue above 1':'Signed red (-) / blue (+)';switcher.hidden=instability;stressButton.disabled=instability;stressButton.hidden=instability;reserveButton.disabled=false;
    method.closest('label').hidden=instability&&!minimum;introduction.textContent=info.component?tableData.componentNote(report.failureMode):minimum?'Compare each property across all applicable failure checks and selected load cases. The minimum complete RF governs; plate and column contributors retain their full physical scope. Yellow marks RF above 1 with every relevant dimension at minimum gauge.':skin?'Assess skin panels under combined biaxial membrane stress and shear. Each case uses the panel-average signed stress state; the lowest elastic plate buckling reserve factor governs. Set the skin buckling fixity coefficient under Properties → Skin.':blade?'Assess local free-web instability of beam stringers between ribs. Each case uses the signed arithmetic average axial bar stress; the lowest critical-stress / average-compression ratio governs.':euler?'Assess each physical stringer column across current SOL101 and converged, full-load SOL106 cases. The lowest section/case reserve factor governs. Set the end-fixity coefficient c under Properties → Stringers.':'Compare property regions across current SOL101 and converged, full-load SOL106 cases. Use Maximize for wider tables.';
    stressButton.setAttribute('aria-pressed',String(!isReserve));reserveButton.setAttribute('aria-pressed',String(isReserve));
    const pending=report.missingCases.length+report.excludedCases.filter(c=>c.relevant).length;
@@ -149,7 +150,7 @@
    for(const row of rows.slice(page*pageSize,(page+1)*pageSize)){
     const tr=el('tr');tr.dataset.pid=String(row.pid);tr.dataset.rowKey=row.rowKey||String(row.pid);tr.dataset.status=row.status;
     const id=el('th');id.scope='row';id.append(el('strong',row.label));if(instability)id.append(el('small',skin||info.component?'PIDs '+(row.propertyIds||[row.pid]).join(', '):'PID '+row.pid));id.append(el('small',isReserve?row.materialIds.map(mid=>'MID '+mid).join(', '):row.propertyType),el('small',row.names.join(' · ')));tr.append(id);
-    const models=recoveryMethods(row);if(models.length){const methodNote=el('small',models.some(m=>m.method?.includes('solid_rectangular_section_envelope'))?'Conservative solid-rectangle equivalent-stress envelope':models.some(m=>m.method?.includes('thin_walled_t_section_envelope'))?'Thin-walled T equivalent-stress envelope':'Equivalent-stress recovery model','stress-report-recovery-method');methodNote.title=models.map(m=>m.description).join('\n\n');id.append(methodNote);}
+    const models=recoveryMethods(row);if(models.length){const methodNote=el('small',models.some(m=>m.method?.includes('solid_rectangular_section_envelope'))?'Conservative solid-rectangle equivalent-stress envelope':models.some(m=>m.method?.includes('finite_thickness_t_nominal_envelope'))?'Finite-thickness nominal T-section envelope':models.some(m=>m.method?.includes('thin_walled_t_section_envelope'))?'Thin-walled T equivalent-stress envelope':'Equivalent-stress recovery model','stress-report-recovery-method');methodNote.title=models.map(m=>m.description).join('\n\n');id.append(methodNote);}
     function cell(text){const c=el('td',text);tr.append(c);return c;}
     function colored(value,display){const c=cell(display);if(finite(value)){const badge=el('span',display,'stress-report-value');if(isReserve){badge.dataset.minimumGauge=String(rf.atMinimumGauge(row,value));badge.dataset.reserve=value<1?'below':value>1?'within':'threshold';badge.style.background=rf.valueColor(value,scale,palettes.reserve,row);const ink=rf.valueInk(value,scale,palettes.reserve,row);badge.style.color=ink.color;if(ink.backing){const number=el('span',display,'rf-high-number');number.style.background=ink.backing;badge.replaceChildren(number);}}else{const rgb=scale.color(value,palettes.stress);if(rgb){badge.style.background=root.WingColorScales.css(rgb);badge.style.color=rgb[0]*.299+rgb[1]*.587+rgb[2]*.114>.54?'#102436':'#fff';}}c.replaceChildren(badge);}return c;}
     if(minimum){const c=colored(row.reserveFactor,finite(row.reserveFactor)?rfDisplay(row):'Unavailable');c.title=row.reserveFactorReason||((row.combined?.sentinel?'RF 99 means no destabilizing demand in the complete applicable check set; it is a display sentinel, not a computed margin. ':'')+(row.combined?.governingScope||''));cell(row.envelopeCaseLabel||'Unavailable');cell(row.combined?.governingModeLabel||'Unavailable');cell(row.combined?.governingScope||'Unavailable');cell(rf.minimumGaugeLabel(row)+(row.reserveFactorReason?' · '+row.reserveFactorReason:'')+(!row.complete&&finite(row.combined?.knownMinimum)?' · Known minimum '+rfFormat(row.combined.knownMinimum)+' (incomplete assessment)':''));}
@@ -174,7 +175,7 @@
   }
   details.ontoggle=()=>{if(details.open&&report)showCoverage();};
   async function refreshNow(force=false){
-   const buildStamp=requestStamp();liveContext=readContext();
+   const epoch=reportEpoch,buildStamp=requestStamp();liveContext=readContext();
    try{root.WingAssessmentLoadPolicy.read(liveContext);}catch(error){syncPolicy(liveContext);return withholdReport(error.message);}
    const retained=snapshots.select(liveContext);sourceContext=retained.context;
    const estimate=retained.stale&&root.WingRFSizingEstimate?root.WingRFSizingEstimate.project(sourceContext,liveContext):null;
@@ -198,8 +199,9 @@
    if(!instability&&method.value==='trimmed_mean'&&(!percentile.value.trim()||!finite(percentileValue)||percentileValue<0.1||percentileValue>100||!percentile.checkValidity()))return withholdReport('Set a percentile from 0.1 to 100 in the Study window. The report and exports are withheld until this input is valid.');
    validationError='';
    try{const input={...context,failureMode:failureMode.value,caseId:scope.value==='all'?'all':Number(scope.value),method:method.value,percentile:percentileValue};
-     const built=evaluator?await evaluator.evaluate(input,report,lastBuildInput):root.WingRFIncremental&&estimated?root.WingRFIncremental.build(input,report,lastBuildInput):data.build(input);
+     const built=evaluator?await evaluator.evaluate(input,report,lastBuildInput,{activityToken:assessmentActivity,onProgress:detail=>{if(!destroyed&&epoch===reportEpoch)status.textContent=detail?.message||'Evaluating reserve factors…';}}):root.WingRFIncremental&&estimated?root.WingRFIncremental.build(input,report,lastBuildInput):data.build(input);
      const currentStamp=requestStamp();
+     if(epoch!==reportEpoch)return report;
      if(destroyed||refreshAgain||!sameRequest(buildStamp,currentStamp)){
       if(!destroyed&&!sameRequest(buildStamp,currentStamp)){requested=currentStamp;refreshAgain=true;}
       return report;
@@ -207,44 +209,72 @@
     const source=retained.source?Object.fromEntries(['studyEpoch','signature','meshIdentity','capturedAt'].map(key=>[key,retained.source[key]])):null;
     const notice=estimated?estimate.message:retained.message+(estimate?.message?' '+estimate.message:'');
     report=Object.assign(built,{stale:retained.stale&&!estimated,staleMessage:retained.stale&&!estimated?notice:'',estimated,estimateMessage:estimated?notice:'',source,note:(retained.stale?notice+' ':'')+built.note});}
-   catch(error){if(error?.name==='AbortError')return report;return withholdReport('Cannot calculate the Stress Report: '+(error?.message||String(error)));}
+   catch(error){if(epoch!==reportEpoch||error?.name==='AbortError')return report;return withholdReport('Cannot calculate the Stress Report: '+(error?.message||String(error)));}
    syncPolicy(context);if(retained.stale&&!estimated)policySummary.textContent='Retained assessment policy. '+policySummary.textContent;
    cache=deps;page=0;render();requestField(true);return report;
   }
   const sameRequest=(a,b)=>!!a&&!!b&&a.length===b.length&&a.every((v,i)=>Object.is(v,b[i]));
   function requestStamp(){
-   const c=readContext(),stamp=[c.studyEpoch,c.signature,c.definitionSignature,c.meshIdentity,c.sectionUpdateCertificate,c.elements,c.cases,c.panels,c.eulerColumns,c.stringerBlades,c.skinBucklingPanels,c.componentBuckling,
+   const c=readContext(),stamp=[c.studyEpoch,c.analysisEpoch,c.signature,c.definitionSignature,c.meshIdentity,c.sectionUpdateCertificate,c.elements,c.cases,c.panels,c.eulerColumns,c.stringerBlades,c.skinBucklingPanels,c.componentBuckling,
     c.modelDirty,c.pendingDrafts,c.running,JSON.stringify([c.assessmentPolicy,c.assessmentPolicyWarnings,c.allowables,c.componentFixities,c.eulerFixityCoefficient,c.skinFixityCoefficient,c.expectedCases]),failureMode.value,scope.value,method.value,percentile.value];
    for(const[id,r]of c.cases||[])stamp.push(id,r,r.elementResults,r.matches,r.available,r.status,r.signature,r.meshIdentity,r.variants,JSON.stringify(r.convergence));
    return stamp;
   }
   function prime(){const current=readContext(),retained=snapshots.select(current);sourceContext=retained.context;return sourceContext;}
   function refresh(force=false){
+   const live=readContext();
+   // A modal has its own isolated local evaluator. Merely starting a draft
+   // must not rebind the accepted report to a cloned retained snapshot and
+   // launch a second full-model assessment. Keep accepted RFs/fields until
+   // Apply, while still blocking new field/export actions for pending inputs.
+   if(report&&lastContext&&sourceContext&&live.pendingDrafts&&live.localPropertyDrafts===true&&live.definitionSignature===live.localPropertyDraftSignature&&!live.running&&
+      sourceContext.studyEpoch===live.studyEpoch&&sourceContext.meshIdentity===live.meshIdentity&&
+      root.WingRFSizingEstimate?.definitionCompatible(sourceContext,live)){
+    draftSuspended=true;liveContext=live;status.textContent='Editing properties. Draft RFs are estimated locally in the property editor; the accepted report remains visible until Apply.';for(const button of actions.querySelectorAll('[id^="stress-report-export-"]'))button.disabled=true;syncFieldState();return Promise.resolve(report);
+   }
+   if(draftSuspended){draftSuspended=false;liveContext=live;render();}
    prime();
+   if(!data.caseList({...sourceContext,caseId:'all'}).included.length){
+    clearResults({reason:readContext().running?'The analysis is running. Its reserve factors will appear when current results are available.':'Run a current SOL101 or eligible SOL106 analysis to assess reserve factors.'});
+    return Promise.resolve(null);
+   }
    const next=requestStamp();
    if(pending){if(!sameRequest(requested,next)){requested=next;refreshAgain=true;evaluator?.cancel();}return pending;}
    if(!force&&report&&sameRequest(lastRequest,next))return Promise.resolve(report);
    requested=next;
    const sizing=!!readContext().sectionUpdateCertificate;
-    const token=sizing?null:root.WingActivity?.begin('Calculating reserve factors', {category:'numerical',detail:'Recovering property stresses and checking plate, column and stringer capacities. The first assessment can take longer; please wait.'});
+   const token=assessmentActivity=root.WingActivity?.begin(sizing?'Updating edited-property reserve factors':'Calculating reserve factors', {category:'numerical',blocking:false,detail:sizing?'Re-estimating affected failure checks at fixed internal loads. The model remains available.':'Recovering property stresses and checking plate, column and stringer capacities. The first assessment can take longer; please wait.'});
    status.textContent=sizing?'Updating edited-property RFs at frozen internal loads. The model remains available.':'Calculating reserve factors - recovering internal loads and evaluating failure checks. Please wait...';status.dataset.complete='false';
-   pending=(async()=>{
+   const epoch=reportEpoch;let task;
+   task=(async()=>{
     try{
      do{
       refreshAgain=false;const stamp=requested;
       await (root.WingActivity?.yieldFrame()||new Promise(resolve=>setTimeout(resolve,0)));
-      if(!destroyed){await refreshNow(force);lastRequest=stamp;}
-     }while(refreshAgain&&!destroyed);
+      if(!destroyed&&epoch===reportEpoch){await refreshNow(force);if(epoch===reportEpoch)lastRequest=stamp;}
+     }while(refreshAgain&&!destroyed&&epoch===reportEpoch);
      return report;
-    }finally{if(token)root.WingActivity?.end(token);pending=null;if(!destroyed){for(const button of actions.querySelectorAll('[id^="stress-report-export-"]'))button.disabled=!report||!!validationError||!report.includedCases?.length||!filteredReport().rows.length;detached?.refresh(true);syncFieldState();requestField(true);onRefresh?.();}}
+    }finally{if(token)root.WingActivity?.end(token);if(assessmentActivity===token)assessmentActivity=null;if(pending===task)pending=null;if(!destroyed&&epoch===reportEpoch){for(const button of actions.querySelectorAll('[id^="stress-report-export-"]'))button.disabled=!report||!!validationError||!report.includedCases?.length||!filteredReport().rows.length;detached?.refresh(true);syncFieldState();requestField(true);onRefresh?.();}}
    })();
+   pending=task;
    for(const button of actions.querySelectorAll('[id^="stress-report-export-"]'))button.disabled=true;
    detached?.refresh(true);syncFieldState();return pending;
   }
-  scope.onchange=method.onchange=percentile.onchange=()=>refresh(true);search.oninput=()=>{page=0;render();};
-  failureMode.onchange=()=>{alignFieldToAssessment();if(failureMode.value!=='von_mises')table='reserve';refresh(true);};palette.onchange=()=>{palettes[table]=palette.value;render();if(table==='reserve')requestField(true);};
+  scope.onchange=method.onchange=percentile.onchange=()=>{notifyFieldRequest();refresh(true);};search.oninput=()=>{page=0;render();};
+  failureMode.onchange=()=>{alignFieldToAssessment();if(failureMode.value!=='von_mises')table='reserve';notifyFieldRequest();refresh(true);};palette.onchange=()=>{palettes[table]=palette.value;notifyFieldRequest();render();if(table==='reserve')requestField(true);};
   stressButton.onclick=()=>{table='stress';render();};reserveButton.onclick=()=>{table='reserve';render();};previous.onclick=()=>{page--;render();};next.onclick=()=>{page++;render();};
-  return{refresh,prime,get pending(){return!!pending;},getFieldRequest,syncFieldState,invalidate(){cache=null;lastRequest=null;},destroy(){destroyed=true;evaluator?.destroy();fieldEpoch++;snapshots.reset();detached?.destroy();},get report(){return report;},get assessmentContext(){return lastContext;},get sourceContext(){return sourceContext;}};
+  function clearResults({reason='A new analysis is running. Current reserve factors will appear when its results are available.'}={}){
+   if(assessmentActivity)root.WingActivity?.end(assessmentActivity);assessmentActivity=null;
+   reportEpoch++;evaluator?.cancel();fieldEpoch++;fieldPending=false;fieldActionError='';
+   pending=null;refreshAgain=false;report=null;cache=null;lastRequest=null;requested=null;lastBuildInput=null;
+   lastContext=liveContext=sourceContext=null;validationError='';draftSuspended=false;snapshots.reset();page=0;
+   localFieldState={active:false,message:''};staleNotice.hidden=true;staleNotice.textContent='';
+   legend.replaceChildren();coverage.replaceChildren();grid.replaceChildren();pageNote.textContent='';paging.hidden=true;
+   status.textContent=reason;status.dataset.complete='false';helpText.textContent='';
+   for(const button of actions.querySelectorAll('[id^="stress-report-export-"]'))button.disabled=true;
+   detached?.clearResults({reason});syncFieldState();
+  }
+  return{refresh,prime,clearResults,get pending(){return!!pending;},getFieldRequest,syncFieldState,invalidate(){cache=null;lastRequest=null;},destroy(){destroyed=true;if(assessmentActivity)root.WingActivity?.end(assessmentActivity);assessmentActivity=null;evaluator?.destroy();fieldEpoch++;snapshots.reset();detached?.destroy();},get report(){return report;},get assessmentContext(){return lastContext;},get sourceContext(){return sourceContext;}};
  }
  root.WingStressReport={install};
 })(globalThis);

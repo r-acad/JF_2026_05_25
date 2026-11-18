@@ -60,9 +60,13 @@ end
 
 function handle_rf_sections(st::AppState, req)
     try
-        raw=JSON.parse(String(req.body));m=st.model
+        # Reuse the application's ordinary Dict normalization specialization.
+        # The baseline is already validated by FEM creation: it only needs
+        # migration/coercion and exact identity comparison here. Revalidating
+        # its complete geometry for every draft keystroke adds no protection.
+        raw=JSON.parse(String(req.body);dicttype=Dict{String,Any});m=st.model
         m===nothing && throw(ArgumentError("Create the FEM before sizing properties"))
-        baseline=first(normalize_params(raw["baseline"]))
+        baseline=first(normalize_params(raw["baseline"];validate=false))
         all(s->get(baseline,s.key,nothing)==get(m.params,s.key,nothing),SCHEMA) ||
             throw(ArgumentError("The server FEM changed. Recreate this Study's FEM before sizing properties"))
         p=first(normalize_params(raw["parameters"]))

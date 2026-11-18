@@ -13,7 +13,7 @@ schema.defaults=JSON.parse(fs.readFileSync(path.join(fixture,'params.json'),'utf
   await page.route('http://127.0.0.1:43987/**',async route=>{
    const u=new URL(route.request().url());
    if(u.pathname==='/api/input')return route.fulfill({json:schema});
-   if(u.pathname==='/api/validate_workspace')return route.fulfill({json:{ok:true,parameters:route.request().postDataJSON()}});
+   if(['/api/validate_workspace','/api/restore_workspace'].includes(u.pathname))return route.fulfill({json:{ok:true,parameters:route.request().postDataJSON()}});
    if(['/api/generate','/api/prepare_workspace'].includes(u.pathname))return route.fulfill({body:fs.readFileSync(path.join(fixture,'payload.msgpack')),contentType:'application/msgpack'});
    if(u.pathname==='/api/activity')return route.fulfill({json:{ok:true,events:[]}});
    if(u.pathname==='/api/last_deck')return route.fulfill({json:{ok:true,available:false}});

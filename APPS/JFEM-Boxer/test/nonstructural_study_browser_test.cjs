@@ -12,7 +12,7 @@ try{
   // Geometry is retained as an explicit frontend fixture. Only the selected
   // new parameter metadata is echoed; no mass/FEM numerical claim is made here.
   if(['/api/generate','/api/prepare_workspace'].includes(p)){requests.push(p);const data=route.request().postDataJSON(),params=data.parameters||data;return route.fulfill({body:Buffer.from(msgpack.encode({...geometry,model_params:{...geometry.model_params,...Object.fromEntries(Object.keys(schema.values).filter(k=>k.startsWith('nonstructural.')||k==='mass.structural_representation').map(k=>[k,params[k]??schema.values[k]]))}})),contentType:'application/msgpack'});}
-  if(p==='/api/validate_workspace')return route.fulfill({json:{ok:true,parameters:route.request().postDataJSON()}});
+  if(['/api/validate_workspace','/api/restore_workspace'].includes(p))return route.fulfill({json:{ok:true,parameters:route.request().postDataJSON()}});
   if(p==='/api/jfem_probe')return route.fulfill({json:{found:false}});
   if(p==='/api/last_deck')return route.fulfill({json:{ok:true,available:false}});
   if(p.startsWith('/api/'))return route.fulfill({json:{ok:true,events:[]}});

@@ -15,7 +15,7 @@ function sensitivity_owned_derivative(p,pid,d,part,field,owner)
     localrow=component_table_override(p,pid)
     component=component_table_part(pid)
     if component!==nothing
-        local_id="properties.components#$(component_table_key(component,pid%COMPONENT_PID_STRIDE))#$field"
+        local_id="properties.components#$(component_table_key(component,component=="stringer_runout" ? 1 : pid%COMPONENT_PID_STRIDE))#$field"
         d["id"]==local_id&&return Float64(d["scale"])
     end
     if haskey(localrow,field)
@@ -68,6 +68,8 @@ function sensitivity_analytic_property_direction(m,d,property)
             end
         elseif base==PID_SPAR_CAP
             fill!(ddims,sensitivity_owned_derivative(p,pid,d,"stringer","side","properties.spar_cap_side"))
+        elseif base==PID_STRINGER_RUNOUT
+            fill!(ddims,sensitivity_owned_derivative(p,pid,d,"runout","side","properties.runout_side"))
         end
         material=sensitivity_material_direction(d,property["material_id"])
         return merge(Dict{String,Any}("kind"=>"bar","dimensions"=>ddims,"active"=>any(!iszero,ddims)||any(!iszero,values(material))),material)
@@ -115,13 +117,45 @@ function sensitivity_analytic_property_direction(m,d,property)
         end
     end
     Dict{String,Any}("kind"=>"shell","thickness"=>dt,"ply_thicknesses"=>dplies,"materials"=>materials,
+        "z0"=>-dt/2,"zoffs"=>0.,
         "areal_mass"=>dm0,"mass_moments"=>(dm0,dm1,dm2),
         "active"=>!iszero(dt)||any(!iszero,dplies)||any(any(!iszero,values(v)) for v in values(materials)))
+end
+
+function sensitivity_same_skin_law(a,b)
+    a["type"]==b["type"]||return false
+    isapprox(get(a,"nonstructural_mass_kg_m2",0.),get(b,"nonstructural_mass_kg_m2",0.);rtol=1e-12,atol=1e-14)||return false
+    a["type"]=="PSHELL"&&return a["material_id"]==b["material_id"]
+    a["type"]=="PCOMP"||return false
+    length(a["plies"])==length(b["plies"])||return false
+    isapprox(a["z0_m"],b["z0_m"];rtol=1e-12,atol=1e-14)||return false
+    all(x["material_id"]==y["material_id"]&&
+        isapprox(x["angle_deg"],y["angle_deg"];rtol=1e-12,atol=1e-12)&&
+        isapprox(x["thickness_m"],y["thickness_m"];rtol=1e-12,atol=1e-14)
+        for (x,y) in zip(a["plies"],b["plies"]))
 end
 
 function sensitivity_combined_flange_direction(m,d,property)
     p=m.params;pid=property["pid"];sources=shell_stringer_skin_sources(p,pid);skin=first(sources)
     ds=sensitivity_analytic_property_direction(m,d,skin)
+    tied=[candidate for candidate in sources if isapprox(candidate["thickness_m"],skin["thickness_m"];rtol=1e-12,atol=1e-14)]
+    tied_directions=[sensitivity_analytic_property_direction(m,d,candidate) for candidate in tied]
+    switching=any(!isapprox(candidate["thickness"],ds["thickness"];rtol=1e-12,atol=1e-14) for candidate in tied_directions)
+    reason="";semismooth=false
+    if switching
+        if get(d,"allow_semismooth_property_map",false)&&all(candidate->sensitivity_same_skin_law(skin,candidate),tied)
+            # The minimum of identical physical section laws is continuous.
+            # Select the uniform Clarke average, explicitly declared to callers;
+            # this is not a unique ordinary or one-sided derivative.
+            ds=copy(ds);ds["thickness"]=sum(c["thickness"] for c in tied_directions)/length(tied_directions)
+            ds["ply_thicknesses"]=reduce(+, [c["ply_thicknesses"] for c in tied_directions])/length(tied_directions)
+            semismooth=true
+        else
+            reason=all(candidate->sensitivity_same_skin_law(skin,candidate),tied) ?
+                "The thinnest skin under attached flange $pid is tied: no unique ordinary derivative exists. Select the explicitly declared RF Clarke map, use a shared thickness variable, or make the adjacent thicknesses distinct." :
+                "The thinnest skins under attached flange $pid are tied with different material, mass or ply laws. Switching the selected skin can change the physical section discontinuously; an analytic continuous sizing map is unavailable."
+        end
+    end
     dtf=sensitivity_owned_derivative(p,pid,d,"stringer","flange_thickness","properties.stringer_flange_thickness")
     flange=shell_stringer_added_flange(p,pid)
     df=sensitivity_owned_derivative(p,pid,d,"flange","face_thickness","materials.shells#stringer_flange#face_thickness")
@@ -130,15 +164,6 @@ function sensitivity_combined_flange_direction(m,d,property)
     dplies=vcat(dflange,dskin);dt=sum(dplies)
     mids=property["type"]=="PCOMP" ? unique([ply["material_id"] for ply in property["plies"]]) : [property["material_id"]]
     materials=Dict(mid=>sensitivity_material_direction(d,mid) for mid in mids)
-    reason=""
-    for candidate in Iterators.drop(sources,1)
-        isapprox(candidate["thickness_m"],skin["thickness_m"];rtol=1e-12,atol=1e-14)||continue
-        slope=sensitivity_analytic_property_direction(m,d,candidate)["thickness"]
-        if !isapprox(slope,ds["thickness"];rtol=1e-12,atol=1e-14)
-            reason="The thinnest skin under attached flange $pid is tied: this independent thickness change can switch the selected skin, so no unique derivative exists. Use a shared thickness variable or make the adjacent thicknesses distinct."
-            break
-        end
-    end
     dm0=dm1=dm2=0.
     if property["type"]=="PSHELL"
         rho=property["material"]["rho_kg_m3"];drho=materials[property["material_id"]]["rho"];h=property["thickness_m"]
@@ -155,7 +180,9 @@ function sensitivity_combined_flange_direction(m,d,property)
         end
     end
     Dict{String,Any}("kind"=>"shell","thickness"=>dt,"ply_thicknesses"=>dplies,"materials"=>materials,
+        "z0"=>(Bool(get(p,"stringers.shell_offsets",false)) ? -ds["thickness"]/2-dtf : -dt/2),"zoffs"=>0.,
         "areal_mass"=>dm0,"mass_moments"=>(dm0,dm1,dm2),"unsupported_reason"=>reason,
+        "property_mapping_nonsmooth"=>semismooth,"property_mapping_class"=>(semismooth ? "uniform_clarke_thinnest_skin" : "ordinary"),
         "active"=>!iszero(dt)||any(!iszero,dplies)||any(any(!iszero,values(v)) for v in values(materials)))
 end
 

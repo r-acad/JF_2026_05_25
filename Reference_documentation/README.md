@@ -2,7 +2,7 @@
 
 | Guide | Contents |
 | --- | --- |
-| [Illustrated installation (PDF)](<../__Start here!__/jfem_2026_installation_guide.pdf>) | Follow numbered steps to install Julia, download JFEM, run setup and open each app; setup builds the shared image automatically. |
+| [Illustrated installation (PDF)](<../__Start here!__/jfem_2026_installation_guide.pdf>) | Numbered setup and launch steps, with automatic image reuse/build and a source-mode fallback for low memory or build failures. |
 | [JFEM-Boxer user's guide (PDF)](00_Getting_Started/jfem_2026_fgen_user_guide.pdf) | Illustrated workflow for studies, geometry, meshes, properties, loads, analyses, results, sensitivities and display controls. |
 | [JFEM-Boxer RF calculation methods (PDF)](06_JFEM-Boxer/Structures/JFEM_Boxer_Reserve_Factor_Methods.pdf) | Internal-load recovery, strength and buckling equations, numerical methods, assumptions and worked examples. |
 

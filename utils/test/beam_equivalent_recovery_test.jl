@@ -45,7 +45,8 @@ checks=@testset "Native CBAR/CBEAM equivalent recovery through SOL101 and SOL106
             # Mz bends the y-height about I1; My bends the z-width about I2.
             @test result["subcases"][2]["stresses"]["cbar"][1]["von_mises"]≈max(yc,.05-yc)/p["I1"] rtol=1e-10
             @test result["subcases"][3]["stresses"]["cbar"][1]["von_mises"]≈.02/p["I2"] rtol=1e-10
-            @test result["subcases"][6]["stresses"]["cbar"][1]["von_mises"]≈sqrt(3)*.01*.002/p["J"] rtol=1e-10
+            nominalJ=S.beam_rectangle_torsion_constant(.04,.002)+S.beam_rectangle_torsion_constant(.002,.048)
+            @test result["subcases"][6]["stresses"]["cbar"][1]["von_mises"]≈sqrt(3)*.01*.002/nominalJ rtol=1e-10
             @test all(sub["stresses"]["cbar"][1]["von_mises"]>abs(sub["stresses"]["cbar"][1]["axial"]) for sub in result["subcases"][2:7])
             distributed=only(result["subcases"][8]["stresses"]["cbar"])
             @test !haskey(distributed,"von_mises")

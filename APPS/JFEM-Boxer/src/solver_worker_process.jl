@@ -71,6 +71,9 @@ function worker_run(request,index)
         # keys afterward, including keys changed internally by a failed solve.
         for key in collect(keys(ENV));startswith(key,"JFEM_") && delete!(ENV,key);end
         for (key,value) in requested;ENV[String(key)]=String(value);end
+        # Per-request flag isolation must not re-enable heavyweight package
+        # training when a later request first loads the sensitivity package.
+        JFEMEnvironmentSetup.configure_compilation_defaults!()
         ENV["JFEM_SOL105_STORE_PUBLIC_MODE_SHAPES"]="true"
         ENV["JFEM_SUPPRESS_THREAD_HINT"]="1"
         sensitivity || (ENV["JFEM_EXPORT_BINARY"]=formats[:export_jfem_binary] ? "true" : "false")
@@ -81,10 +84,11 @@ function worker_run(request,index)
                     try
                         println("[Worker] Session $WORKER_SESSION, request $index; independent deck and output directory")
                         if sensitivity
-                            isdefined(@__MODULE__,:JFEMSensitivityWorker) ||
-                                include(joinpath(@__DIR__,"sensitivity_worker_core.jl"))
-                            handler=Base.invokelatest(getfield,@__MODULE__,:JFEMSensitivityWorker)
-                            completed=Base.invokelatest(handler.run_sensitivity_worker,outdir,WORKER_REPO;runtime)
+                            isdefined(@__MODULE__,:WingFEGen)||(@eval using WingFEGen)
+                            generator=Base.invokelatest(getfield,@__MODULE__,:WingFEGen)
+                            handler=Base.invokelatest(getfield,generator,:JFEMSensitivityWorker)
+                            run_worker=Base.invokelatest(getfield,handler,:run_sensitivity_worker)
+                            completed=Base.invokelatest(run_worker,outdir,WORKER_REPO;runtime)
                             if !completed
                                 code=1
                                 errorpath=joinpath(outdir,"error.json")

@@ -1,4 +1,5 @@
 module JFEMEnvironmentSetup
+include("compilation_defaults.jl")
 using Pkg,TOML
 
 function recorded_version(project)
@@ -47,10 +48,11 @@ end
 
 """Check dependencies before app imports, without changing prepared metadata.
 Legacy opt-in JFEM_AUTO_INSTALL=1 installs missing sources only; explicit setup
-also repairs artifacts and builds the shared image. An explicit JFEM_PACKAGE_ENV
+also repairs artifacts. A shared image is optional. An explicit JFEM_PACKAGE_ENV
 uses its recorded versions and existing depot exclusively, even if automatic
 installation was enabled elsewhere."""
 function ensure_environment(project;io=stderr)
+    configure_compilation_defaults!()
     project=abspath(project)
     isfile(joinpath(project,"Project.toml")) || error("Project.toml missing from $project")
     selected,prepared=package_environment(project)

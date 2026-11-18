@@ -16,6 +16,29 @@ function chan2_section_geometry(tw,tb,h,b)
     return (;A=area,I1=i1,I2=i2,I12=0.0,yc)
 end
 
+"""The explicit TWBRBML=1 open-channel library equations.
+
+Area and centroidal moments retain the disjoint, finite-thickness geometry.
+Saint-Venant torsion is the sum of the three wall-midline strip terms;
+the two effective shear areas are the side walls and clear bottom web.
+The shear center follows equilibrium of the open-channel shear flows on
+the wall midlines. It lies below the bottom web, measured in the same +y
+direction as chan2_section_geometry. No external section values are fitted.
+These legacy equations do not define the collapsed solid-rectangle limit.
+"""
+function chan2_section_legacy(tw,tb,h,b)
+    geometry=chan2_section_geometry(tw,tb,h,b)
+    h>tb && b>2tw || throw(ArgumentError(
+        "TWBRBML=1 CHAN2 requires an open section: DIM3 > DIM2 and DIM4 > 2*DIM1; use TWBRBML=0 for a solid-rectangle limit"))
+    clear_height=h-tb
+    mid_height=h-tb/2
+    mid_width=b-tw
+    shear_center=tb/2-3tw*mid_height^2/(tb*mid_width+6tw*mid_height)
+    return (J=(mid_width*tb^3+2mid_height*tw^3)/3,
+        K1=2tw*clear_height/geometry.A,K2=(b-2tw)*tb/geometry.A,
+        N1=geometry.yc-shear_center,relative_change=0.0)
+end
+
 function _chan2_section_warping_mesh(tw,tb,h,b,n)
     geometry=chan2_section_geometry(tw,tb,h,b)
     r=_section_graded_coordinates(n)

@@ -17,7 +17,7 @@ schema.defaults=schema.values;
  const origin='http://127.0.0.1:43976';
  await context.route(origin+'/**',route=>{const p=new URL(route.request().url()).pathname;
   if(p==='/api/input')return route.fulfill({json:{...schema,ok:true}});
-  if(p==='/api/validate_workspace')return route.fulfill({json:{ok:true,parameters:route.request().postDataJSON()}});
+  if(['/api/validate_workspace','/api/restore_workspace'].includes(p))return route.fulfill({json:{ok:true,parameters:route.request().postDataJSON()}});
   if(['/api/prepare_workspace','/api/generate'].includes(p))return route.fulfill({body:fs.readFileSync(path.join(fixture,'payload.msgpack')),contentType:'application/msgpack'});
   if(p==='/api/last_deck')return route.fulfill({json:{ok:true,available:false}});
   if(p==='/api/jfem_probe')return route.fulfill({json:{found:false}});

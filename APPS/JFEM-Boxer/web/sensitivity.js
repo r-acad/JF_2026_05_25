@@ -345,6 +345,13 @@
   el('stop').onclick=async()=>{el('stop').disabled=true;try{await options.cancel();}catch(e){error(e.message);}finally{el('stop').disabled=false;}};
   el('csv').onclick=()=>{const quote=x=>'"'+String(typeof x==='string'&&/^[=+@-]/.test(x)?"'"+x:x??'').replace(/"/g,'""')+'"',rows=[['Property','Value','Unit','Derivative','Derivative unit','Normalized derivative','Relative step difference','Status']];for(const row of result?.rows||[])rows.push([labelOf(row),row.value,row.unit,row.derivative,row.derivative_unit,row.normalized_derivative,row.step_error,row.warning||row.status]);options.download?.(rows.map(r=>r.map(quote).join(',')).join('\r\n')+'\r\n');};
   function acceptResult(data,signature,metadata={}){clearVisualization();result=data;resultSignature=signature;resultMeta=metadata;resultSetup=setupSignature(data.request?{...data.request,derivative_method:data.request.derivative_method||(/^analytic_/.test(data.method)?'analytic':'operator_differences')}:runSetup||config);selectedProperty=null;previewPercent=1;renderResults();sync();options.onResultChanged?.();}
+  function clearResults(){
+   clearVisualization();savedGeneration++;savedBusy=false;
+   result=null;resultSignature=null;resultMeta={};resultSetup=null;selectedProperty=null;
+   el('status').dataset.detail='';el('status').textContent='';liveCounts.hidden=true;liveCounts.textContent='';
+   error('');
+   renderResults();sync();options.onResultChanged?.();
+  }
   function resetModel(caseId=1){
    pickActive=false;saved.open=false;
    clearVisualization();readGeneration++;savedGeneration++;savedBusy=false;catalog=null;catalogSignature=null;catalogMesh=null;catalogRequested=false;autoAttempt=null;loading=false;
@@ -354,7 +361,7 @@
    restore({...defaults(),case_id:Number(caseId)||1});options.onResultChanged?.();
   }
   restore('');return{capture:()=>JSON.parse(JSON.stringify(config)),serialize:()=>{if(invalidStep)throw Error("Sensitivity operator derivative step must be between 0.01% and 10% before saving or running.");return JSON.stringify(config);},restore,refreshContext,readCatalog,
-   getResult:()=>result,getResultContext:resultContext,isSetupCurrent:()=>!result||setupSignature(config)===resultSetup,selectedRow,selectProperty,refreshSavedRuns,resetModel,pickTarget,acceptPick,
+   getResult:()=>result,getResultContext:resultContext,isSetupCurrent:()=>!result||setupSignature(config)===resultSetup,selectedRow,selectProperty,refreshSavedRuns,resetModel,clearResults,pickTarget,acceptPick,
    setBusy(value){busy=!!value;if(busy){liveCounts.hidden=true;liveCounts.textContent='';el('status').dataset.detail='';el('status').textContent='JFEM sensitivity is running';started=performance.now();clearInterval(timer);timer=setInterval(()=>{el('status').textContent=(el('status').dataset.detail||'JFEM sensitivity is running')+' · '+Math.floor((performance.now()-started)/1000)+' s';},250);}else{clearInterval(timer);timer=null;el('progress').hidden=true;}sync();renderVariables();},
    progress(status){const progress=status.progress||{},detail=progress.detail||status.message||'JFEM sensitivity is running';el('status').dataset.detail=detail;el('status').textContent=detail+(Number.isFinite(status.seconds)?' · '+Math.floor(Math.max(0,status.seconds))+' s':'');
     const counts=solverCounts(progress.solver_counts);liveCounts.hidden=!counts.length;liveCounts.textContent=counts.join(' · ');

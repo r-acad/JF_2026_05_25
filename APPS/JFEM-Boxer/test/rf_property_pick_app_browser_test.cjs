@@ -10,7 +10,7 @@ const{chromium}=require(modulePath),schema=JSON.parse(fs.readFileSync(path.join(
  const origin='http://127.0.0.1:43976';await context.route(origin+'/**',route=>{const p=new URL(route.request().url()).pathname;
   if(p.startsWith('/api/'))requests.push(p);
   if(p==='/api/input')return route.fulfill({json:{...schema,ok:true}});
-  if(p==='/api/validate_workspace')return route.fulfill({json:{ok:true,parameters:route.request().postDataJSON()}});
+  if(['/api/validate_workspace','/api/restore_workspace'].includes(p))return route.fulfill({json:{ok:true,parameters:route.request().postDataJSON()}});
   if(['/api/prepare_workspace','/api/generate'].includes(p))return route.fulfill({body:fs.readFileSync(path.join(fixture,'payload.msgpack')),contentType:'application/msgpack'});
   if(p==='/api/last_deck')return route.fulfill({json:{ok:true,available:false}});
   if(p==='/api/jfem_probe')return route.fulfill({json:{found:false}});
@@ -36,7 +36,25 @@ const{chromium}=require(modulePath),schema=JSON.parse(fs.readFileSync(path.join(
    const allowables=WingMaterialAllowables.materialsFromGroups(state.data.groups).filter(m=>m.type==='MAT1').map(m=>({material_id:m.id,mode:'stress',stress:300e6}));state.values['materials.allowables']=allowables;document.getElementById('p-materials.allowables').value=JSON.stringify(allowables);state.data.load_cases=[{id:1,label:'Synthetic presentation case',solution:101}];state.loadCases=[];document.getElementById('p-output.solution').value='101';state.values['output.solution']='101';state.modelSignature=formSignature();state.resultCases=new Map([[1,{analysis:'SOL101',available:true,status:'complete',matches:true,static:{},signature:state.modelSignature,meshIdentity:state.meshIdentity,elementResults:records}]]);setModelDirty(false);state.stressReport.invalidate();await state.stressReport.refresh(true);activateWorkspaceTab('inspect');
   });
   const reportRF=await page.evaluate(pid=>state.stressReport.report.rows.find(r=>r.pid===pid).reserveFactor,picked.pid),oldComputations=await page.evaluate(()=>__rfComputations);const currentPoint=await point();await page.mouse.dblclick(currentPoint.x,currentPoint.y,{delay:90});await dialog.waitFor();await popup.waitForFunction(({pid,rf})=>Number(document.querySelector('.rf-value[data-pid="'+pid+'"]').dataset.value)===rf,{pid:picked.pid,rf:reportRF});assert.equal(await page.evaluate(()=>__rfComputations),oldComputations,'opening a calculated property must reuse its existing assessment');assert.match(await dialog.textContent(),/Critical RF/);await popup.screenshot({path:path.join(out,'assessed-property-and-editor.png')});
-  const input=dialog.locator('[data-pid="'+picked.pid+'"] input[data-field="thickness"]'),value=Number(await input.inputValue())+1;await input.fill(String(value));await dialog.locator('.rf-property-apply').click();await dialog.waitFor({state:'detached'});assert.equal(await page.evaluate(pid=>WingRFPropertyEditor.resolve(reserveFactorPropertyContext(),pid).values.thickness,picked.pid),value/1000);checks.push('With an existing assessment, a double click reuses its numerical RF and Apply updates the exact selected property without another equilibrium solve.');
+  // A physical spar-adjacent plate remains a one-card skin editor, even if
+  // the property also owns an authored stringer group. Its first thickness
+  // control is the selected skin in both single-card and assembly layouts.
+  const input=dialog.locator('input[data-field="thickness"]').first(),value=Number(await input.inputValue())+1;await input.fill(String(value));await dialog.locator('.rf-property-apply').click();await dialog.waitFor({state:'detached'});assert.equal(await page.evaluate(pid=>WingRFPropertyEditor.resolve(reserveFactorPropertyContext(),pid).values.thickness,picked.pid),value/1000);checks.push('With an existing assessment, a double click reuses its numerical RF and Apply updates the exact selected property without another equilibrium solve.');
+  await page.waitForFunction(()=>!state.rfSizingPending&&!state.stressReport.pending);
+  await page.evaluate(hit=>state.rfQuickEdit.open({pid:hit.pid,eid:hit.eid,kind:'quad'}),picked);await dialog.waitFor();
+  await popup.waitForFunction(()=>document.querySelectorAll('.rf-value[data-value]:not([data-value=""])').length>0);
+  const draft=String(Number(await input.inputValue())+.5);await input.fill(draft);
+  await page.evaluate(()=>beginAnalysisResults('aerodynamic analysis',{source:'aerodynamics'}));
+  await popup.waitForFunction(()=>document.querySelectorAll('.rf-value[data-value]:not([data-value=""])').length===0);
+  assert.match(await page.locator('#inspect-rf-assessment').textContent(),/Reserve factors unavailable/);
+  assert.equal(await page.locator('#inspect-rf-assessment table').count(),0);
+  assert.equal(await input.inputValue(),draft);assert(await dialog.isVisible());assert.match(await dialog.textContent(),/Starting aerodynamic analysis/);
+  const revisedDraft=String(Number(draft)+.25),afterClearComputations=await page.evaluate(()=>__rfComputations);await input.fill(revisedDraft);await popup.waitForTimeout(150);
+  assert.equal(await input.inputValue(),revisedDraft);assert.equal(await dialog.locator('.rf-property-assessment table').count(),0);
+  assert.equal(await popup.locator('.rf-value[data-value]:not([data-value=""])').count(),0);assert.equal(await page.evaluate(()=>__rfComputations),afterClearComputations,'Further draft edits must not resurrect an RF computation from the invalidated source context.');
+  assert(await popup.locator('#export-csv').isDisabled());await dialog.getByRole('button',{name:'Cancel',exact:true}).click();
+  await popup.waitForTimeout(100);assert.equal(await popup.locator('.rf-value[data-value]:not([data-value=""])').count(),0);
+  checks.push('A new aerodynamic analysis clears detached RF values and the editor assessment despite active property drafts, preserves the draft inputs, and cannot restore old RFs after Cancel.');
   await popup.close();assert.equal(await page.evaluate(()=>{activateWorkspaceTab('feedit');return workspaceUI.activeTab;}),'feedit');const count=context.pages().length;await page.mouse.dblclick(currentPoint.x,currentPoint.y,{delay:90});await page.waitForTimeout(200);assert.equal(context.pages().length,count);checks.push('FE Utils and other non-Inspect workspaces do not open property editors on double click.');
   assert.deepEqual(errors,[]);fs.writeFileSync(path.join(out,'summary.json'),JSON.stringify({passed:true,checks,errors,requests,picked,syntheticRecovery:true},null,2));console.log(JSON.stringify({passed:true,checks},null,2));
  }catch(error){fs.writeFileSync(path.join(out,'failure.json'),JSON.stringify({error:error.stack,checks,errors,requests,state:await page.evaluate(()=>({epoch:state.studyEpoch,tab:workspaceUI.activeTab,workerComputations:window.__rfComputations,modelError:document.getElementById('model-error-text')?.textContent}))},null,2));await page.screenshot({path:path.join(out,'failure-main.png')});if(popup&&!popup.isClosed())await popup.screenshot({path:path.join(out,'failure-popup.png')});throw error;}finally{await browser.close();}

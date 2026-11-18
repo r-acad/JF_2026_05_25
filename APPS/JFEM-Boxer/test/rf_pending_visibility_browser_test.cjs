@@ -10,7 +10,7 @@ const{chromium}=require(modulePath),decode=require('../web/vendor/msgpack.min.js
  fs.mkdirSync(out,{recursive:true});const browser=await chromium.launch({channel:'chrome',headless:true,args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']}),context=await browser.newContext({viewport:{width:1600,height:1100}}),page=await context.newPage(),errors=[],checks=[],held=[];let holdSections=false;page.on('pageerror',e=>errors.push(e.stack));page.setDefaultTimeout(45000);
  const origin='http://127.0.0.1:43983';await context.route(origin+'/**',async route=>{const url=new URL(route.request().url()),p=url.pathname;
   if(p==='/api/input')return route.fulfill({json:{...schema,ok:true}});
-  if(p==='/api/validate_workspace')return route.fulfill({json:{ok:true,parameters:route.request().postDataJSON()}});
+  if(['/api/validate_workspace','/api/restore_workspace'].includes(p))return route.fulfill({json:{ok:true,parameters:route.request().postDataJSON()}});
   if(['/api/prepare_workspace','/api/generate'].includes(p))return route.fulfill({body:base.payload,contentType:'application/msgpack'});
   if(p==='/api/rf_sections'){
    const body=route.request().postDataJSON(),params=body.parameters||body,rows=params['properties.panels']||[],t=rows.find(r=>r.key===manifest.key)?.skin?.thickness||manifest.thickness,variant=variants.find(v=>Math.abs(v.thickness-t)<1e-12);if(!variant)throw Error('Missing authentic section variant '+t);

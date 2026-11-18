@@ -163,9 +163,11 @@ function checks()
     @test !S.q4_pshell_mat2_membrane_projection(true,0.)
     @test S.q4_pshell_material_frame(true,0.)
     @test !S.q4_pshell_material_frame(false,0.)
-    @test !S.q4_pshell_material_frame(true,1e-4)
+    @test S.q4_pshell_material_frame(true,1e-4)
+    @test !S.q4_pshell_planar_material_frame(true,1e-4)
     @test !S.q4_pshell_material_frame(true,0.;Bmb=zeros(3,3))
-    @test !S.q4_pshell_material_frame(true,0.;snorm_pq=ones(4,2))
+    @test S.q4_pshell_material_frame(true,0.;snorm_pq=ones(4,2))
+    @test !S.q4_pshell_planar_material_frame(true,0.;snorm_pq=ones(4,2))
     @test !S.q4_pshell_material_frame(true,0.;curvature_membrane=zeros(3))
     @test !S.q4_pshell_material_frame(true,0.;kernel_mode="mitc4_3d")
     @test withenv("JFEM_Q4_PSHELL_MAT2_MEMBRANE_SELC"=>"true") do
@@ -371,4 +373,67 @@ end
 end
 @testset "Ordinary planar PSHELL geometric work and material representations" begin
     PShellGeometricRepresentationFixture.checks()
+end
+
+module PShellWarpedMaterialFrameFixture
+using Test,LinearAlgebra,OpenJFEM
+using ..PShellMat2ProjectionFixture: frame,assemble
+const S=OpenJFEM.Solver
+function projected_material_frame(x,theta)
+    R=frame(x);z=R[3,:];edge=x[2,:]-x[1,:]
+    a=normalize(edge-dot(edge,z)*z);b=cross(z,a)
+    mx=cosd(theta)*a+sind(theta)*b
+    reduce(vcat,permutedims.((mx,cross(z,mx),z)))
+end
+function checks()
+    # THETA=0 follows projected G1-G2 even when that side is 40 degrees from
+    # the element bisector. The equivalent MCID is an independent encoding
+    # of precisely the same material tensor, not a fitted native operator.
+    shapes=([0. 0. .005;.5 0. 0.;1.07125920269685 .4 0.;.57125920269685 .4 -.005],
+            [0. 0. .01;1.5 0. -.01;2.1 .8 .01;.6 .8 -.01])
+    a=.37;b=-.29
+    Q=[cos(b) 0. sin(b);0. 1. 0.;-sin(b) 0. cos(b)]*
+      [1. 0. 0.;0. cos(a) -sin(a);0. sin(a) cos(a)]
+    T=kron(Matrix{Float64}(I,8,8),Q)
+    mktempdir() do dir
+        for x in shapes,theta in (0.,23.)
+            Rm=projected_material_frame(x,theta)
+            K,model,_,assembled=assemble(dir,x,theta;Rm=Rm)
+            Km,mm,_,am=assemble(dir,x,theta;mcid=true,Rm=Rm)
+            @test isapprox(Km,K;rtol=4e-11,atol=1e-6)
+            @test norm(K-K')<3e-13norm(K)
+            @test eigmin(Symmetric(K))>-3e-13norm(K)
+            xr=x*Q'.+reshape([3.,-2.,1.],1,3)
+            Kr,_,_,_=assemble(dir,xr,theta;Rm=projected_material_frame(xr,theta))
+            @test isapprox(Kr,T*K*T';rtol=4e-11,atol=2e-6)
+            for axis=1:3
+                e=zeros(3);e[axis]=1.;u=zeros(24);r=zeros(24)
+                for k=1:4
+                    u[6k-5:6k-3]=e;r[6k-5:6k-3]=cross(e,x[k,:]);r[6k-2:6k]=e
+                end
+                @test norm(K*u)<1e-11norm(K)
+                @test norm(K*r)<1e-11norm(K)*max(norm(x),1.)
+            end
+            # The preload tensor shares the fixed material frame while the
+            # planar-only differential/interpolation dispatch remains closed.
+            u=1e-4sin.(collect(1.:24.));ca=Dict{Symbol,Any}();cb=Dict{Symbol,Any}()
+            G=S.assemble_geometric_stiffness(model,assembled[2],assembled[3],assembled[5],assembled[4],u,assembled[8],assembled[7];
+                geometric_capture=(eid,data)->merge!(ca,data))
+            Gm=S.assemble_geometric_stiffness(mm,am[2],am[3],am[5],am[4],u,am[8],am[7];
+                geometric_capture=(eid,data)->merge!(cb,data))
+            @test isapprox(Gm,G;rtol=4e-11,atol=1e-6)
+            # The equivalent CORD2R passes through decimal input fields before
+            # re-projection; use the same text-coordinate precision budget as
+            # the independent stiffness and force-field equivalence checks.
+            @test isapprox(ca[:Cm_override],cb[:Cm_override];rtol=4e-12)
+            @test isapprox(ca[:N_gp],cb[:N_gp];rtol=4e-11,atol=1e-6)
+            @test ca[:kg_pshell_material_frame]
+            @test !ca[:kg_mat2_membrane_selc]
+            @test !ca[:kg_membrane_selc]
+        end
+    end
+end
+end
+@testset "Warped anisotropic PSHELL material axes and equivalent MCID" begin
+    PShellWarpedMaterialFrameFixture.checks()
 end

@@ -205,7 +205,19 @@ function read_bulk_and_case(lines::Vector{String})
                 continue
             end
 
-            # Parse SOL type (executive control)
+            # Executive SYSTEM cells remain distinct from Bulk Data PARAMs.
+            if startswith(stripped_cl, "NASTRAN ")
+                system_entries = collect(eachmatch(
+                    r"SYSTEM\s*\(\s*(\d+)\s*\)\s*=\s*([+-]?\d+)(?=\s|,|$)", stripped_cl))
+                if !isempty(system_entries)
+                    systems = get!(case_control, "SYSTEMS", Dict{String,Int}())
+                    for entry in system_entries
+                        systems[string(parse(Int, entry[1]))] = parse(Int, entry[2])
+                    end
+                    continue
+                end
+            end
+            # Parse SOL type (executive control).
             if startswith(stripped_cl, "SOL ")
                 m = match(r"SOL\s+(\d+)", stripped_cl)
                 if m !== nothing

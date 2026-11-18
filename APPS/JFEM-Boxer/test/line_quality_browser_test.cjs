@@ -71,6 +71,39 @@ if(!['webgpu','webgl'].includes(backend))throw Error('Choose webgpu or webgl.');
   await page.evaluate(async()=>{skins.forEach(m=>m.setEnabled(false));edges.forEach(m=>m.setEnabled(false));await render();});
   const occlusionControl=await capture('hidden-line-visible-control');assert(occlusionControl.sheet.hiddenGreen>100,'The occlusion probe must be visible without the skin');
   await page.setViewportSize({width:880,height:660});await page.evaluate(async()=>{engine.resize();quality?.resize?.();await render();});
+  // A compression-panel outline requests its own screen width. Check actual
+  // rendered coverage after a viewport/DPI change, and live uniform updates
+  // without replacing either the source or its expanded vertex buffers.
+  await page.evaluate(async()=>{
+   const B=BABYLON,canvas=engine.getRenderingCanvas(),rect=canvas.getBoundingClientRect(),w=engine.getRenderWidth(),h=engine.getRenderHeight();
+   const point=(x,y)=>B.Vector3.Unproject(new B.Vector3(x/rect.width*w,y/rect.height*h,.5),w,h,B.Matrix.Identity(),camera.getViewMatrix(),camera.getProjectionMatrix());
+   window.widthProbe=B.MeshBuilder.CreateLines('panel-outline-width-probe',{points:[point(120,230),point(760,230)],updatable:true},scene);
+   widthProbe.color=B.Color3.FromHexString('#103b73');await render();
+  });
+  async function strokeCoverage(name){const png=await page.screenshot({path:path.join(out,name+'.png'),scale:'css'});return page.evaluate(async base64=>{
+   const image=new Image();image.src='data:image/png;base64,'+base64;await image.decode();const canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height;const context=canvas.getContext('2d');context.drawImage(image,0,0);const pixels=context.getImageData(0,0,canvas.width,canvas.height).data;
+   let coverage=0;for(let y=210;y<250;y++)for(let x=200;x<680;x++){const k=(y*canvas.width+x)*4,r=pixels[k],g=pixels[k+1],b=pixels[k+2];if(b-r>20&&b-g>8)coverage+=255-(r+g+b)/3;}return coverage;
+  },png.toString('base64'));}
+  const defaultCoverage=await strokeCoverage('panel-outline-default');
+  await page.evaluate(async()=>{widthProbe.metadata={strokeWidthPx:3.5};await render();});
+  const wideCoverage=await strokeCoverage('panel-outline-wide');
+  const widthOverrides=await page.evaluate(async()=>{
+   const source=widthProbe,proxy=source._wingScreenStroke,positions=proxy.getVerticesData('position'),other=proxy.getVerticesData('strokeOther'),indices=proxy.getIndices(),plugin=proxy.material.pluginManager.getPlugin('BoxerScreenStroke');
+   const cssRatio=engine.getRenderWidth()/engine.getRenderingCanvas().getBoundingClientRect().width;
+   function width(){let found;plugin.bindForSubMesh({updateFloat3(name,w,h,stroke){found=stroke/cssRatio;}});return found;}
+   const wide=width();source.metadata.strokeWidthPx=5;await render();const updated=width();
+   const invalid=[];for(const value of[0,-1,NaN,Infinity,'3.5',null]){source.metadata.strokeWidthPx=value;invalid.push(width());}
+   source.metadata={};await render();const fallback=width(),reused=positions===proxy.getVerticesData('position')&&other===proxy.getVerticesData('strokeOther')&&indices===proxy.getIndices();
+   return{wide,updated,invalid,fallback,reused,cssRatio};
+  });
+  const fallbackCoverage=await strokeCoverage('panel-outline-fallback');
+  assert(defaultCoverage>10000,'Default outline probe must be visible');
+  assert(wideCoverage>defaultCoverage*1.7&&wideCoverage<defaultCoverage*4.2,'3.5px outline must visibly widen the default1.35px stroke');
+  assert(Math.abs(fallbackCoverage/defaultCoverage-1)<.03,'Clearing an override must restore default pixel coverage');
+  assert.equal(widthOverrides.wide,3.5);assert.equal(widthOverrides.updated,5);assert.equal(widthOverrides.fallback,1.35);assert(widthOverrides.reused);
+  for(const value of widthOverrides.invalid)assert.equal(value,1.35);
+  const strokeWidth={...widthOverrides,defaultCoverage,wideCoverage,fallbackCoverage};
+  await page.evaluate(async()=>{widthProbe.dispose();await render();});
   const lifecycle=await page.evaluate(async()=>{
    const B=BABYLON,c=B.Color4.FromHexString('#4d99ccb3'),source=B.MeshBuilder.CreateLineSystem('vertex-colored-probe',{lines:[[new B.Vector3(-2,1,0),new B.Vector3(2,1,0)]],colors:[[c,c]],updatable:true},scene);
    // Loft cuts deliberately set both the native uniform and vertex colors.
@@ -83,6 +116,6 @@ if(!['webgpu','webgl'].includes(backend))throw Error('Choose webgpu or webgl.');
    const active=camera._postProcesses.filter(Boolean).length;quality.dispose();await render();
    return{active,disposed:camera._postProcesses.filter(Boolean).length,remainingStrokes:scene.meshes.filter(m=>m.metadata?.wingStrokeSource).length,white,colors,expected:[c.r**2.2,c.g**2.2,c.b**2.2,c.a],reused,moved,empty,restored,lazy,shown,errors:[...gpuErrors]};
   });assert.deepEqual(lifecycle.errors,[]);assert.equal(lifecycle.disposed,0);assert.equal(lifecycle.remainingStrokes,0);assert.deepEqual(lifecycle.white,[1,1,1]);for(let k=0;k<lifecycle.colors.length;k++)assert(Math.abs(lifecycle.colors[k]-lifecycle.expected[k%4])<1e-6);assert(lifecycle.reused&&lifecycle.moved&&lifecycle.empty&&lifecycle.restored&&lifecycle.lazy&&lifecycle.shown);assert.deepEqual(errors,[]);assert.deepEqual(external,[]);
-  fs.writeFileSync(path.join(out,'summary.json'),JSON.stringify({passed:true,info,results,occlusionControl,lifecycle,errors,external},null,2));console.log(backend+': four real-pixel scenes, color preservation, reused animation buffers, index filtering, lazy hidden layers and disposal pass without GPU errors.');
+  fs.writeFileSync(path.join(out,'summary.json'),JSON.stringify({passed:true,info,results,occlusionControl,strokeWidth,lifecycle,errors,external},null,2));console.log(backend+': four real-pixel scenes, live per-source stroke widths, color preservation, reused animation buffers, index filtering, lazy hidden layers and disposal pass without GPU errors.');
  }catch(e){fs.writeFileSync(path.join(out,'failure.json'),JSON.stringify({error:e.stack,results,errors,external},null,2));throw e;}finally{await browser.close();await new Promise(r=>server.close(r));}
 })().catch(e=>{console.error(e.stack);process.exitCode=1;});

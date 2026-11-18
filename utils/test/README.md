@@ -9,10 +9,21 @@ element fixtures and assertions.
 focused checks of constraints, beam and shell operators, mass and buckling,
 input parsing, result recovery, timing, and installation behavior. It also checks
 the shared application package environment and PANDEATOR's local HTTP listener.
+`windows_image_probe_test.jl` checks silent Windows DLL rejection and complete
+launcher fallback through a corrupt image with a matching synthetic receipt.
 Individual
 `*_test.jl` files isolate regressions that would be harder to diagnose from a
 large application model. The JFEM-Boxer browser/generator checks live separately
 under `APPS/JFEM-Boxer/test/`.
+
+PANDEATOR's `pandeator_model_test.jl` checks physical flange ownership, support
+rank, force/moment balance, mass and exact gauge/load directions.
+`pandeator_analysis_test.jl` checks associated-column stiffness, bare-plate gauge
+scaling and symmetric-laminate recovery derivatives against independent property
+perturbations. `pandeator_workflow_test.jl` checks request serialization, progress,
+cancellation and numerical result semantics. PANDEATOR browser checks live in
+`APPS/PANDEATOR_APP/test/`; the native integration check explicitly requires an
+isolated server and performs real two-step finite-difference validation.
 
 `spectrum_comparison_test.jl` checks signed root assignment against an
 exhaustive independent oracle, strict tolerance boundaries, multiplicity,
@@ -20,6 +31,12 @@ explicit intervals, repeated-mode basis rotations and scaled residuals.
 `buckling_inertia_domain_test.jl` uses prescribed signed spectra to check
 branch orientation, repeated and infinite roots, and the elastic-stiffness
 domain required by positive-branch inertia diagnostics.
+`buckling_signed_interval_test.jl` checks selection of the closest admissible
+signed roots in positive, negative and asymmetric intervals, including unit
+scaling and coordinate changes, against independently prescribed spectra.
+`pshell_differential_prestress_test.jl` checks warped anisotropic-shell geometric
+work against an independently differentiated membrane-energy Hessian, rigid
+coordinate rotations, cyclic connectivity and explicit formulation guards.
 `modal_common_scale_pencils_test.jl` checks common matrix-unit changes and
 DOF permutations against prescribed finite spectra and constant-determinant
 infinite chains. `modal_request_contract_test.jl` checks literal EIGRL field
@@ -133,11 +150,22 @@ fixture/output/Playwright arguments are documented in each test header.
 mode, responsive graph heights, visible-component exports and stale annotations.
 These checks exercise UI behavior; they do not constitute new solver validation.
 
-`beam_stress_envelope_test.jl OUTPUT` checks the thin-walled T equivalent-stress
-envelope against independent section calculations and sampled stress fields,
-including sign, scale, missing-resultant and unsupported-section cases.
+`beam_stress_envelope_test.jl OUTPUT` checks the finite-thickness nominal T
+equivalent-stress envelope against independent rectangular torsion series and
+sampled nominal section fields, including sign, scale, thick limbs and missing
+resultants. The engineering model excludes sharp-junction concentrations,
+restrained warping and transverse normal stresses; these checks are not a 3D
+junction-stress validation. `rf_beam_finite_stress_test.jl` verifies local exact
+RF derivatives against independently perturbed native recovery and safely
+upgrades complete legacy thin-wall force records without changing the inputs.
 `beam_equivalent_recovery_test.jl OUTPUT` solves small synthetic CBAR/CBEAM
 SOL101 and SOL106 cases and checks recovered equivalent stresses.
+`rf_plate_unresolved_test.jl` checks an actually recovered, nearly tensile
+panel tensor with a restricted negative-root basis, no-demand handling,
+retained physical coverage and all-mode lower-bound scaling. Its companion
+`APPS/JFEM-Boxer/test/rf_native_plate_certificate_test.cjs` verifies that native
+unresolved-case certificates complete only a proven same-panel envelope,
+without inventing an individual RF or rescuing missing recovery.
 `APPS/JFEM-Boxer/test/beam_stress_payload_test.jl FIXTURE RECOVERY OUTPUT`
 checks upgrading actual earlier force records through Boxer's result reader
 without another solve. Keep its generated outputs outside the source folders.
@@ -221,7 +249,14 @@ The coefficient comparison retains the documented VLM discretization tolerance;
 it does not claim an exact Oswald factor from a coarse mesh or a viscous model.
 `sensitivity_warmup_test.jl` runs the installation's imported/generated
 sensitivity workloads and checks finite analytic results with one baseline
-solve and no perturbed equilibrium solves.
+solve and no perturbed equilibrium solves. It also exercises the real native
+RF Jacobian, Jv/Jᵀw and mode-cluster directional products through the same named
+production-worker callback used by Boxer. A tiny bounded-sizing run warms its
+independent final-check path; it is not an optimality benchmark. The RF JSON
+postprocessing route is exercised on the same recovered fields without another
+FE solve. All requests/results are temporary and no child process or separate
+application image is started. These workloads are part of the one shared
+installation/sysimage build.
 `sensitivity_persistent_worker_test.jl OUTPUT` uses a controlled IPC worker to
 check shared FE/sensitivity ordering, independent outputs, errors, cancellation,
 timeout, crash/restart and application shutdown. Run it with `--threads=4` from
@@ -350,3 +385,5 @@ folder. Use the command above instead of `Pkg.test()`.
 All current files participate in maintained regression coverage or support its
 fixtures. Moving them out of the repository would break reproducible testing;
 no active tests were removed merely because everyday users do not open them.
+
+The RF contract, sizing optimizer, matrix I/O and plate-bound tests check equilibrium derivatives against independent two-member solutions, explicit recovery cancellation, Jacobian products, constrained sizing optima and minimum-gauge attainment, streamed unavailable-value handling, sparse tied dimensions and a certified all-mode bound with eigencluster directional checks. The shell body-moment test independently perturbs asymmetric laminate layers and mass-centroid offsets on warped quads and oblique triangles, including changes with zero total-mass derivative. These are small authored mathematical fixtures and require no external solver or downloaded models.

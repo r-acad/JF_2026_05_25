@@ -1961,21 +1961,29 @@ function k6rot_metadata(model, shear_center_only::Bool=false)
     )
 end
 
-"""Bounded planar PSHELL material frame shared by K and preload recovery.
+"""Physical PSHELL material frame shared by K and preload recovery.
 
 THETA is measured from side G1-G2 independently of the membrane interpolation.
-Nonzero MID4 coupling, active directors and research curvature fields retain
-their existing kinematic contracts. The sqrt(eps) bound admits coordinate
-roundoff in rotated planar input without extending to physically warped cells.
+Warp and nodal-director maps do not align that side with the element bisector:
+the constitutive rotation remains necessary on warped anisotropic cells.
+Nonzero MID4 coupling and research curvature fields retain their existing
+kinematic contracts. Interpolation restrictions are kept separately below.
 """
 @inline function q4_pshell_material_frame(is_pshell::Bool, warp_ratio::Real;
     Bmb=nothing, snorm_pq=nothing, curvature_membrane=nothing, slope_membrane=nothing,
     kernel_mode="macneal")
     is_pshell || return false
-    isfinite(warp_ratio) && abs(warp_ratio) <= sqrt(eps(Float64)) || return false
+    isfinite(warp_ratio) || return false
     Bmb === nothing && curvature_membrane === nothing && slope_membrane === nothing || return false
-    snorm_pq === nothing || !FEM.quad4_snorm_pq_has_active_rows(snorm_pq) || return false
     return lowercase(string(kernel_mode)) == "macneal"
+end
+
+"""Existing projected-planar interpolation domain, separate from material axes."""
+@inline function q4_pshell_planar_material_frame(is_pshell::Bool, warp_ratio::Real;
+    snorm_pq=nothing, kwargs...)
+    isfinite(warp_ratio) && abs(warp_ratio) <= sqrt(eps(Float64)) || return false
+    snorm_pq === nothing || !FEM.quad4_snorm_pq_has_active_rows(snorm_pq) || return false
+    return q4_pshell_material_frame(is_pshell,warp_ratio;snorm_pq=snorm_pq,kwargs...)
 end
 
 """Bounded ordinary GRID-reference offset differential law.
@@ -2057,7 +2065,7 @@ end
 """Explicit legacy center-shear alternative to the complete membrane basis."""
 @inline q4_pshell_mat2_membrane_projection(is_mat2::Bool, warp_ratio::Real; kwargs...) =
     solver_env_bool("JFEM_Q4_PSHELL_MAT2_MEMBRANE_SELC", false) &&
-    q4_pshell_material_frame(is_mat2, warp_ratio; kwargs...)
+    q4_pshell_planar_material_frame(is_mat2, warp_ratio; kwargs...)
 
 """Rotate a MAT2 in-plane constitutive matrix, including its 16/26 couplings."""
 @inline function shell_mat2_constitutive_matrix(mat, scale::Real, theta::Real=0.0)
@@ -4201,9 +4209,13 @@ end
             !is_pcomp_ei, warp_ratio_ei; Bmb=Bmb_local,
             snorm_pq=snorm_pq_arg, curvature_membrane=curvature_membrane,
             slope_membrane=slope_membrane, kernel_mode=q4_kernel_mode_static)
-        elem_mat2_membrane_selc = q4_pshell_mat2[ei] && elem_pshell_material_frame &&
-            solver_env_bool("JFEM_Q4_PSHELL_MAT2_MEMBRANE_SELC", false)
+        elem_mat2_membrane_selc = q4_pshell_mat2_membrane_projection(
+            q4_pshell_mat2[ei],warp_ratio_ei;Bmb=Bmb_local,
+            snorm_pq=snorm_pq_arg,curvature_membrane=curvature_membrane,
+            slope_membrane=slope_membrane,kernel_mode=q4_kernel_mode_static)
         elem_material_shear_rotation = 0.0
+        analytic_membrane_rotation = 0.0
+        analytic_bending_rotation = 0.0
         if is_pcomp_ei
             # Pass all 4 corners so the rotation function can resolve
             # :warp_switch and keep the K_eig rotation consistent with the
@@ -4228,6 +4240,7 @@ end
             # JFEM_SOL105_PCOMP_SKEW_MEMBRANE (default ON since 2026-07-28: deterministic 42-deck screen
             # per-case accounting); non-skew (v1 ~ global x) elements are unaffected.
             elem_material_shear_rotation = beta
+            analytic_membrane_rotation = analytic_bending_rotation = beta
             if abs(beta) > 1e-10
                 cb = cos(beta); sb = sin(beta)
                 c2 = cb^2; s2 = sb^2; cs = cb*sb
@@ -4286,6 +4299,7 @@ end
                         cbp = cos(phi); sbp = sin(phi)
                         c2p = cbp^2; s2p = sbp^2; csp = cbp*sbp
                         if skew_membrane_frame
+                            analytic_membrane_rotation += phi
                             _rotate_constitutive_3x3!(Cm_local,
                                 c2p, s2p, csp, s2p, c2p, -csp, -2csp, 2csp, c2p - s2p)
                             if Bmb_local !== nothing
@@ -4301,6 +4315,7 @@ end
                         # D16/D26 (quasi-isotropic stacks; the zb dials cannot
                         # reach it: sweep floor ~10-16%).  Diagnostic opt-in.
                         if skew_cb_frame
+                            analytic_bending_rotation += phi
                             _rotate_constitutive_3x3!(Cb_local,
                                 c2p, s2p, csp, s2p, c2p, -csp, -2csp, 2csp, c2p - s2p)
                             a11 = Cs_local[1,1]; a12 = Cs_local[1,2]; a22 = Cs_local[2,2]
@@ -4328,6 +4343,7 @@ end
                 model["CORDs"],
             ) : shell_material_rotation_from_g12(v1,v2,v3,p1,p2,0.0)
             elem_material_shear_rotation = beta
+            analytic_membrane_rotation = analytic_bending_rotation = beta
             if abs(beta) > 1e-10
                 cb = cos(beta); sb = sin(beta)
                 c2 = cb^2; s2 = sb^2; cs = cb*sb
@@ -4899,6 +4915,22 @@ end
             elem_drill_scale *= elem_static_component_drill_scale
         end
         corner_section=q4_corner_sections[ei]
+        # Offset the physical section energy while the numerical K6ROT spin
+        # constraint stays on the GRID plane. Keep warped/director/research
+        # operators on their existing complete mapping path.
+        elem_grid_plane_offset = !iszero(q4_zoffs[ei]) && corner_section===nothing &&
+            shell_projected_reference_offset_enabled(model) &&
+            elem_is_flat && abs(warp_ratio_ei)<=sqrt(eps(Float64)) &&
+            elem_q4_kernel_mode_static=="macneal" &&
+            !elem_mitc4_3d_kernel && !elem_flat_dkmq_branch &&
+            !elem_rect_plate_branch && !elem_flat_plate_branch &&
+            !elem_exact_membrane_operator && !snorm_director && !snorm_transform_only &&
+            !elem_flat_curved_iso_nodal_geomnormal_transform &&
+            !elem_static_pcomp_nodal_geomnormal_transform &&
+            curvature_membrane===nothing && slope_membrane===nothing &&
+            (snorm_pq_arg===nothing || !FEM.quad4_snorm_pq_has_active_rows(snorm_pq_arg)) &&
+            FEM.fem_env_bool("JFEM_Q4_DRILL_LUMPED_REFERENCE",true)
+        elem_reference_offset_z = elem_grid_plane_offset ? q4_zoffs[ei] : 0.0
         if corner_section!==nothing
             shell_capture===nothing || throw(ArgumentError(
                 "Analytic shell sensitivities with nonuniform corner thickness are not implemented"))
@@ -4943,7 +4975,7 @@ end
         elseif elem_shear_center_only && is_iso_ei
             Ke_center = _analytic_shell_call(shell_capture, q4_eid_int[ei], FEM.stiffness_quad4_matrices, lc, Cm_local, Cb_local, Cs_local,
                 q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local, coupled_projected=elem_coupled_projected,
-                drill_scale=elem_drill_scale,
+                drill_scale=elem_drill_scale, reference_offset=elem_reference_offset_z,
                 ws=ws_stiff, msws=per_thread_msws[tid], bending_incomp=elem_bending_incomp, shear_center_only=true,
                 no_phi2=elem_no_phi2, membrane_incomp=elem_membrane_incomp,
                 membrane_incomp_scale=elem_membrane_incomp_scale,
@@ -4965,7 +4997,7 @@ end
                 membrane_hourglass_skew=elem_membrane_hourglass_skew)
             Ke_full = _analytic_shell_call(shell_capture, q4_eid_int[ei], FEM.stiffness_quad4_matrices, lc, Cm_local, Cb_local, Cs_local,
                 q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local, coupled_projected=elem_coupled_projected,
-                drill_scale=elem_drill_scale,
+                drill_scale=elem_drill_scale, reference_offset=elem_reference_offset_z,
                 ws=per_thread_ws_alt[tid], msws=per_thread_msws[tid], bending_incomp=elem_bending_incomp, shear_center_only=false,
                 no_phi2=elem_no_phi2, membrane_incomp=elem_membrane_incomp,
                 membrane_incomp_scale=elem_membrane_incomp_scale,
@@ -5027,7 +5059,7 @@ end
             if elem_is_flat && !is_pcomp_iso_ei
                 Ke_t = _analytic_shell_call(shell_capture, q4_eid_int[ei], FEM.stiffness_quad4_matrices, lc, Cm_local, Cb_local, Cs_local,
                     q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local, coupled_projected=elem_coupled_projected,
-                    drill_scale=elem_drill_scale,
+                    drill_scale=elem_drill_scale, reference_offset=elem_reference_offset_z,
                     ws=ws_stiff, msws=per_thread_msws[tid], bending_incomp=elem_bending_incomp, shear_center_only=true,
                     no_phi2=elem_no_phi2, membrane_incomp=elem_membrane_incomp,
                     membrane_incomp_scale=elem_membrane_incomp_scale,
@@ -5051,7 +5083,7 @@ end
             elseif curved_pcomp_blend < 1.0
                 Ke_center = _analytic_shell_call(shell_capture, q4_eid_int[ei], FEM.stiffness_quad4_matrices, lc, Cm_local, Cb_local, Cs_local,
                     q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local, coupled_projected=elem_coupled_projected,
-                    drill_scale=elem_drill_scale,
+                    drill_scale=elem_drill_scale, reference_offset=elem_reference_offset_z,
                     ws=ws_stiff, msws=per_thread_msws[tid], bending_incomp=elem_bending_incomp, shear_center_only=true,
                     no_phi2=elem_no_phi2, membrane_incomp=elem_membrane_incomp,
                     membrane_incomp_scale=elem_membrane_incomp_scale,
@@ -5073,7 +5105,7 @@ end
                 membrane_hourglass_skew=elem_membrane_hourglass_skew)
                 Ke_full = _analytic_shell_call(shell_capture, q4_eid_int[ei], FEM.stiffness_quad4_matrices, lc, Cm_local, Cb_local, Cs_local,
                     q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local, coupled_projected=elem_coupled_projected,
-                    drill_scale=elem_drill_scale,
+                    drill_scale=elem_drill_scale, reference_offset=elem_reference_offset_z,
                     ws=per_thread_ws_alt[tid], msws=per_thread_msws[tid], bending_incomp=elem_bending_incomp, shear_center_only=false,
                     no_phi2=elem_no_phi2, membrane_incomp=elem_membrane_incomp,
                     membrane_incomp_scale=elem_membrane_incomp_scale,
@@ -5101,7 +5133,7 @@ end
             else
                 Ke_t = _analytic_shell_call(shell_capture, q4_eid_int[ei], FEM.stiffness_quad4_matrices, lc, Cm_local, Cb_local, Cs_local,
                     q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local, coupled_projected=elem_coupled_projected,
-                    drill_scale=elem_drill_scale,
+                    drill_scale=elem_drill_scale, reference_offset=elem_reference_offset_z,
                     ws=ws_stiff, msws=per_thread_msws[tid], bending_incomp=elem_bending_incomp, shear_center_only=false,
                     no_phi2=elem_no_phi2, membrane_incomp=elem_membrane_incomp,
                     membrane_incomp_scale=elem_membrane_incomp_scale,
@@ -5126,7 +5158,7 @@ end
         else
             Ke_t = _analytic_shell_call(shell_capture, q4_eid_int[ei], FEM.stiffness_quad4_matrices, lc, Cm_local, Cb_local, Cs_local,
                 q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local, coupled_projected=elem_coupled_projected,
-                drill_scale=elem_drill_scale,
+                drill_scale=elem_drill_scale, reference_offset=elem_reference_offset_z,
                 ws=ws_stiff, msws=per_thread_msws[tid], bending_incomp=elem_bending_incomp, shear_center_only=elem_shear_center_only,
                 no_phi2=elem_no_phi2, membrane_incomp=elem_membrane_incomp,
                 membrane_incomp_scale=elem_membrane_incomp_scale,
@@ -5152,7 +5184,7 @@ end
             Ke_ref = copyto!(sep_Ke_ref[tid], Ke_t)
             Ke_macneal = _analytic_shell_call(shell_capture, q4_eid_int[ei], FEM.stiffness_quad4_matrices, lc, Cm_local, Cb_local, Cs_local,
                 q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local, coupled_projected=elem_coupled_projected,
-                drill_scale=elem_drill_scale,
+                drill_scale=elem_drill_scale, reference_offset=elem_reference_offset_z,
                 ws=per_thread_ws_alt[tid], msws=per_thread_msws[tid], bending_incomp=elem_bending_incomp,
                 shear_center_only=elem_shear_center_only,
                 no_phi2=elem_no_phi2, membrane_incomp=elem_membrane_incomp,
@@ -5198,7 +5230,7 @@ end
         # normal-moment and finite-warp pullbacks. Re-express the shift at this
         # kernel boundary so every selected projected kernel keeps its field.
         projected_offset_map = nothing
-        outer_zoffs = q4_zoffs[ei]
+        outer_zoffs = q4_zoffs[ei]-elem_reference_offset_z
         if !iszero(outer_zoffs) && shell_projected_reference_offset_enabled(model) &&
            elem_q4_kernel_mode_static == "macneal" &&
            !elem_mitc4_3d_kernel && !elem_flat_dkmq_branch &&
@@ -5248,6 +5280,9 @@ end
                 cm_scale=elem_static_component_cm_scale*(cm_axes*cm_axes'),
                 cb_scale=bend_const_scale*elem_static_component_cb_scale,
                 cs_scale=elem_static_component_cs_scale,
+                bmb_scale=elem_static_component_bmb_scale,
+                membrane_rotation=analytic_membrane_rotation,
+                bending_rotation=analytic_bending_rotation,
                 unsupported=elem_mitc4_3d_kernel ? "MITC4 3D kernel is not supported by analytic shell derivatives" : "")
         end
     end
@@ -5335,6 +5370,7 @@ end
         # PCOMP laminate-axis rotation for TRIA3 follows the element x-axis
         # plus the shell THETA angle, matching Reference shell convention.
         Cm_t3 = t3_Cm[ei]; Cb_t3 = t3_Cb[ei]; Cs_t3 = t3_Cs[ei]; Bmb_t3 = t3_Bmb[ei]
+        analytic_material_rotation_t3=0.0
         if t3_is_pcomp[ei] || t3_el_mcid[ei] >= 0
             beta = shell_pcomp_material_rotation(
                 t3_is_pcomp[ei] ? pcomp_axis_mode : :element,
@@ -5343,6 +5379,7 @@ end
                 t3_el_mcid[ei],
                 model["CORDs"],
             )
+            analytic_material_rotation_t3=beta
             if abs(beta) > 1e-10
                 Cm_t3 = copy(Cm_t3); Cb_t3 = copy(Cb_t3); Cs_t3 = copy(Cs_t3)
                 cb = cos(beta); sb = sin(beta)
@@ -5413,7 +5450,8 @@ end
             for (k,idx) in enumerate((i1,i2,i3))
                 node_has_frame[idx] && (drill[6k]=sol101_line_node_drill_sqrt_scale)
             end
-            _analytic_shell_finish!(shell_capture,t3_eid_int[ei],t3_pid_int[ei],dofs_t3,T_buf,Ke;drill=drill)
+            _analytic_shell_finish!(shell_capture,t3_eid_int[ei],t3_pid_int[ei],dofs_t3,T_buf,Ke;drill=drill,
+                membrane_rotation=analytic_material_rotation_t3,bending_rotation=analytic_material_rotation_t3)
         end
     end
 
@@ -5436,7 +5474,7 @@ end
         p1 = SVector{3}(node_coords[i1,1], node_coords[i1,2], node_coords[i1,3])
         p2 = SVector{3}(node_coords[i2,1], node_coords[i2,2], node_coords[i2,3])
 
-        wa, wb, has_offset, p1_eff, p2_eff = bar_offsets_and_endpoints(bar, p1, p2)
+        wa, wb, has_offset, p1_eff, p2_eff = bar_offsets_and_endpoints(bar, p1, p2; model=model, id_map=id_map, node_coords=node_coords)
         L = norm(p2_eff - p1_eff)
         if L < 1e-9; continue; end
         vx = normalize(p2_eff - p1_eff)
@@ -5501,7 +5539,7 @@ end
         p1 = SVector{3}(node_coords[i1,1], node_coords[i1,2], node_coords[i1,3])
         p2 = SVector{3}(node_coords[i2,1], node_coords[i2,2], node_coords[i2,3])
 
-        wa, wb, has_offset, p1_eff, p2_eff = bar_offsets_and_endpoints(bar, p1, p2)
+        wa, wb, has_offset, p1_eff, p2_eff = bar_offsets_and_endpoints(bar, p1, p2; model=model, id_map=id_map, node_coords=node_coords)
         L = norm(p2_eff - p1_eff)
         if L < 1e-9; continue; end
         vx = normalize(p2_eff - p1_eff)
@@ -5924,11 +5962,52 @@ end
 # Shell kernels remain parallel, but optional capture callbacks may accumulate
 # into an ordinary Dict or vector. Serialize their execution within one assembly
 # and finish copying each thread's scratch data before that thread reuses it.
-function _capture_geometric_element!(capture, capture_lock, eid, data)
-    lock(capture_lock) do
+Base.@nospecializeinfer @noinline function _capture_geometric_element!(capture, capture_lock, eid, data)
+    @nospecialize capture data
+    lock(capture_lock)
+    try
         capture(eid, data)
+    finally
+        unlock(capture_lock)
     end
     return nothing
+end
+
+# Sensitivity replay consumes this explicit, bounded packet. Base.@locals in
+# the very large shell assembly also captures unrelated setup and scratch state;
+# specializing the callback on that scope can dominate a complete small solve.
+# Full diagnostic capture remains the default for existing callers.
+macro geometric_sensitivity_locals()
+    keys=Symbol.(split("""
+    n pid is_pcomp_clt pcomp_is_isotropic is_ortho is_mat2 prop
+    lc_buf4 lc3 u_elem24 u_elem18 T_buf T18 dofs_buf24 dofs_t3 Kg_global Kg18
+    kg_reference_kdjj_iso_branch kg_reference_kdjj_pcomp_branch kg_flat_dkmq_branch kg_flat_plate_branch
+    kg_covariant_branch kg_global_ready assumed_transverse warp_preload_map
+    elem_mitc4_3d_kg_recovery elem_snorm_curvature_kg kg_coupled_projected
+    kg_coupled_condensed kg_differential_prestress
+    kg_compatible_membrane elem_membrane_incomp_kg kg_iso_exact_membrane kg_membrane_selc
+    slope_membrane_kg curvature_membrane membrane_incomp_center_jacobian kg_material_shear_rotation
+    elem_is_flat_kg Bmb_kg Bmb_override_t3 snorm_pq_kg coords3d_local_buf4
+    kg_membrane_recovery_mode kg_covariant_blend covariant_membrane_candidate
+    N_gp N_res sigma_mem_input stress_mode_label gp_blend_override gp_blend_alpha kg_gp_extrapolate_scale
+    kg_shell_nxy_auto kg_shell_pcomp_nxy kg_shell_pcomp_nxy_eff kg_shell_pcomp_nxy_compression_only_v
+    kg_shell_pcomp_nxy_shear_dom_relax_v geom_pshell_iso_warped_kg_scale geom_pshell_iso_skew_kg_scale
+    kg_trans_mode kg_trans_mode_eff kg_curvature kg_curvature_sign kg_curvature_sign_eff
+    kg_membrane_shear_center_row kg_consistent_membrane_incomp
+    principal_shear_yy_factor_eff principal_shear_xy_factor_eff principal_shear_z_factor_eff principal_shear_ratio_min_eff
+    apply_finite_warp_kg warp_map_for_snorm_kg snorm_relative_pq_kg kg_shell_drill_zero br
+    """))
+    packet=gensym(:capture_packet)
+    entries=[quote
+        if @isdefined($key)
+            $packet[$(QuoteNode(key))]=$key
+        end
+    end for key in keys]
+    esc(quote
+        local $packet=Dict{Symbol,Any}()
+        $(entries...)
+        $packet
+    end)
 end
 
 @solver_stage "geometric_assembly" "Assemble geometric stiffness" function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, u_global, snorm_normals, rbe3_map;
@@ -5937,7 +6016,8 @@ end
                                       static_load_id=nothing,
                                       timings=nothing,
                                       csc_cache=nothing,
-                                      geometric_capture=nothing)
+                                      geometric_capture=nothing,
+                                      geometric_capture_scope=Val(:full))
     kg_t_total = time_ns()
     geometric_capture_lock = geometric_capture === nothing ? nothing : ReentrantLock()
     kg_timings = Dict{String,Any}()
@@ -7156,7 +7236,12 @@ end
                 Bmb=get(prop,"MID4",0) == 0 ? nothing : zeros(3,3),
                 snorm_pq=snorm_pq_kg, curvature_membrane=curvature_membrane,
                 slope_membrane=slope_membrane_kg, kernel_mode=q4_kernel_mode_kg)
-            kg_mat2_membrane_selc = is_mat2 && kg_pshell_material_frame &&
+            kg_pshell_planar_material_frame = q4_pshell_planar_material_frame(
+                !is_pcomp_clt,kg_section_warp;
+                Bmb=get(prop,"MID4",0)==0 ? nothing : zeros(3,3),
+                snorm_pq=snorm_pq_kg,curvature_membrane=curvature_membrane,
+                slope_membrane=slope_membrane_kg,kernel_mode=q4_kernel_mode_kg)
+            kg_mat2_membrane_selc = is_mat2 && kg_pshell_planar_material_frame &&
                 solver_env_bool("JFEM_Q4_PSHELL_MAT2_MEMBRANE_SELC", false)
             if !is_pcomp_clt && (is_ortho || is_mat2 || get(prop,"MID4",0) != 0)
                 # Use the physical PSHELL membrane material in preload
@@ -7241,12 +7326,21 @@ end
                     q4_kernel_mode_kg == "macneal" &&
                     !kg_flat_plate_branch && !kg_flat_dkmq_branch &&
                     solver_env_bool("JFEM_Q4_COUPLED_CONDENSED_RECOVERY",true)
-                # This projected-flat geometric interpolation is independent
-                # of the PSHELL material representation. Preserve separate
-                # director, curved-surface, MID4 and alternate-plate contracts.
-                kg_pshell_differential = kg_pshell_material_frame &&
+                # An ordinary anisotropic PSHELL has the same projected
+                # initial-stress law on a warped facet as on a planar one.
+                # Elastic Wilson enrichment belongs to K and output recovery;
+                # its condensed stress modes must not enter differential work.
+                # Normal-moment SNORM and finite warp pull back the completed
+                # operator below. Keep the dedicated isotropic warped law and
+                # director, curvature, MID4 and alternate-plate contracts.
+                kg_pshell_differential_frame = kg_pshell_planar_material_frame ||
+                    (!is_iso_kg && kg_pshell_material_frame)
+                kg_pshell_differential_normals = snorm_pq_kg === nothing ||
+                    (FEM.quad4_snorm_normal_moment_mode() &&
+                     !snorm_director && !snorm_transform_only)
+                kg_pshell_differential = kg_pshell_differential_frame &&
                     Bmb_kg === nothing && !kg_membrane_selc && !kg_compatible_membrane &&
-                    snorm_pq_kg === nothing && !use_geom_snorm_kg &&
+                    kg_pshell_differential_normals && !use_geom_snorm_kg &&
                     !kg_flat_plate_branch && !kg_flat_dkmq_branch
                 # Curvature compatibility belongs to the projected initial-stress
                 # field. A normal-moment SNORM map acts on the completed operator
@@ -7264,7 +7358,8 @@ end
                     (kg_coupled_condensed || kg_coupled_normal_moment || kg_pshell_differential) &&
                     get(model,"SOL",101) == 105 &&
                     solver_env_bool("JFEM_Q4_DIFFERENTIAL_PRESTRESS",true) &&
-                    (solver_env_bool("JFEM_Q4_DIFFERENTIAL_PRESTRESS_WARPED",Bmb_kg !== nothing || kg_projected_pcomp_frame) ||
+                    (solver_env_bool("JFEM_Q4_DIFFERENTIAL_PRESTRESS_WARPED",
+                        Bmb_kg !== nothing || kg_projected_pcomp_frame || kg_pshell_differential) ||
                      maximum(abs,FEM.quad4_local_z_from_coords3d(coords3d_local_buf4)) <=
                          1e-12 * max(maximum(abs,@view(lc_buf4[:,1])),1e-30))
                 kg_reference_offset_differential = projected_offset_map_kg!==nothing &&
@@ -7284,7 +7379,7 @@ end
                     compatible_membrane=kg_compatible_membrane,membrane_selc=kg_membrane_selc,
                     surface_operator=kg_surface_operator_mode,recovery_mode=kg_membrane_recovery_mode,
                     trans_mode=kg_trans_mode_eff,
-                    material_frame=is_pcomp_clt || is_iso_kg || kg_pshell_material_frame,
+                    material_frame=is_pcomp_clt || is_iso_kg || kg_pshell_planar_material_frame,
                     research=q4_reference_offset_research_overrides() ||
                         kg_coupled_projected || kg_reference_kdjj_pcomp_branch ||
                         kg_pcomp_axis_mode_override ||
@@ -8137,8 +8232,13 @@ end
                 b = (idx-1)*6
                 for d in 1:6; dofs_buf24[(k-1)*6+d] = b+d; end
             end
-            geometric_capture === nothing || _capture_geometric_element!(
-                geometric_capture, geometric_capture_lock, shell_eids[_shell_ei], Base.@locals)
+            if geometric_capture !== nothing
+                if geometric_capture_scope isa Val{:sensitivity}
+                    _capture_geometric_element!(geometric_capture, geometric_capture_lock, shell_eids[_shell_ei], @geometric_sensitivity_locals())
+                else
+                    _capture_geometric_element!(geometric_capture, geometric_capture_lock, shell_eids[_shell_ei], Base.@locals)
+                end
+            end
             local _k = 0
             @inbounds for cc in 1:24, rr in 1:24
                 _k += 1
@@ -8310,8 +8410,13 @@ end
                 b = (idx-1)*6
                 for d in 1:6; dofs_t3[(k-1)*6+d] = b+d; end
             end
-            geometric_capture === nothing || _capture_geometric_element!(
-                geometric_capture, geometric_capture_lock, shell_eids[_shell_ei], Base.@locals)
+            if geometric_capture !== nothing
+                if geometric_capture_scope isa Val{:sensitivity}
+                    _capture_geometric_element!(geometric_capture, geometric_capture_lock, shell_eids[_shell_ei], @geometric_sensitivity_locals())
+                else
+                    _capture_geometric_element!(geometric_capture, geometric_capture_lock, shell_eids[_shell_ei], Base.@locals)
+                end
+            end
             local _k = 0
             @inbounds for cc in 1:18, rr in 1:18
                 _k += 1
@@ -8438,7 +8543,7 @@ end
         p1 = SVector{3}(node_coords[i1,1], node_coords[i1,2], node_coords[i1,3])
         p2 = SVector{3}(node_coords[i2,1], node_coords[i2,2], node_coords[i2,3])
 
-        wa, wb, has_offset, p1_eff, p2_eff = bar_offsets_and_endpoints(bar, p1, p2)
+        wa, wb, has_offset, p1_eff, p2_eff = bar_offsets_and_endpoints(bar, p1, p2; model=model, id_map=id_map, node_coords=node_coords)
         L = norm(p2_eff - p1_eff)
         if L < 1e-9; continue; end
         vx = normalize(p2_eff - p1_eff)
@@ -8498,7 +8603,7 @@ end
         p1 = SVector{3}(node_coords[i1,1], node_coords[i1,2], node_coords[i1,3])
         p2 = SVector{3}(node_coords[i2,1], node_coords[i2,2], node_coords[i2,3])
 
-        wa, wb, has_offset, p1_eff, p2_eff = bar_offsets_and_endpoints(bar, p1, p2)
+        wa, wb, has_offset, p1_eff, p2_eff = bar_offsets_and_endpoints(bar, p1, p2; model=model, id_map=id_map, node_coords=node_coords)
         L = norm(p2_eff - p1_eff)
         if L < 1e-9; continue; end
         vx = normalize(p2_eff - p1_eff)

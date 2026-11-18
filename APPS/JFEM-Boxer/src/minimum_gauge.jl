@@ -116,6 +116,9 @@ function property_minimum_gauge(p,pid::Integer;definition=nothing)
     elseif base==PID_SPAR_CAP
         property=definition===nothing ? section_definition(p,pid) : get(definition,"section",definition)
         [minimum_dimension("side",property["dimensions_m"][1],p["properties.spar_cap_side"],"properties.spar_cap_side";label="Spar cap side")]
+    elseif base==PID_STRINGER_RUNOUT
+        property=definition===nothing ? section_definition(p,pid) : get(definition,"section",definition)
+        [minimum_dimension("side",property["dimensions_m"][1],get(p,"properties.runout_side",sqrt(STRINGER_RUNOUT_AREA)),"properties.runout_side";label="Shared P13 runout side")]
     elseif base in (PID_SKIN_UPPER,PID_SKIN_LOWER,PID_SPAR_WEB,PID_RIB_WEB,PID_LE_SKIN,PID_LE_RIB)
         property=definition===nothing ? shell_material_definition(p,pid) : definition
         minimum_shell_dimensions(p,shell_material_component(pid),property)
@@ -168,7 +171,9 @@ function validate_minimum_gauges(p)
     end
     for row in get(p,"properties.components",Any[])
         part,indextext=split(row["key"],':');index=parse(Int,indextext)
-        if component_table_iscap(part)
+        if part=="stringer_runout"
+            haskey(row,"side")&&minimum_dimension("side",row["side"],get(p,"properties.runout_side",sqrt(STRINGER_RUNOUT_AREA)),"properties.runout_side";label="Shared P13 runout side")
+        elseif component_table_iscap(part)
             haskey(row,"side")&&minimum_dimension("side",row["side"],p["properties.spar_cap_side"],"properties.spar_cap_side";label=row["key"])
         elseif part=="rib_stiffener"
             minimum_stiffener_active(p,index)&&minimum_stiffener_dimensions(p,rib_stiffener_dimensions(p,index))

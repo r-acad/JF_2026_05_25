@@ -2,6 +2,16 @@ using Test, Libdl
 include(joinpath(@__DIR__,"..","julia_tools","prepared_sysimage_builder.jl"))
 const Builder=JFEMPreparedSysimageBuilder
 
+@testset "Selected image workload thread pool reaches child Julia" begin
+    withenv("JULIA_NUM_THREADS"=>"1") do
+        Builder.trace_thread_environment!()
+        @test ENV["JULIA_NUM_THREADS"]==string(Threads.nthreads())
+        executable=joinpath(Sys.BINDIR,Sys.iswindows() ? "julia.exe" : "julia")
+        child=`$executable --startup-file=no -e "print(Threads.nthreads())"`
+        @test parse(Int,read(child,String))==Threads.nthreads()
+    end
+end
+
 @testset "Prepared image command and failed publication preserve working files" begin
     mktempdir() do root
         default=Builder.options(String[],root)

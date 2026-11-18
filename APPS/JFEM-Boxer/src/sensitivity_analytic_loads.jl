@@ -11,7 +11,8 @@ sensitivity_direction_value(direction,key,default=0.) =
 
 """Global BASIC dF, ordered like m.node_ids, after the fixed bay-reference transfer.
 
-Shell directions contain `areal_mass`. Bar directions contain `area`, `density`,
+Shell directions contain `areal_mass` and the reference-plane `mass_moments`.
+Their first mass moment creates the centroid-offset force couple. Bar directions contain `area`, `density`,
 and `offset_y`. Current design variables affect structural properties only:
 fuel fill, fill efficiency and density, aerodynamic loads, geometry and RBE3
 interpolation stay fixed. The baseline deck includes efficiency-scaled fuel
@@ -44,7 +45,10 @@ function sensitivity_analytic_load_tangent(m::Model,directions;params=m.params)
                 affected+=1
             end
         else
-            areal=Float64(sensitivity_direction_value(direction,"areal_mass"));iszero(areal)&&continue
+            moments=sensitivity_direction_value(direction,"mass_moments",nothing)
+            areal=Float64(sensitivity_direction_value(direction,"areal_mass",moments===nothing ? 0. : moments[1]))
+            first_density=moments===nothing ? 0. : Float64(moments[2])
+            iszero(areal)&&iszero(first_density)&&continue
             n=gr.kind===:quad ? 4 : gr.kind===:tria ? 3 : error("Unsupported structural-load tangent element kind $(gr.kind)")
             for e in 1:n_elements(gr)
                 nodes=gr.conn[n*(e-1)+1:n*e];points=element_points(m,gr,e)
@@ -52,7 +56,10 @@ function sensitivity_analytic_load_tangent(m::Model,directions;params=m.params)
                 # The native body-load path uses bilinear Q4 shape integrals,
                 # not modal lumped-mass corner weights or a triangle diagonal.
                 weights=n==4 ? quad_body_shape_weights(points,normal) : fill(abs(sum(cross3(points[2].-points[1],points[3].-points[1]).*normal))/6,3)
-                for (node,weight) in zip(nodes,weights);nodal_mass[node]+=weight*areal;end
+                for (node,weight) in zip(nodes,weights)
+                    nodal_mass[node]+=weight*areal
+                    for k in 1:3;offset_mass[k,node]+=weight*first_density*normal[k];end
+                end
                 affected+=1
             end
         end

@@ -28,7 +28,7 @@ function sensitivity_geometric_capture(native,op,state)
         lock(guard) do;contexts[eid]=values;end
         nothing
     end
-    sensitivity_geometric_matrix(native,op,state;physical=true,geometric_capture=callback)
+    sensitivity_geometric_matrix(native,op,state;physical=true,geometric_capture=callback,geometric_capture_scope=Val(:sensitivity))
     length(contexts)==length(op.model["CSHELLs"])||error("Native geometric capture omitted a shell element")
     contexts
 end

@@ -229,6 +229,10 @@
         (ribs().length ? 'Attachment choices use the numbered physical ribs. ' : 'Enter front and aft rib numbers; Create FEM verifies them against the wing layout. ') +
         'Create FEM and rerun the analysis after editing.';
     }
+    function setCreateAction({hidden=false,disabled=false}={}) {
+      create.hidden=footer.hidden=hidden===true;
+      create.disabled=disabled===true;
+    }
     function refresh() {
       if (destroyed) return;
       const catalog = ribs(), locked = isLocked(); add.disabled = locked;
@@ -259,7 +263,7 @@
     } catch (exception) { initialError = exception.message; }
     host.addEventListener('parameterlockchange', refresh); refresh();
     return {
-      refresh, readDrafts: () => ({ [KEY]: drafts() }),
+      refresh, setCreateAction, readDrafts: () => ({ [KEY]: drafts() }),
       assertValidDraft() {
         // Saving by keyboard may occur before blur. Finish a pending rename
         // through the same atomic path used by the visible name control.

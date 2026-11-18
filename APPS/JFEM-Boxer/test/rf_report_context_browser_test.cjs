@@ -5,7 +5,7 @@
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 const [output,modulePath='playwright']=process.argv.slice(2),out=path.resolve(output),web=path.resolve(__dirname,'../web');
 const {chromium}=require(modulePath),origin='http://127.0.0.1:43991';
-const scripts=['color_scales','panel_table_data','component_table_data','material_allowables','euler_column_data','stringer_blade_data','skin_buckling_data','component_buckling_data','minimum_rf_data','stress_report_data','reserve_factor_table_data','rf_field_data','stress_report_snapshot','reserve_factor_table_window','stress_report'];
+const scripts=['assessment_load_policy','color_scales','panel_table_data','component_table_data','material_allowables','euler_column_data','stringer_blade_data','skin_buckling_data','component_buckling_data','minimum_rf_data','stress_report_data','reserve_factor_table_data','rf_field_data','stress_report_snapshot','reserve_factor_table_window','stress_report'];
 (async()=>{
  fs.mkdirSync(out,{recursive:true});const errors=[],checks=[];
  const browser=await chromium.launch({headless:true,channel:process.env.CHROME_PATH?undefined:'chrome',executablePath:process.env.CHROME_PATH||undefined});
@@ -20,15 +20,21 @@ const scripts=['color_scales','panel_table_data','component_table_data','materia
    const strain=e1=>({strain:{ply_faces_complete:true,ply_faces_coordinate_system:'ply material 1/2 axes',ply_faces:[1,2].map(ply=>({ply,material_id:8,bottom:{e1,e2:0,g12:0},top:{e1,e2:0,g12:0}}))}});
    const recovered=x=>({analysis:'SOL101_STATIC',available:true,status:'complete',matches:true,static:{},signature:'synthetic',meshIdentity:1,elementResults:{1:vm(100e6),2:vm(50e6),3:strain(x)}});
    globalThis.fixture={generated:false,studyEpoch:1,signature:'synthetic',meshIdentity:1,elements:new Map([[1,e(10,shell)],[2,e(20,shell)],[3,e(40,laminate)],[4,e(50,shell)]]),cases:new Map([[1,recovered(.02)],[2,recovered(.002)]]),allowables:[{material_id:1,mode:'stress',stress:300e6},{material_id:8,mode:'strain',strain_tension:.01,strain_compression:.006}]};
+   fixture.assessmentPolicy={strengthSafetyFactor:1,bucklingPolicyFactor:1};
    globalThis.activeField=null;globalThis.ui=WingStressReport.install({document,host:document.getElementById('host'),readContext:()=>fixture,onShowField:request=>{activeField={request,contour:WingRFFieldData.build(fixture,request)};return{active:true,message:'Synthetic field ready'};},onClearField:()=>{activeField=null;return{active:false};}});ui.refresh(true);
   });
-  assert.equal(await page.locator('#stress-report-failure-mode').inputValue(),'von_mises');
+  assert.equal(await page.locator('#stress-report-failure-mode').inputValue(),'minimum_rf');
+  assert(await page.locator('.stress-report-tabs').isHidden());
+  await page.locator('#stress-report-failure-mode').selectOption('von_mises');
+  await page.waitForFunction(()=>ui.report?.failureMode==='von_mises'&&!ui.pending);
+  assert(await page.locator('#stress-report-stress').isVisible());assert(await page.locator('#stress-report-reserve').isVisible());
   assert.equal(await page.locator('#stress-report-field-kind option').count(),3);
   assert.equal(await page.locator('#stress-report-field-palette').count(),0);
   await page.locator('#stress-report-failure-mode').selectOption('minimum_rf');
   await page.locator('#stress-report-show-field').click();
   await page.waitForFunction(()=>activeField?.contour.failureMode==='minimum_rf');
   assert.equal(await page.locator('#stress-report-failure-mode').inputValue(),'minimum_rf');
+  assert(await page.locator('.stress-report-tabs').isHidden());assert(await page.locator('#stress-report-reserve').isHidden());
   const summary=await page.evaluate(()=>({table:ui.report.rows.filter(r=>r.complete&&r.reserveFactor<1).map(r=>r.pid),field:[...activeField.contour.failingElementIds].map(id=>fixture.elements.get(id).group.pid),missing:ui.report.rows.find(r=>r.pid===50)}));
   assert.deepEqual(summary.table,[40]);assert.deepEqual(summary.field,[40]);assert.equal(summary.missing.reserveFactor,null);assert.equal(summary.missing.complete,false);checks.push('Selecting Minimum RF uses that same table assessment for the field, including laminate checks; missing recovery remains unassessed.');
   await page.locator('#stress-report-field-only-failing').check();
@@ -41,10 +47,12 @@ const scripts=['color_scales','panel_table_data','component_table_data','materia
   await page.locator('#stress-report-field-only-failing').check();await popup.waitForFunction(()=>document.getElementById('only-below-one').checked);checks.push('RF < 1 filtering synchronizes in both directions.');
   await popup.locator('#failure-mode').selectOption('principal_strain');await page.waitForFunction(()=>ui.report.failureMode==='principal_strain'&&activeField.request.failureMode==='principal_strain');
   assert.equal(await page.locator('#stress-report-field-kind').inputValue(),'rf:principal_strain');assert.match(await page.locator('#stress-report-table').textContent(),/0\.01.*0\.02.*0\.5/);checks.push('Laminate principal-strain assessment can be selected in the table and displays dimensionless limits and demand.');
+  assert(await page.locator('.stress-report-tabs').isHidden());
   await page.locator('#stress-report-field-kind').selectOption('critical_failure');await popup.waitForFunction(()=>document.getElementById('failure-mode').value==='minimum_rf');assert.equal(await page.locator('#stress-report-failure-mode').inputValue(),'minimum_rf');
   await page.locator('#stress-report-case').selectOption('2');await popup.waitForFunction(()=>document.querySelectorAll('.rf-value[data-value]').length===0);assert.equal(await page.evaluate(()=>activeField.contour.failingElementIds.size),0);
   await page.locator('#stress-report-case').selectOption('all');await popup.waitForFunction(()=>document.querySelectorAll('.rf-value[data-value]').length===1);checks.push('Critical-category fields and changing load-case scope retain the shared numerical RF predicate.');
   await popup.locator('#failure-mode').selectOption('von_mises');await page.waitForFunction(()=>activeField.request.failureMode==='von_mises');await popup.waitForFunction(()=>document.querySelectorAll('.rf-value[data-value]').length===0);
+  assert(await page.locator('#stress-report-stress').isVisible());assert(await page.locator('#stress-report-reserve').isVisible());
   assert.equal(await page.getByRole('button',{name:'Edit material allowables',exact:true}).count(),0);
   await page.locator('#stress-report-field-only-failing').uncheck();
   await page.evaluate(async()=>{fixture.allowables=fixture.allowables.map(a=>a.material_id===1?{...a,stress:300e9}:a);await ui.refresh(true);ui.report.rows.find(r=>r.pid===10).approximation=true;ui.report.rows.find(r=>r.pid===10).governingApproximation=true;});
@@ -59,6 +67,15 @@ const scripts=['color_scales','panel_table_data','component_table_data','materia
   assert.match(await popup.locator('#reserve-factor-table').textContent(),/100-term plate approximation/);
   assert.equal(await page.evaluate(()=>ui.report.rows.find(r=>r.pid===10).reserveFactor),3000);
   checks.push('Inline and detached RFs, high-value number overlays and legend cap at999; raw RF3000 remains unchanged and approximation status is visible.');
+  for(const mode of ['euler_column','stringer_blade','skin_buckling']){
+   await page.locator('#stress-report-failure-mode').selectOption(mode);await page.waitForFunction(mode=>ui.report?.failureMode===mode,mode);
+   assert(await page.locator('.stress-report-tabs').isHidden());assert(await page.locator('#stress-report-reserve').isHidden());
+  }
+  await page.locator('#stress-report-failure-mode').selectOption('von_mises');await page.waitForFunction(()=>ui.report?.failureMode==='von_mises');
+  assert(await page.locator('#stress-report-stress').isVisible());assert(await page.locator('#stress-report-reserve').isVisible());
+  await page.locator('#stress-report-stress').click();assert.match(await page.locator('#stress-report-table caption').textContent(),/Von Mises stress/);
+  await page.locator('#stress-report-reserve').click();assert.match(await page.locator('#stress-report-table caption').textContent(),/Reserve factors/);
+  checks.push('RF-only assessments omit the redundant presentation button and its spacing; Von Mises retains working stress and RF views.');
   assert.deepEqual(errors,[]);await popup.screenshot({path:path.join(out,'rf-report-context.png')});fs.writeFileSync(path.join(out,'summary.json'),JSON.stringify({passed:true,synthetic:true,checks,errors},null,2));console.log(checks.length+' RF context browser checks passed.');
  }finally{await browser.close();}
 })().catch(error=>{console.error(error.stack);process.exitCode=1;});

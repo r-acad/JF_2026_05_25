@@ -38,6 +38,7 @@ const REPO_ROOT = normpath(joinpath(APP_DIR, "..", ".."))            # <repo>/JF
 const APP_HTML  = joinpath(APP_DIR, "panel_app.html")
 include(joinpath(APP_DIR, "panel_artifacts.jl"))
 const RUN_ROOT = abspath(get(ENV, "JFEM_PANEL_RUN_ROOT", _panel_default_run_root(APP_DIR)))
+include(joinpath(APP_DIR, "panel_model.jl"))
 
 # Pull in the manifest batch runner so we reuse the exact production path
 # (export options, flags, .jfem + .BUCKLING.JSON + .REPORT.md writing).
@@ -46,6 +47,7 @@ include(joinpath(REPO_ROOT, "utils", "julia_tools", "manifest_batch_core.jl"))
 
 # Serialize solver work: one run at a time through the single process.
 const SOLVE_LOCK = ReentrantLock()
+include(joinpath(APP_DIR, "panel_workflow.jl"))
 
 _log(msg) = (println(stderr, "[", Dates.format(now(), "HH:MM:SS"), "] ", msg); flush(stderr))
 
@@ -195,6 +197,9 @@ end
 
 # --- the core: write deck, run a one-case manifest, collect artifacts --------
 function run_analysis(payload::AbstractDict)
+    if get(payload,"params",nothing) isa AbstractDict
+        throw(ArgumentError("Generated-panel calculations use /panel/jobs so their canonical model, progress and sensitivities stay together"))
+    end
     case_id = _panel_case_id(get(payload, "case_id", "panel_" *
                 Dates.format(now(UTC), "yyyymmdd_HHMMSS_sss")))
     mkpath(RUN_ROOT)
@@ -417,6 +422,37 @@ function handle(req::HTTP.Request)
         ))
     end
 
+    if method == "GET" && startswith(target,"/") && target[2:end] in PANEL_WORKFLOW_ASSETS
+        path=joinpath(APP_DIR,target[2:end])
+        return isfile(path) ? HTTP.Response(200,["Content-Type"=>_content_type(path); CORS_HEADERS...],read(path)) : HTTP.Response(404,"not found")
+    end
+
+    if method == "POST" && target in ("/panel/model","/panel/jobs")
+        try
+            payload=_panel_decode_request(req)
+            response=target=="/panel/model" ? _panel_model_response(payload) : _panel_start_job(payload)
+            return _msgpack_response(response)
+        catch error
+            _log("ERROR $target: $(sprint(showerror,error))")
+            return _msgpack_response(Dict("ok"=>false,"error"=>sprint(showerror,error));status=400)
+        end
+    end
+
+    if startswith(target,"/panel/jobs/")
+        parts=split(strip(target,'/'),'/')
+        try
+            length(parts) in (3,4) || throw(ArgumentError("Invalid panel job route"))
+            id=parts[3]
+            if method=="GET" && length(parts)==3
+                return _msgpack_response(_panel_job_status(id))
+            elseif method=="POST" && length(parts)==4 && parts[4]=="cancel"
+                return _msgpack_response(_panel_cancel_job(id))
+            end
+        catch error
+            return _msgpack_response(Dict("ok"=>false,"error"=>sprint(showerror,error));status=error isa KeyError ? 404 : 400)
+        end
+    end
+
     # Static files: ONLY the vendored front-end libs under /vendor/.
     # Restricting to vendor/ (rather than all of this app folder) avoids serving source
     # files like panel_server.jl, and the resolved-path containment check below
@@ -478,42 +514,16 @@ function _warmup()
     catch err
         _log("WARN: handler warm-up hit an error (non-fatal): $(sprint(showerror, err))")
     end
-    # 2) Solver path: run one tiny SOL105 solve so the FIRST real Analyze is fast.
-    #    A 2x1 single-element strip is enough to compile the assemble/solve/export
-    #    code; its output is discarded.
+    # 2) Train only the lightweight canonical preview. Opening the application
+    # must not launch a hidden eigenanalysis or create solver output files.
+    # Numerical compilation is reported by the first explicitly requested job.
     try
-        warm_bdf = """
-        SOL 105
-        CEND
-        TITLE = warmup
-        SUBCASE 1
-          SPC = 10
-          LOAD = 20
-        SUBCASE 2
-          SPC = 10
-          STATSUB = 1
-          METHOD = 30
-        BEGIN BULK
-        PARAM,POST,-1
-        MAT1,100,71000.,,0.33,2.7e-9
-        PSHELL,1,100,2.,100,1.,100
-        GRID,1,0,0.,0.,0.
-        GRID,2,0,10.,0.,0.
-        GRID,3,0,10.,10.,0.
-        GRID,4,0,0.,10.,0.
-        CQUAD4,1,1,1,2,3,4
-        SPC1,10,123,1,4
-        SPC1,10,3,2,3
-        FORCE,20,2,0,1.,0.,-1.,0.
-        FORCE,20,3,0,1.,0.,-1.,0.
-        EIGRL,30,,,2
-        ENDDATA
-        """
-        # Use the same valid case-ID contract and isolated run directory as a
-        # normal request. Retain this small run with the other service outputs.
-        run_analysis(Dict{String,Any}("case_id" => "warmup", "bdf" => warm_bdf))
+        warm_params=Dict{String,Any}("R"=>0.,"width"=>20.,"length"=>40.,
+            "bladeH"=>4.,"footW"=>4.,"nx"=>2,"ny"=>2,"nz"=>1,"nf"=>2,
+            "tSkin"=>.2,"tWeb"=>.2,"tFoot"=>.2,"Nx"=>1.,"nModes"=>2)
+        _panel_model_response(Dict("params"=>warm_params))
     catch err
-        _log("WARN: solver warm-up hit an error (non-fatal; first Analyze will just be slower): $(sprint(showerror, err))")
+        _log("WARN: preview warm-up hit an error (non-fatal): $(sprint(showerror, err))")
     end
 end
 
@@ -535,7 +545,7 @@ function serve(; host="127.0.0.1", port=8088)
     end
     # Warm up the HTTP handler + solver BEFORE binding the socket, so the launcher
     # (which polls the TCP port) opens the browser only once we can answer fast.
-    _log("warming up (compiling HTTP handler + solver; this is the one-time wait)...")
+    _log("preparing HTTP routes and the panel preview; no analysis is started...")
     t_warm = time_ns()
     _warmup()
     _log("warm-up done in $(round((time_ns()-t_warm)*1e-9; digits=1))s")
@@ -551,7 +561,7 @@ function serve(; host="127.0.0.1", port=8088)
         _log("       other server / pick another port:  --port 8090")
         rethrow()
     end
-    _log("panel server listening on http://$host:$port  (warm: page + first Analyze are fast)")
+    _log("panel server listening on http://$host:$port  (first requested analysis may compile Julia code)")
     _log("  app:      http://$host:$port/")
     _log("  repo:     $REPO_ROOT")
     _log("  runs:     $RUN_ROOT")

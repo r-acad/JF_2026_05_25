@@ -13,3 +13,7 @@
 .weights-details summary { cursor: pointer; color: #d4e2f0; }
 .weights-details p { margin: 8px 0; }
 .weights-fuel-bays th:first-child { width: auto; white-space: nowrap; }
+.weights-property-scroll { max-width: 100%; overflow-x: auto; }
+.weights-property-scroll .weights-table { min-width: 540px; }
+.weights-property-scroll .weights-centers { min-width: 0; }
+.weights-property-scroll th:first-child { width: auto; min-width: 150px; }

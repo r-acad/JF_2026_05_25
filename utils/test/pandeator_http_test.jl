@@ -4,12 +4,16 @@ using Test
 include(joinpath(@__DIR__, "..", "..", "APPS", "PANDEATOR_APP", "panel_server.jl"))
 
 @testset "PANDEATOR shared HTTP environment binds, serves, and releases its port" begin
+    before=isdir(RUN_ROOT) ? sort(readdir(RUN_ROOT)) : String[]
+    _warmup()
+    @test (isdir(RUN_ROOT) ? sort(readdir(RUN_ROOT)) : String[])==before
+    @test !PANEL_ANALYSIS_READY[]
     server = _bind_http_server("127.0.0.1", 0)
     port = HTTP.port(server)
     try
         @test port > 0
         @test isopen(server)
-        for route in ("/", "/health", "/vendor/msgpack.min.js", "/vendor/babylon.js", "/jfem_binary.js")
+        for route in ("/", "/health", "/vendor/msgpack.min.js", "/vendor/babylon.js", "/jfem_binary.js", "/panel_workflow.js", "/panel_workflow.css")
             response = HTTP.get("http://127.0.0.1:$port$route";
                 proxy=HTTP.ProxyConfig(), request_timeout=30)
             @test response.status == 200
@@ -25,6 +29,21 @@ include(joinpath(@__DIR__, "..", "..", "APPS", "PANDEATOR_APP", "panel_server.jl
             proxy=HTTP.ProxyConfig(), request_timeout=30, status_exception=false)
         @test response.status == 500
         @test occursin("request body must be a msgpack map", MsgPack.unpack(response.body)["error"])
+        response = HTTP.post("http://127.0.0.1:$port/panel/model",
+            ["Content-Type"=>"application/msgpack"], MsgPack.pack(Dict("params"=>Dict("R"=>0.,"nx"=>2,"ny"=>2,"nz"=>1,"nf"=>2)));
+            proxy=HTTP.ProxyConfig(), request_timeout=30)
+        preview=MsgPack.unpack(response.body)
+        @test preview["ok"]
+        @test !isempty(preview["geometry"]["quads"])
+        @test preview["mass_tonnes"]>0
+        response = HTTP.post("http://127.0.0.1:$port/panel/jobs",
+            ["Content-Type"=>"application/msgpack"], MsgPack.pack(Dict("operation"=>"invalid"));
+            proxy=HTTP.ProxyConfig(), request_timeout=30, status_exception=false)
+        @test response.status==400
+        @test !MsgPack.unpack(response.body)["ok"]
+        response = HTTP.get("http://127.0.0.1:$port/panel/jobs/missing";
+            proxy=HTTP.ProxyConfig(), request_timeout=30, status_exception=false)
+        @test response.status==404
         # HTTP 2's default cap would reject this before dispatch with 413.
         # An unknown route avoids running a model while checking the previous
         # large-deck request policy over an actual localhost connection.

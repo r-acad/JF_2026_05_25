@@ -12,6 +12,8 @@
 
 const _APP_DIR  = @__DIR__
 const _REPO_ROOT = normpath(joinpath(_APP_DIR, "..", ".."))   # <repo>/JFEM (the project)
+include(joinpath(_REPO_ROOT,"utils","julia_tools","compilation_defaults.jl"))
+consume_no_sysimage_option!(ARGS)
 
 # Parse args
 port = 8088
@@ -22,7 +24,8 @@ let i = 1
         a = ARGS[i]
         if a in ("--help", "-h")
             println("Usage: julia --startup-file=no --project=. APPS/PANDEATOR_APP/panel_launch.jl [--port 8088] [--no-open]")
-            println("Run setup.cmd, bash setup.sh or bash setup.command at the repository root first to install shared packages and build the sysimage.")
+            println("Run setup.cmd, bash setup.sh or bash setup.command at the repository root first to install shared packages. No sysimage is required.")
+            println("Use --no-sysimage to force ordinary Julia package loading.")
             exit(0)
         elseif a == "--port" && i < length(ARGS)
             port = parse(Int, ARGS[i+1]); i += 2

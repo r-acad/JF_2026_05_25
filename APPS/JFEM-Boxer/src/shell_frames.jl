@@ -160,13 +160,15 @@ function rotate_shell_results!(data::AbstractDict, field::String, c::Real, s::Re
             # JSON.Object supports reading but not Dict's pop! API. Work on an
             # owned Dict so sparse/native inputs follow the same path.
             d = Dict{String,Any}(String(k) => v for (k, v) in d)
-            data[face] = d
             # Engineering shear strain is twice tensor shear. Explicit
             # ply_faces are already in ply axes and are deliberately untouched.
             engineering = field == "strain" && get(d,"shear_xy",nothing) isa Real
             engineering && (d["shear_xy"] /= 2)
             tensor!(d, "normal_x", "normal_y", "shear_xy")
             engineering && haskey(d,"shear_xy") && (d["shear_xy"] *= 2)
+            # A typed parent may convert/copy d on assignment. Store only after
+            # rotation, otherwise its stored face can silently remain unrotated.
+            data[face] = d
         end
     elseif field == "forces"
         tensor!(data, "fx", "fy", "fxy")

@@ -17,15 +17,19 @@
   }
   fxaa.updateEffect(null,null,null,undefined,undefined,undefined,'fxaa','boxerCrispFxaa');
   class StrokeMaterial extends B.MaterialPluginBase{
-   constructor(material){super(material,'BoxerScreenStroke',200,{});this._enable(true);}
+   constructor(material,source){super(material,'BoxerScreenStroke',200,{});this._strokeSource=source;this._enable(true);}
    isCompatible(){return true;}
    getAttributes(attributes){attributes.push('strokeOther','strokeSide');}
    getUniforms(){return{ubo:[{name:'strokeResolution',size:3,type:'vec3'}],vertex:'uniform vec3 strokeResolution;'};}
    bindForSubMesh(buffer){
     const canvas=engine.getRenderingCanvas(),rect=canvas?.getBoundingClientRect?.();
     const width=engine.getRenderWidth(),height=engine.getRenderHeight();
+    // Optional view overlays can use a wider stroke without changing FE
+    // line defaults. Read on every bind so live edits need no geometry rebuild.
+    const requested=this._strokeSource.metadata?.strokeWidthPx;
+    const strokeWidth=Number.isFinite(requested)&&requested>0?requested:WIDTH;
     // CSS-pixel width avoids half-pixel hairlines on high-DPI displays.
-    buffer.updateFloat3('strokeResolution',width,height,WIDTH*width/Math.max(1,rect?.width||width));
+    buffer.updateFloat3('strokeResolution',width,height,strokeWidth*width/Math.max(1,rect?.width||width));
    }
    getCustomCode(stage,language){
     if(stage!=='vertex')return null;
@@ -89,7 +93,7 @@
    const mesh=new B.Mesh(source.name+'-screen-stroke',scene),material=new B.StandardMaterial(mesh.name+'-material',scene);
    mesh.parent=source;mesh.isPickable=false;mesh.doNotSerialize=true;mesh.metadata={wingViewHelper:true,wingStrokeSource:true};
    material.disableLighting=true;material.emissiveColor=B.Color3.White();material.diffuseColor=B.Color3.White();material.specularColor=B.Color3.Black();material.backFaceCulling=false;
-   new StrokeMaterial(material);mesh.material=material;
+   new StrokeMaterial(material,source);mesh.material=material;
    const record={source,mesh,material,dirty:true,count:-1,hooks:new Map(),originalDraw:source._draw,draw(){return this;}};
    if(!rebuild(record)){mesh.dispose(false,true);return false;}
    // A scene-local hook suppresses only the duplicate native one-pixel raster.

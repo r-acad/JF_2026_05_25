@@ -2411,7 +2411,7 @@ include(joinpath(@__DIR__, "experimental", "hu_washizu_kernel.jl"))
 # Pre-allocated workspace `ws` eliminates ALL heap allocations in the hot loop
 # (~5M alloc saved across tail-box model).
 # =============================================================================
-function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, k6rot=100.0, drill_scale::Float64=1.0, Bmb=nothing, ws::Union{Nothing,Quad4Workspace}=nothing, msws::Union{Nothing,MacNealShearWorkspace}=nothing, bending_incomp::Bool=false, shear_center_only::Bool=false, no_phi2::Bool=false, membrane_incomp::Bool=true, membrane_incomp_scale::Float64=1.0, membrane_incomp_weights=nothing, curvature_membrane=nothing, membrane_shear_center_row::Bool=false, material_shear_rotation::Float64=0.0, membrane_incomp_center_jacobian::Bool=false, selective_shear::Bool=false, selective_shear_mode::Symbol=:all, exact_side_shear::Bool=false, exact_side_rotcorr::Bool=false, exact_membrane_operator::Bool=false, exact_membrane_curvature_w_coupling::Bool=false, slope_membrane=nothing, coords_3d::Union{Nothing,AbstractMatrix}=nothing, snorm_pq=nothing, kernel_planar::Bool=true, macneal_rigid_shear::Bool=false, marguerre_warp_to_uz::Bool=false, min4_disable::Bool=false, bmb_incomp_coupling_mode::Symbol=:env, kernel_mode=nothing, macneal_rbf_flex_mode::Symbol=:env, membrane_hourglass_skew::Bool=false, distortion_corrections::Bool=true, _defer_warp_transform::Bool=false, _defer_snorm_transform::Bool=false, coupled_projected::Bool=false, field_capture=nothing)
+function _stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, k6rot=100.0, drill_scale::Float64=1.0, Bmb=nothing, ws::Union{Nothing,Quad4Workspace}=nothing, msws::Union{Nothing,MacNealShearWorkspace}=nothing, bending_incomp::Bool=false, shear_center_only::Bool=false, no_phi2::Bool=false, membrane_incomp::Bool=true, membrane_incomp_scale::Float64=1.0, membrane_incomp_weights=nothing, curvature_membrane=nothing, membrane_shear_center_row::Bool=false, material_shear_rotation::Float64=0.0, membrane_incomp_center_jacobian::Bool=false, selective_shear::Bool=false, selective_shear_mode::Symbol=:all, exact_side_shear::Bool=false, exact_side_rotcorr::Bool=false, exact_membrane_operator::Bool=false, exact_membrane_curvature_w_coupling::Bool=false, slope_membrane=nothing, coords_3d::Union{Nothing,AbstractMatrix}=nothing, snorm_pq=nothing, kernel_planar::Bool=true, macneal_rigid_shear::Bool=false, marguerre_warp_to_uz::Bool=false, min4_disable::Bool=false, bmb_incomp_coupling_mode::Symbol=:env, kernel_mode=nothing, macneal_rbf_flex_mode::Symbol=:env, membrane_hourglass_skew::Bool=false, distortion_corrections::Bool=true, _defer_warp_transform::Bool=false, _defer_snorm_transform::Bool=false, coupled_projected::Bool=false, field_capture=nothing)
     if coupled_projected
         Bmb !== nothing && quad4_has_positive_jacobians(coords) ||
             throw(ArgumentError("Projected coupled Q4 requires coupling data and a convex, positively oriented local cell"))
@@ -2786,6 +2786,75 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
         warp_transform_requested, warp_transform_on, snorm_completion_active, coupled_projected, field_capture,
     )
     return quad4_apply_displacement_congruence!(Ke,corner_snorm_map)
+end
+
+"""Corner spin-mismatch stabilization in the GRID reference plane.
+
+This is the same lumped K6ROT energy used by the ordinary projected kernel.
+It is a numerical rotation constraint, not physical through-thickness energy.
+Keep its reference plane when the material surface has a constant offset.
+"""
+function quad4_grid_drilling_matrix(coords,Cm;k6rot=100.0,drill_scale=1.0,h=nothing,E_ref=nothing)
+    T=promote_type(eltype(Cm),typeof(k6rot),typeof(drill_scale))
+    h===nothing || (T=promote_type(T,typeof(h)))
+    E_ref===nothing || (T=promote_type(T,typeof(E_ref)))
+    D=zeros(T,24,24)
+    (iszero(k6rot) || iszero(drill_scale)) && return D
+    fem_env_bool("JFEM_Q4_DRILL_LUMPED_REFERENCE",true) || throw(ArgumentError(
+        "GRID-plane offset stabilization requires the ordinary lumped K6ROT law"))
+    d0r,d0s=shape_derivs_quad(0.,0.)
+    J0=[sum(d0r[k]*coords[k,j] for k=1:4) for j=1:2]
+    J1=[sum(d0s[k]*coords[k,j] for k=1:4) for j=1:2]
+    det0=J0[1]*J1[2]-J0[2]*J1[1]
+    _quad4_jacobian_measure(det0,J0[1],J0[2],J1[1],J1[2])
+    # The lumped branch uses A66 directly, including a zero directional jet.
+    # Its preceding G_ref fallback belongs only to the consistent drill law.
+    alpha=drill_scale*k6rot*1e-6*Cm[3,3]*4abs(det0)
+    weighted=fem_env_bool("JFEM_Q4_DRILL_CORNER_JACOBIAN",true)
+    b=zeros(T,24)
+    for (i,(r,s)) in enumerate(((-1.,-1.),(1.,-1.),(1.,1.),(-1.,1.)))
+        dr,ds=shape_derivs_quad(r,s)
+        j11=sum(dr[k]*coords[k,1] for k=1:4);j12=sum(dr[k]*coords[k,2] for k=1:4)
+        j21=sum(ds[k]*coords[k,1] for k=1:4);j22=sum(ds[k]*coords[k,2] for k=1:4)
+        detj=j11*j22-j12*j21;_quad4_jacobian_measure(detj,j11,j12,j21,j22)
+        fill!(b,zero(T))
+        for k=1:4
+            dx=(j22*dr[k]-j12*ds[k])/detj
+            dy=(-j21*dr[k]+j11*ds[k])/detj
+            b[6k-5]=dy/2;b[6k-4]=-dx/2
+        end
+        b[6i]=one(T)
+        D .+= (alpha*(weighted ? abs(detj)/max(abs(det0),1e-30) : 1.0)).*(b*b')
+    end
+    return D
+end
+
+"""Ordinary shell kernel, optionally shifting only its physical elastic energy.
+
+For a planar offset, K = Z'*(K0-D)*Z + D, where D is the GRID-plane
+K6ROT spin penalty and Z is the physical rigid-arm displacement map.
+The same expression accepts Dual constitutive inputs for exact property jets.
+The caller admits this option only for ordinary flat projected kinematics.
+"""
+function stiffness_quad4_matrices(coords,Cm,Cb,Cs,h,E_ref;reference_offset=0.0,kwargs...)
+    Ke=_stiffness_quad4_matrices(coords,Cm,Cb,Cs,h,E_ref;kwargs...)
+    iszero(reference_offset) && return Ke
+    isfinite(reference_offset) || throw(ArgumentError("Shell reference offset must be finite"))
+    # Never silently extend this planar law to intrinsic curvature/directors.
+    sn=get(kwargs,:snorm_pq,nothing)
+    (sn===nothing || !quad4_snorm_pq_has_active_rows(sn)) || throw(ArgumentError(
+        "GRID-plane offset stabilization does not admit active nodal directors"))
+    xyz=get(kwargs,:coords_3d,nothing)
+    (xyz===nothing || maximum(abs,quad4_local_z_from_coords3d(xyz))<=
+        sqrt(eps(Float64))*max(maximum(abs,coords),floatmin(Float64))) || throw(ArgumentError(
+        "GRID-plane offset stabilization requires a planar shell"))
+    get(kwargs,:curvature_membrane,nothing)===nothing && get(kwargs,:slope_membrane,nothing)===nothing ||
+        throw(ArgumentError("GRID-plane offset stabilization requires ordinary projected shell strains"))
+    D=quad4_grid_drilling_matrix(coords,Cm;k6rot=get(kwargs,:k6rot,100.0),drill_scale=get(kwargs,:drill_scale,1.0),h=h,E_ref=E_ref)
+    T=promote_type(eltype(Ke),typeof(reference_offset))
+    Z=Matrix{T}(I,24,24)
+    for k=1:4;Z[6k-5,6k-1]=reference_offset;Z[6k-4,6k-2]=-reference_offset;end
+    return transpose(Z)*(Ke-D)*Z+D
 end
 
 # The determinant is an integration measure, not a dimensional tolerance.

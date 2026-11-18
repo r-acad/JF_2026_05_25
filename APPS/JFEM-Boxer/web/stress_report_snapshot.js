@@ -66,6 +66,7 @@
   function reset(){retained=null;source=null;previous=null;epoch=undefined;initialized=false;}
   function select(current={}){
    if(!initialized||!Object.is(epoch,current.studyEpoch)){reset();epoch=current.studyEpoch;initialized=true;}
+   if(current.running){retained=null;source=null;previous=null;}
    const eligible=!current.modelDirty&&!current.pendingDrafts&&!current.running&&data?.caseList({...current,caseId:'all'}).included.length>0;
    if(eligible){
     const next=stamp(current);

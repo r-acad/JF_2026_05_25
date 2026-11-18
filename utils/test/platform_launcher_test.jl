@@ -32,7 +32,7 @@ using Test
             end
         end
         target=joinpath(root,"utils","julia_tools");mkpath(target)
-        for name in ("runtime_images.jl","sysimage_provenance.jl","launch.jl")
+        for name in ("runtime_images.jl","compilation_defaults.jl","sysimage_provenance.jl","launch.jl")
             cp(joinpath(repo,"utils","julia_tools",name),joinpath(target,name))
         end
         write(joinpath(root,"Project.toml"),"[deps]\n")

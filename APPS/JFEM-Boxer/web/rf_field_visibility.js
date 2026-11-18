@@ -24,7 +24,7 @@
   return{indices:Int32Array.from(picked),faceElements:Int32Array.from(owners)};
  }
  function create({state,syncImported}){
-  const records=new Map(),hidden=new Map();let active=false,lastAllowed=null,lastMode=false;
+  const records=new Map(),hidden=new Map();let active=false,lastAllowed=null,lastMode=false,lastContext=false;
   const alive=mesh=>!mesh.isDisposed?.();
   function restore(){
    for(const [mesh,r]of records){if(!alive(mesh))continue;mesh.setIndices(r.indices);mesh.metadata=r.metadata;mesh.isVisible=r.visible;
@@ -35,8 +35,9 @@
   function hide(mesh){if(!mesh||!alive(mesh))return;if(!hidden.has(mesh))hidden.set(mesh,mesh.isVisible);mesh.isVisible=false;}
   function sync(allowed,options={}){
    if(!allowed){if(active)restore();return;}
-   if(active&&lastMode!==!!options.ribBay)restore();lastMode=!!options.ribBay;
-   active=true;state.rfVisibleElementIds=allowed;
+   if(active&&(lastMode!==!!options.ribBay||lastContext!==!!options.keepContext))restore();lastMode=!!options.ribBay;lastContext=!!options.keepContext;
+   const logicalAllowed=options.logicalAllowed||allowed;
+   active=true;state.rfVisibleElementIds=logicalAllowed;
    const structural=new Set([...(state.shellMeshes||[]),...(state.barMeshes||[])]);
    if(options.ribBay)for(const layer of state.layers.values())for(const mesh of layer.meshes||[])if(mesh.elementIds?.length)structural.add(mesh);
    for(const mesh of structural){
@@ -70,7 +71,7 @@
    // isolated elements. Their switches are left untouched for restoration.
    const nodeMaps=options.ribBay?new Map((state.deformable||[]).filter(r=>r.map&&!r.aero).map(r=>[r.mesh,r.map])):null;
    const markerNodes=options.ribBay?new Map((state.markers||[]).map(r=>[r.mesh,r.node])):null;
-   for(const [name,layer]of state.layers||[])if(name!=='MESH_EDGES')for(const mesh of layer.meshes||[])if(!structural.has(mesh)){
+   if(!options.keepContext)for(const [name,layer]of state.layers||[])if(name!=='MESH_EDGES')for(const mesh of layer.meshes||[])if(!structural.has(mesh)){
     if(options.ribBay&&options.nodes){
      const node=markerNodes.get(mesh),reference=mesh.metadata?.reference_node;
      if(node!==undefined||reference!==undefined){const on=options.nodes.has(node??reference);if(!hidden.has(mesh))hidden.set(mesh,mesh.isVisible);mesh.isVisible=hidden.get(mesh)&&on;continue;}
@@ -90,7 +91,7 @@
     hide(mesh);
    }
    const nodeSelection=state.selectionMesh?.metadata?.nodeSelection&&Number.isInteger(state.selectedNode);
-   const selectedVisible=nodeSelection?(options.ribBay?options.nodes?.has(state.selectedNode):[...allowed].some(id=>state.elements?.get(id)?.nodes.includes(state.selectedNode))):allowed.has(state.selectedElement);
+   const selectedVisible=nodeSelection?(options.ribBay?options.nodes?.has(state.selectedNode):[...logicalAllowed].some(id=>state.elements?.get(id)?.nodes.includes(state.selectedNode))):logicalAllowed.has(state.selectedElement);
    if(state.selectionMesh&&!selectedVisible)hide(state.selectionMesh);
    else if(state.selectionMesh&&hidden.has(state.selectionMesh)){state.selectionMesh.isVisible=hidden.get(state.selectionMesh);hidden.delete(state.selectionMesh);}
    lastAllowed=allowed;

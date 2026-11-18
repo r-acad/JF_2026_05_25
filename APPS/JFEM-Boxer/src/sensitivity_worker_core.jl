@@ -1,11 +1,33 @@
 module JFEMSensitivityWorker
 using LinearAlgebra
-# Loaded once by the shared FE worker. Requests are serialized by its protocol;
-# each reset replaces only request data, retaining compiled methods and packages.
+# Package-owned callbacks must resolve during shared-image signature replay.
+# Requests are serialized by the shared FE worker; reset replaces request data.
+const GENERATOR_MODULE=parentmodule(@__MODULE__)
+nameof(GENERATOR_MODULE)===:WingFEGen||error("Load the sensitivity worker through WingFEGen.JFEMSensitivityWorker")
+const NATIVE_MODULE=Ref{Union{Nothing,Module}}(nothing)
 const DIRECTORY=Ref("")
 const REPOSITORY=Ref("")
 include(joinpath(@__DIR__,"sensitivity_io.jl"))
-include(joinpath(@__DIR__,"native_solver_loader.jl"))
+
+"""Resolve the root solver lazily without a cyclic package dependency.
+
+The persistent service already loaded OpenJFEM. Explicit PkgId resolution also
+supports standalone/prepared-image entry. No environment or LOAD_PATH changes;
+every call verifies that the cached package belongs to the selected repository.
+"""
+function worker_native_module(repository::AbstractString)
+    native=NATIVE_MODULE[]
+    if native===nothing
+        project=GENERATOR_MODULE.TOML.parsefile(joinpath(repository,"Project.toml"))
+        get(project,"name","")=="OpenJFEM"||error("The selected shared project does not define OpenJFEM")
+        native=Base.require(Base.PkgId(Base.UUID(project["uuid"]),"OpenJFEM"))
+        NATIVE_MODULE[]=native
+    end
+    actual=realpath(pathof(native));expected=realpath(joinpath(repository,"src","OpenJFEM.jl"))
+    (Sys.iswindows() ? lowercase(actual)==lowercase(expected) : actual==expected)||
+        error("Loaded JFEM package does not match the selected repository: $actual (expected $expected)")
+    native
+end
 function bootstrap_json(value)
     if value isa AbstractString
         io=IOBuffer();write(io,'"')
@@ -39,12 +61,34 @@ end
 const WORKER_STARTED=Ref(0.)
 const LAST_PROGRESS=Ref{Any}(Dict{String,Any}())
 const WORKER_TIMINGS=Dict{String,Any}()
-worker_stage_category(phase)=phase in ("forward","baseline_analysis","adjoint","operators","analytic_derivatives") ?
+const WORKER_LOG_EVENTS=Dict{String,Any}[]
+const WORKER_LOG_SEQUENCE=Ref(0)
+worker_stage_category(phase)=phase in ("forward","baseline_analysis","gradient","adjoint","operators","analytic_derivatives",
+    "rf_assessment","rf_derivatives","optimization","final_verification") ?
     "numerical" : phase in ("baseline_export","result_export") ? "export" : "preparation"
+function record_worker_log_event!(state,phase,message)
+    WORKER_LOG_SEQUENCE[]+=1
+    event=Dict{String,Any}("sequence"=>WORKER_LOG_SEQUENCE[],"message"=>string(message),"phase"=>phase)
+    for key in ("event","iteration","evaluation","case_id","case_label","case_ids","mass","minimum_rf",
+                "maximum_utilization","critical_case_id","critical_case_label","critical_failure_mode",
+                "critical_property_ids","step","rejected_trials","evaluations","design_variable_count",
+                "physical_dimension_count","constraint_count","case_count","active_constraint_count","adjoint_rhs")
+        haskey(state,key)&&(event[key]=state[key])
+    end
+    push!(WORKER_LOG_EVENTS,event)
+    length(WORKER_LOG_EVENTS)>250&&popfirst!(WORKER_LOG_EVENTS)
+    event
+end
 function progress(data)
     state=Dict{String,Any}(data);state["worker_seconds"]=time()-WORKER_STARTED[]
     state["worker_timings"]=copy(WORKER_TIMINGS)
     phase=String(get(state,"phase","bootstrap"))
+    message=pop!(state,"log_message",nothing)
+    if message!==nothing
+        record_worker_log_event!(state,phase,message)
+        println("[RF] ",message);flush(stdout)
+    end
+    isempty(WORKER_LOG_EVENTS)||(state["log_events"]=copy(WORKER_LOG_EVENTS))
     state["stage_category"]=worker_stage_category(phase)
     state["stage_state"]=phase=="complete" ? "completed" : phase=="failed" ? "failed" : "started"
     state["compilation_live"]="not_separable"
@@ -90,18 +134,19 @@ const WORKER_STAGE=Ref("bootstrap")
 function reset_worker!(directory,repository)
     DIRECTORY[]=abspath(directory);REPOSITORY[]=abspath(repository)
     WORKER_STARTED[]=time();LAST_PROGRESS[]=Dict{String,Any}()
-    empty!(WORKER_TIMINGS);WORKER_STAGE[]="bootstrap"
+    empty!(WORKER_TIMINGS);empty!(WORKER_LOG_EVENTS);WORKER_LOG_SEQUENCE[]=0;WORKER_STAGE[]="bootstrap"
     nothing
 end
 
 function solve_baseline(path)
+    native=worker_native_module(REPOSITORY[])
     progress(merge(LAST_PROGRESS[],Dict("phase"=>"baseline_parse","detail"=>"Reading the baseline deck and building its native model; first-use compilation is measured separately")))
     parsed=measured_worker_stage("baseline_parse") do
-        Base.invokelatest(SensitivityNative.bdf_to_model,path)
+        Base.invokelatest(native.bdf_to_model,path)
     end
     progress(merge(LAST_PROGRESS[],Dict("phase"=>"forward","detail"=>"Assembling and solving the baseline; timings include any first-use compilation and physical result recovery")))
-    measured_native_baseline(SensitivityNative) do
-        Base.invokelatest(SensitivityNative.solve_model,parsed)
+    measured_native_baseline(native) do
+        Base.invokelatest(native.solve_model,parsed)
     end
 end
 
@@ -124,19 +169,15 @@ try
     LinearAlgebra.BLAS.set_num_threads(1)
     active_runtime=merge(runtime,Dict("threads"=>Threads.nthreads(),"blas_threads"=>LinearAlgebra.BLAS.get_num_threads()))
     WORKER_STAGE[]="generator dependencies"
-    measured_worker_stage("generator_load") do
-        isdefined(@__MODULE__,:WingFEGen)||(@eval using WingFEGen)
+    W=measured_worker_stage("generator_load") do
+        GENERATOR_MODULE
     end
-    W=Base.invokelatest(getfield,@__MODULE__,:WingFEGen)
     WORKER_STAGE[]="native solver"
     progress(Dict("completed"=>0,"total"=>0,"phase"=>"native_package_load",
         "detail"=>"Loading the cached JFEM solver package; an installation or source change may require precompilation"))
-    measured_worker_stage("native_package_load") do
-        # The ordinary launcher uses this package too. Including the same source
-        # in a new module bypasses its precompile cache on every sensitivity run.
-        isdefined(@__MODULE__,:SensitivityNative)||(@eval const SensitivityNative=load_cached_jfem(REPOSITORY[]))
+    native=measured_worker_stage("native_package_load") do
+        worker_native_module(REPOSITORY[])
     end
-    native=Base.invokelatest(getfield,@__MODULE__,:SensitivityNative)
     Base.invokelatest() do
         bootstrap_write("worker_runtime.json",Dict(
             "julia_version"=>string(VERSION),"executable_directory"=>Sys.BINDIR,
@@ -154,8 +195,15 @@ try
     end
     request=Base.invokelatest(W.JSON.parsefile,joinpath(DIRECTORY[],"request.json"))
     WORKER_STAGE[]="adjoint analysis"
+    if get(request,"rf_analysis",false)===true
+        progress(Dict("completed"=>0,"total"=>0,"phase"=>"rf_preparation",
+            "detail"=>"Preparing native RF and derivative kernels; first-use Julia compilation may take time"))
+    end
     result=measured_worker_stage("sensitivity_compute") do
-        Base.invokelatest(W.compute_sensitivity,model,request,DIRECTORY[];native,solve=solve_baseline,progress)
+        rf=get(request,"rf_analysis",false)===true
+        compute=rf ? W.compute_rf_sensitivity : W.compute_sensitivity
+        Base.invokelatest(compute,model,request,DIRECTORY[];native,solve=solve_baseline,progress,
+            cancelled=()->isfile(joinpath(DIRECTORY[],"cancel.requested")))
     end
     result["worker_runtime"]=active_runtime
     result["worker_timings"]=copy(WORKER_TIMINGS)

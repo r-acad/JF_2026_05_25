@@ -76,14 +76,15 @@ function sensitivity_analytic_section(shape::AbstractString,dimensions,direction
     return (;area=A,I1,I2,J,offset_y,polygon,As_y,As_z,darea=dA,dI1,dI2,dJ,doffset_y,dpolygon,dAs_y,dAs_z)
 end
 
-"""Resolve a generator section dictionary, including its fixed-area PBAR runout."""
+"""Resolve a generator section dictionary, including its shared square PBAR runout."""
 function sensitivity_analytic_section(section::AbstractDict,direction=zeros(length(section["dimensions_m"])))
     if section["type"]=="PBAR"
-        all(iszero,direction)||throw(ArgumentError("Fixed-area runout dimensions are not design variables"))
+        length(direction)==2&&direction[1]==direction[2]||throw(ArgumentError("Shared square PBAR runouts require a common side direction"))
+        side=Float64(first(section["dimensions_m"]));ds=Float64(first(direction))
         polygon=deepcopy(section["polygon_yz_m"])
         return (area=Float64(section["area_m2"]),I1=Float64(section["I1_m4"]),I2=Float64(section["I2_m4"]),J=Float64(section["J_m4"]),
-            offset_y=Float64(section["offset_y_m"]),polygon,As_y=Inf,As_z=Inf,darea=0.,dI1=0.,dI2=0.,dJ=0.,doffset_y=0.,
-            dpolygon=[zeros(2) for _ in polygon],dAs_y=0.,dAs_z=0.)
+            offset_y=Float64(section["offset_y_m"]),polygon,As_y=Inf,As_z=Inf,darea=2side*ds,dI1=side^3*ds/3,dI2=side^3*ds/3,dJ=.5624side^3*ds,doffset_y=0.,
+            dpolygon=[point.*(ds/side) for point in polygon],dAs_y=0.,dAs_z=0.)
     end
     return sensitivity_analytic_section(section["shape"],section["dimensions_m"],direction)
 end

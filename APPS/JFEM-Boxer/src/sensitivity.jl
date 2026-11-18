@@ -98,7 +98,7 @@ function sensitivity_set!(p,d,value)
     return p
 end
 
-function sensitivity_catalog(m::Model)
+function sensitivity_catalog(m::Model;allow_semismooth=false)
     is_imported_model(m)&&return imported_sensitivity_catalog(m)
     p=m.params;candidates=Dict{String,Any}[]
     context=register_panel_properties!(p,m.grid)
@@ -136,11 +136,13 @@ function sensitivity_catalog(m::Model)
     definitions=model_property_definitions(m)
     baseline=Dict(d["pid"]=>d for d in definitions);variables=Dict{String,Any}[]
     for d in candidates
+        d["allow_semismooth_property_map"]=allow_semismooth
         directions=sensitivity_analytic_property_directions(m,d;properties=definitions)
         any(!isempty(get(direction,"unsupported_reason","")) for direction in values(directions))&&continue
         ids=sort!(collect(keys(directions)))
         isempty(ids)&&continue
         d["pids"]=ids;d["element_count"]=sum(length(g.eids) for g in m.groups if g.pid in ids)
+        d["property_mapping_nonsmooth"]=any(get(direction,"property_mapping_nonsmooth",false) for direction in values(directions))
         d["group"]=startswith(d["id"],"material") ? "Materials" : any(baseline[pid]["kind"]=="bar" for pid in ids) ? "Beam sections" : "Shell properties"
         merge!(d,sensitivity_field_descriptor(d["id"]))
         push!(variables,d)
@@ -152,10 +154,10 @@ function sensitivity_catalog(m::Model)
     for g in m.groups;element_counts[g.pid]=get(element_counts,g.pid,0)+length(g.eids);end
     for property in definitions
         pid=property["pid"];part=component_table_part(pid);part===nothing&&continue
-        index=pid%COMPONENT_PID_STRIDE;key=component_table_key(part,index)
+        index=part=="stringer_runout" ? 1 : pid%COMPONENT_PID_STRIDE;key=component_table_key(part,index)
         override=component_table_override(p,pid)
-        label=uppercasefirst(replace(part,'_'=>' '))*" "*(component_table_isrib(part) ? "R$index" : "R$(index)–R$(index+1)")
-        fields=component_table_iscap(part) ? [("side",first(property["section"]["dimensions_m"]))] :
+        label=part=="stringer_runout" ? "Shared P13 stringer runout connectors" : uppercasefirst(replace(part,'_'=>' '))*" "*(component_table_isrib(part) ? "R$index" : "R$(index)–R$(index+1)")
+        fields=component_table_iscap(part)||part=="stringer_runout" ? [("side",first(property["section"]["dimensions_m"]))] :
             part=="rib_stiffener" ? collect(zip(RIB_STIFFENER_FIELDS,property["section"]["dimensions_m"])) :
             property["type"]=="PCOMP" ? [("face_thickness",property["face_thickness_m"]),("core_thickness",property["core_thickness_m"])] :
             [("thickness",property["thickness_m"])]
@@ -189,6 +191,7 @@ function sensitivity_catalog(m::Model)
             fieldkey=(part=="skin" ? "shell." : "section.")*field
             fieldlabel=part=="skin" ? (field=="thickness" ? "Shell thickness" : "Sandwich "*replace(field,'_'=>' ')) : (shell_stringers(p) ? "Shell stringer " : iszero(bar["flange_width"]) ? "Blade " : "T ")*replace(field,'_'=>' ')
             variable=Dict{String,Any}("id"=>"properties.panels#$key#$part#$field",
+                "allow_semismooth_property_map"=>allow_semismooth,
                 "label"=>label*": "*fieldlabel,"path"=>Any["properties.panels",key,part,field],
                 "value"=>Float64(value),"unit"=>"m","scale"=>1.,"pids"=>[pid],
                 "element_count"=>element_counts[pid],
@@ -199,6 +202,7 @@ function sensitivity_catalog(m::Model)
                 scoped=vcat([baseline[pid]],get(flange_dependents,pid,Dict{String,Any}[]))
                 directions=sensitivity_analytic_property_directions(m,variable;properties=scoped)
                 any(!isempty(get(direction,"unsupported_reason","")) for direction in values(directions))&&continue
+                variable["property_mapping_nonsmooth"]=any(get(direction,"property_mapping_nonsmooth",false) for direction in values(directions))
                 variable["pids"]=sort!(collect(keys(directions)))
                 variable["element_count"]=sum(get(element_counts,id,0) for id in variable["pids"])
             end
@@ -211,7 +215,7 @@ function sensitivity_catalog(m::Model)
         "cases"=>[Dict("id"=>s.id,"label"=>s.label) for s in load_case_specs(p)],
         "surfaces"=>["z1","z2"],"method"=>"discrete_adjoint",
         "note"=>"Fixed nodes, connectivity and property IDs. Every stiffened panel, spar-web bay, upper/lower front/rear spar-cap bay, rib web/stiffener and leading-edge skin bay/rib offers independent section or shell dimensions, including inherited defaults. Component-family selections expand to local bay/rib derivatives, including overridden values; material and panel selections retain their original scope. Analytic mode uses exact element chain rules with one baseline analysis and a shared static adjoint, without property finite differences. SOL103 uses the chosen case's fuel mass; SOL105 uses its static preload."*
-            (shell_stringers(p) ? " Shell stringers expose web thickness and material variables. Flange width, overall height and flange thickness change blade/skin geometry and are excluded from fixed-mesh property sensitivities. Skin variables also affect the combined flange that inherits that skin. Independent thickness variables at a tied thinnest-skin boundary are omitted because the minimum is not differentiable; shared thickness changes remain available. Combined PCOMP flanges require explicit operator differences; exact adjoints do not yet support their unsymmetric or offset laminate coupling." : ""))
+            (shell_stringers(p) ? " Shell stringers expose web thickness and material variables. Flange width, overall height and flange thickness change blade/skin geometry and are excluded from fixed-mesh property sensitivities. Skin variables also affect the combined flange that inherits that skin."*(allow_semismooth ? " Identical tied thinnest-skin sections use an explicitly marked uniform Clarke property-map derivative; different section-law switches remain unavailable." : " Independent thickness variables at a tied thinnest-skin boundary are omitted because the minimum has no unique ordinary derivative; shared thickness changes remain available.")*" Combined PCOMP flanges retain their complete anisotropic or offset A/B/D and reference-plane derivatives; native replay checks verify the actual supported element branch." : ""))
 end
 
 function sensitivity_request(m,raw)
@@ -247,9 +251,6 @@ function sensitivity_request(m,raw)
     end
     request["objective"]=obj;request["case_id"]=case
     request["derivative_method"]=get(request,"derivative_method","analytic")
-    if request["derivative_method"]=="analytic"&&any(get(property,"combined_flange",false)&&property["type"]=="PCOMP" for property in model_property_definitions(m))
-        throw(ArgumentError("Exact analytic sensitivities do not yet support combined PCOMP attached flanges (different skin/flange materials, composite construction, or inward offsets). Primal analyses retain their full coupling. Choose the explicit operator-differences method for supported linear sensitivity cases, or use same-material centered monolithic flanges."))
-    end
     is_imported_model(m)&&request["derivative_method"]!="analytic"&&throw(ArgumentError("Imported-deck sensitivities require analytic derivatives"))
     solution=="106"&&request["derivative_method"]!="analytic"&&throw(ArgumentError("SOL106 sensitivities require the analytic nonlinear displacement adjoint"))
     step=get(request,"relative_step",.01)

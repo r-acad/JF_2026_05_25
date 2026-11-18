@@ -83,7 +83,7 @@ function sensitivity_worker_runtime(repo;generator=dirname(@__DIR__),requirement
         image_args=String[]
         if select_image
             helper=WingFEGenBootstrap.JFEMRuntimeImages
-            image,reason=helper.selected_image(repo;executable=found.executable,external=true)
+            image,reason=helper.selected_image(repo;executable=found.executable,external=true,probe=true)
             image_args=image===nothing ? String[] : ["--sysimage="*image]
             metadata["sysimage"]=something(image,"")
             metadata["sysimage_status"]=reason

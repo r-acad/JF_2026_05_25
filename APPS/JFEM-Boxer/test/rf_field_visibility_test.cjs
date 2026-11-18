@@ -38,4 +38,12 @@ check('Only a verified same-mesh property update may retain its accepted RF fram
  assert.equal(V.retainDuringUpdate(request),true);
  for(const patch of[{pending:false},{compatible:false},{field:{contour:{stale:true}}},{source:{generated:true}},{current:{...current,studyEpoch:5}},{current:{...current,meshIdentity:'mesh-B'}},{current:{...current,layoutToken:'layout-B'}},{current:{...current,running:true}},{current:{...current,sourceUnits:true}},{current:{...current,generated:false}}])assert.equal(V.retainDuringUpdate({...request,...patch}),false);
 });
+check('Display fragments replace canonical faces without hiding their logical EID or unrelated context',()=>{
+ const a=mesh([0,1,2],[10]),overlay=mesh([],[]),selection=mesh([],[]),s=state([a]),logical=new Set([10]);
+ s.layers.set('LOADS',{visible:true,meshes:[overlay]});s.selectionMesh=selection;s.selectedElement=10;
+ const controller=V.create({state:s});controller.sync(new Set(),{logicalAllowed:logical,keepContext:true});
+ assert.equal(a.getIndices().length,0);assert.equal(s.rfVisibleElementIds,logical);assert.equal(overlay.isVisible,true);assert.equal(selection.isVisible,true);
+ controller.sync(new Set(),{logicalAllowed:new Set(),keepContext:false});assert.equal(overlay.isVisible,false);assert.equal(selection.isVisible,false);
+ controller.restore();assert.equal(a.getIndices().length,3);assert.equal(overlay.isVisible,true);assert.equal(selection.isVisible,true);
+});
 console.log(passed+' RF visibility tests passed.');

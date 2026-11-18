@@ -49,8 +49,9 @@
   for(const [key,label,step]of [['load_steps','Initial load steps',1],['max_iterations','Iterations per step',1],['max_cutbacks','Maximum cutbacks',1],['displacement_tolerance','Displacement tolerance','any'],['residual_tolerance','Residual tolerance','any']])numeric(host.querySelector('[data-nonlinear]'),key,label,step);
   host.addEventListener('change',event=>{if(!event.target.dataset.key||!isExternalDeck(read())||event.target.disabled)return;try{const values=Object.fromEntries([...host.querySelectorAll('[data-key]')].map(el=>[el.dataset.key,el.type==='checkbox'?el.checked:el.type==='number'?Number(el.value):el.value]));if(event.target.dataset.key==='buckling_output_override'&&!event.target.checked)for(const key of OUTPUT_KEYS)values[key]=false;onChange(options(values));refresh();}catch(error){host.querySelector('[data-note]').textContent=error.message;}});
   function refresh(disabled=false){
-   const deck=read();host.hidden=!isExternalDeck(deck);if(host.hidden)return;
+   const deck=read();host.hidden=!isExternalDeck(deck);if(host.hidden){delete host.dataset.analysisSolution;globalThis.WingUILayout?.sync(host.ownerDocument);return;}
    const value=options(deck.source?.analysis),sol=solution(deck),isAbaqus=deck.source_format==='abaqus'||deck.source?.format==='abaqus';
+   host.dataset.analysisSolution=sol;
    abaqusInfo.hidden=!isAbaqus;
    if(isAbaqus){
     abaqusInfo.replaceChildren();const note=document.createElement('p');note.textContent=deck.analysis_ready===false?'This Abaqus file is a mesh-only or incomplete model. Inspect its named sets below. To solve a solid mesh, read it again and enable the explicit material, constraint and static/modal setup. No missing material or loading is invented.':'Abaqus analysis uses the authored input steps or the explicit setup saved with this Study. The original source and completion settings are retained. Reference-only solution/follower overlays are unavailable.';abaqusInfo.append(note);
@@ -63,7 +64,8 @@
    host.querySelector('[data-source-controls]').hidden=isAbaqus;
    for(const input of host.querySelectorAll('[data-key]')){if(input.type==='checkbox')input.checked=value[input.dataset.key];else input.value=value[input.dataset.key];input.disabled=disabled||isAbaqus||(OUTPUT_KEYS.slice(1).includes(input.dataset.key)&&!value.buckling_output_override)||(value.buckling_compact&&['buckling_deformation_energy','buckling_energy_density'].includes(input.dataset.key));}
    outputs.hidden=isAbaqus||sol!=='105';
-   host.querySelector('[data-key="follower"]').closest('label').hidden=isAbaqus;
+   // Keep an incompatible retained override reachable so the user can clear it.
+   host.querySelector('[data-key="follower"]').closest('label').hidden=isAbaqus||!['101','106'].includes(sol)&&value.follower!=='force';
    host.querySelector('[data-eigen]').hidden=isAbaqus||!['103','105'].includes(value.solution);
    host.querySelector('[data-key="buckling_max_factor"]').closest('label').hidden=value.solution!=='105';
    host.querySelector('[data-nonlinear]').hidden=isAbaqus||value.solution!=='106';
@@ -83,6 +85,7 @@
     }
    }
    host.querySelector('[data-note]').textContent=isAbaqus?(deck.analysis_ready===false?'Analysis unavailable until the missing data are explicitly defined.':'Run '+(deck.solution_label||'SOL'+sol)+' on '+deck.name+'; original input steps are preserved.'):value.follower==='force'&&!['101','106'].includes(sol)?'Select fixed forces for SOL103/SOL105 before running.':'Run SOL'+sol+' on '+deck.name+'; no lifting surface geometry will be generated.';
+   globalThis.WingUILayout?.sync(host.ownerDocument);
   }
   refresh();
   return {refresh};

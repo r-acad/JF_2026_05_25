@@ -45,6 +45,8 @@ function expectedValues(raw,ownership,method,selected='all'){
     await page.locator('#allowable-mode').selectOption('stress');await page.locator('#allowable-stress').fill('400000');
     const signature=await page.evaluate(()=>formSignature());
     await page.evaluate(()=>activateWorkspaceTab('stressreport'));assert(await page.locator('#panel-stressreport').isVisible());
+    await page.locator('#stress-report-failure-mode').selectOption('von_mises');
+    await page.locator('#stress-report-stress').click();
     const all=[];
     for(const method of ['maximum','mean','trimmed_mean']){
      await page.locator('#stress-report-method').selectOption(method);if(method==='trimmed_mean'){await page.locator('#stress-report-percentile').fill('95');await page.locator('#stress-report-percentile').blur();}

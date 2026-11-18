@@ -1,10 +1,10 @@
 # Install and run JFEM
 
-**For a fresh installation, run the shared setup at the repository root first:** [`setup.cmd`](../setup.cmd) on Windows, `bash setup.sh` on Linux, or `bash setup.command` on macOS. It downloads the packages and builds the shared image under the root `sysimage/` directory. Wait for setup to finish before opening an app.
+**For a fresh installation, run the shared setup at the repository root first:** [`setup.cmd`](../setup.cmd) on Windows, `bash setup.sh` on Linux, or `bash setup.command` on macOS. It installs shared packages and automatically reuses or builds a compatible Julia image when resources permit. If memory is insufficient or the build fails, setup continues without the image. Wait for setup to finish, then launch an app.
 
 **Already have a prepared Linux package environment and hydrated depot?** Use
-[Build an image from an existing prepared environment](Linux/README.md#already-prepared-linux-packages)
-to build locally from the cached dependencies, without rerunning package setup.
+[Already prepared Linux packages](Linux/README.md#already-prepared-linux-packages)
+explains source-mode launch and an optional local image build from cached dependencies.
 Keep the complete repository and your matching prepared package records.
 
 Each operating-system folder contains application shortcuts and a guide covering installation, repair and offline use. There are no app-specific installers.
@@ -19,8 +19,10 @@ and updates without deleting your Studies or reinstalling Julia unnecessarily.
 | macOS | [Mac/README.md](Mac/README.md) |
 
 Use the complete extracted repository in a writable location. Normal setup gives all apps
-the root Project/Manifest and one compiled image. An explicitly selected
-prepared environment can supply the dependency graph for that shared image. These shortcuts forward to
+the root Project/Manifest. Setup handles image selection and available-memory
+checks automatically. Apps use ordinary Julia loading when no compatible image
+is available; first use may compile, with the same application features.
+These shortcuts forward to
 the `Windows/`, `Linux/` and `Mac/` launchers inside each [app folder](../APPS/README.md).
 
 After installation, Boxer, PANDEATOR and the results viewer run offline.

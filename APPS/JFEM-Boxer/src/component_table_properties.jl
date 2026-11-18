@@ -4,7 +4,7 @@ const COMPONENT_TABLE_PARTS=("front_upper_cap","front_lower_cap","rear_upper_cap
     "leading_upper_skin","leading_lower_skin","leading_rib","rib_web","rib_stiffener","front_web","rear_web")
 const COMPONENT_SHELL_FIELDS=("thickness","kind","material","face_thickness","core_thickness","face_material","core_material")
 component_table_family(component)=findfirst(==(component),COMPONENT_TABLE_PARTS)+7
-component_table_part(pid)=8<=pid÷COMPONENT_PID_STRIDE<=18 ? COMPONENT_TABLE_PARTS[pid÷COMPONENT_PID_STRIDE-7] : nothing
+component_table_part(pid)=pid==PID_STRINGER_RUNOUT ? "stringer_runout" : 8<=pid÷COMPONENT_PID_STRIDE<=18 ? COMPONENT_TABLE_PARTS[pid÷COMPONENT_PID_STRIDE-7] : nothing
 component_table_isrib(part)=part in ("leading_rib","rib_web","rib_stiffener")
 component_table_iscap(part)=endswith(part,"_cap")
 component_table_key(part,index)="$part:$index"
@@ -16,11 +16,11 @@ function normalize_component_table_properties(value)
         raw isa AbstractDict||throw(ArgumentError("Each component property row must be a table"))
         row=Dict{String,Any}(String(k)=>v for (k,v) in raw)
         key=get(row,"key",nothing);key isa AbstractString||throw(ArgumentError("A component property row needs its physical key"))
-        tokens=split(key,':');length(tokens)==2&&tokens[1] in COMPONENT_TABLE_PARTS||throw(ArgumentError("Invalid component property key $key"))
+        tokens=split(key,':');length(tokens)==2&&(tokens[1] in COMPONENT_TABLE_PARTS||tokens[1]=="stringer_runout")||throw(ArgumentError("Invalid component property key $key"))
         index=tryparse(Int,tokens[2]);index!==nothing&&1<=index<=100001||throw(ArgumentError("Invalid physical index in $key"))
         key==component_table_key(tokens[1],index)||throw(ArgumentError("Non-canonical component key $key"))
         key in seen&&throw(ArgumentError("Duplicate component property key $key"));push!(seen,key)
-        fields=component_table_iscap(tokens[1]) ? ("side","material") : tokens[1]=="rib_stiffener" ? (RIB_STIFFENER_FIELDS...,"material","enabled") : COMPONENT_SHELL_FIELDS
+        fields=component_table_iscap(tokens[1])||tokens[1]=="stringer_runout" ? ("side","material") : tokens[1]=="rib_stiffener" ? (RIB_STIFFENER_FIELDS...,"material","enabled") : COMPONENT_SHELL_FIELDS
         length(row)>1&&all(k->k=="key"||k in fields,keys(row))||throw(ArgumentError("Unsupported or empty properties for $key"))
         for (field,v) in row
             field=="key"&&continue
@@ -44,15 +44,15 @@ function component_table_override(p,part,index)
     for row in get(p,"properties.components",Any[]);get(row,"key","")==key&&return row;end
     Dict{String,Any}()
 end
-component_table_override(p,pid::Integer)=isnothing(component_table_part(pid)) ? Dict{String,Any}() : component_table_override(p,component_table_part(pid),pid%COMPONENT_PID_STRIDE)
+component_table_override(p,pid::Integer)=isnothing(component_table_part(pid)) ? Dict{String,Any}() : component_table_override(p,component_table_part(pid),pid==PID_STRINGER_RUNOUT ? 1 : pid%COMPONENT_PID_STRIDE)
 function component_table_pid(p,part,index,default)
     # Property identity follows the physical component, even when every value is
     # inherited. Editing a default must never merge independent sensitivity DVs.
-    component_table_family(part)*COMPONENT_PID_STRIDE+index
+    part=="stringer_runout" ? PID_STRINGER_RUNOUT : component_table_family(part)*COMPONENT_PID_STRIDE+index
 end
 function validate_component_table_bounds(p,rib_count)
     for row in normalize_component_table_properties(get(p,"properties.components",Any[]))
-        part,indextext=split(row["key"],':');index=parse(Int,indextext);limit=component_table_isrib(part) ? rib_count : rib_count-1
+        part,indextext=split(row["key"],':');index=parse(Int,indextext);limit=part=="stringer_runout" ? 1 : component_table_isrib(part) ? rib_count : rib_count-1
         index<=limit||throw(ArgumentError("$(row["key"]) exceeds the current physical rib layout; review component table overrides"))
     end
 end

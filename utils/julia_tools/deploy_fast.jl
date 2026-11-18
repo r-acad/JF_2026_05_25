@@ -13,6 +13,8 @@ using JSON
 using Pkg
 include(joinpath(@__DIR__, "precompile_deployment.jl"))
 include(joinpath(@__DIR__, "sysimage_provenance.jl"))
+include(joinpath(@__DIR__, "sysimage_publication.jl"))
+include(joinpath(@__DIR__, "runtime_images.jl"))
 include(joinpath(@__DIR__, "shared_precompile_workloads.jl"))
 
 get!(ENV,"JULIA_NUM_PRECOMPILE_TASKS","2")
@@ -183,8 +185,8 @@ function _write_sysimage_precompile_script(path::AbstractString, decks::Vector{S
     return path
 end
 
-function _maybe_build_sysimage(sysimage::AbstractString, decks::Vector{String}, flags::AbstractString, install_packagecompiler::Bool)
-    isempty(sysimage) && return nothing
+function _compile_shared_sysimage(packages, candidate, script, install_packagecompiler;
+                                 compiler_loader=Base.require)
     packagecompiler_available = Base.find_package("PackageCompiler") !== nothing
     if !packagecompiler_available
         if install_packagecompiler
@@ -194,13 +196,31 @@ function _maybe_build_sysimage(sysimage::AbstractString, decks::Vector{String}, 
             error("PackageCompiler is required for the shared image. Run setup in the complete repository, or explicitly choose --no-sysimage there.")
         end
     end
-    packagecompiler = Base.require(Base.PkgId(
+    packagecompiler = compiler_loader(Base.PkgId(
         Base.UUID("9b87118b-4619-50d2-8e1e-99f35a4d4d9d"),
         "PackageCompiler"))
-    mkpath(dirname(abspath(sysimage)))
-    script = joinpath(mktempdir(; prefix="openjfem_sysimage_"), "precompile_execution.jl")
+    # PackageCompiler starts the execution workload in a fresh Julia process.
+    # Propagate the selected pool so threaded assembly is included in its trace.
+    withenv("JULIA_NUM_THREADS"=>string(Threads.nthreads())) do
+        Base.invokelatest(() -> packagecompiler.create_sysimage(packages;
+            sysimage_path=candidate,
+            precompile_execution_file=script))
+    end
+end
+
+function _maybe_build_sysimage(sysimage::AbstractString, decks::Vector{String}, flags::AbstractString,
+                              install_packagecompiler::Bool; compiler=_compile_shared_sysimage,
+                              library_probe=JFEMRuntimeImages.image_loadable)
+    isempty(sysimage) && return nothing
+    destination = abspath(sysimage)
+    builds = joinpath(dirname(destination), "builds")
+    mkpath(builds)
+    work = mktempdir(builds; prefix="shared_", cleanup=false)
+    candidate = joinpath(work, basename(destination))
+    script = joinpath(work, "precompile_execution.jl")
     _write_sysimage_precompile_script(script, decks, flags)
-    println("Building OpenJFEM sysimage: $sysimage")
+    println("Building OpenJFEM sysimage: $destination")
+    println("  Build records: $work")
     println("This can take several minutes.")
     # Every installed application shares these packages and the same image.
     # Missing applications or failed warmups must never look like a full build.
@@ -211,14 +231,29 @@ function _maybe_build_sysimage(sysimage::AbstractString, decks::Vector{String}, 
     source_before = JFEMSysimageProvenance.input_hashes(repo_root)
     environment_before = JFEMSysimageProvenance.environment_identity(repo_root; environment=repo_root)
     workload_before = JFEMSysimageProvenance.workload_hashes(decks, flags)
-    Base.invokelatest(getfield(packagecompiler, :create_sysimage), pkgs;
-        sysimage_path=sysimage,
-        precompile_execution_file=script)
-    receipt = JFEMSysimageProvenance.write_sidecar(repo_root, sysimage, source_before, workload_before;
-        environment=repo_root, environment_before)
+    try
+        compiler(pkgs, candidate, script, install_packagecompiler)
+        library_probe(candidate; project=repo_root) || error("Candidate image failed its native-library check")
+        JFEMSysimageProvenance.write_sidecar(repo_root, candidate, source_before, workload_before;
+            environment=repo_root, environment_before)
+        valid, reason = JFEMSysimageProvenance.check_sysimage(repo_root, candidate; environment=repo_root)
+        valid || error("Candidate sysimage verification failed: $reason")
+        JFEMSysimagePublication.publish_image(candidate, destination; validator=()->begin
+            eligible, detail = JFEMSysimageProvenance.check_sysimage(repo_root, destination; environment=repo_root)
+            eligible || error("Published image verification failed: $detail")
+        end)
+    catch failure
+        open(joinpath(work, "failure.txt"), "w") do io
+            showerror(io, failure, catch_backtrace())
+            println(io)
+        end
+        println(stderr, "Image build stopped. Diagnostics retained in ", work)
+        rethrow()
+    end
+    receipt = JFEMSysimageProvenance.sidecar(destination)
     println("Sysimage provenance: $receipt")
-    println("Sysimage complete: $sysimage")
-    return sysimage
+    println("Sysimage complete: $destination")
+    return destination
 end
 
 function deploy_main(args=ARGS)

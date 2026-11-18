@@ -924,7 +924,7 @@ function _bar_element_length(bar, model)
 
     p1 = SVector{3,Float64}(Float64.(grids[ga]["X"]))
     p2 = SVector{3,Float64}(Float64.(grids[gb]["X"]))
-    _, _, _, p1_eff, p2_eff = bar_offsets_and_endpoints(bar, p1, p2)
+    _, _, _, p1_eff, p2_eff = bar_offsets_and_endpoints(bar, p1, p2; model=model)
     return norm(p2_eff - p1_eff)
 end
 

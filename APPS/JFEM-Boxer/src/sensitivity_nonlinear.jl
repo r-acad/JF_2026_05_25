@@ -9,7 +9,9 @@ function sensitivity_nonlinear_supported_model(native,model,objective)
     objective["type"]=="displacement"||throw(ArgumentError("SOL106 analytic sensitivity currently supports final-load displacement only; nonlinear stress recovery is not differentiated"))
     method=lowercase(string(get(model,"PARAM_NLMETHOD","auto")))
     method in ("auto","legacy","legacy_geometric","","formal","green_lagrange","formal_shell_green_lagrange","formal_shell_von_karman","formal_von_karman","formal_shell_vk")||throw(ArgumentError("Unsupported SOL106 nonlinear formulation for analytic sensitivity: $method"))
-    for family in ("CSOLIDs","CBEAMs","CRODs","CONRODs","CELAS1s","CELAS2s","CBUSHs")
+    # Fixed linear CBUSH/PBUSH actuators contribute to K and its true residual
+    # Jacobian. They have no geometric prestress term and are not sizing fields.
+    for family in ("CSOLIDs","CBEAMs","CRODs","CONRODs","CELAS1s","CELAS2s")
         isempty(get(model,family,Dict()))||throw(ArgumentError("SOL106 analytic residual replay does not support $family"))
     end
     any(!isempty(get(model,key,Any[])) for key in ("SPCDs",))&&throw(ArgumentError("SOL106 sensitivities require homogeneous supports"))
@@ -51,7 +53,7 @@ function sensitivity_nonlinear_convergence(sub)
     info,residual_model=="secant_geometric" ? .5 : 1.
 end
 
-function sensitivity_nonlinear_context(native,forward,wing,objective;analytic=true,progress=(_)->nothing,cancelled=()->false)
+function sensitivity_nonlinear_context(native,forward,wing,objective;analytic=true,progress=(_)->nothing,cancelled=()->false,context_only=false)
     analytic||throw(ArgumentError("SOL106 sensitivity requires analytic derivatives; operator differences are not supported"))
     Int(forward["sol_type"])==106||error("Nonlinear adjoint requires actual SOL106 forward results")
     sensitivity_nonlinear_supported_model(native,forward["model"],objective)
@@ -68,6 +70,16 @@ function sensitivity_nonlinear_context(native,forward,wing,objective;analytic=tr
     state_error=norm(expanded-sub["u_analysis"])/max(norm(expanded),eps())
     state_error<1e-11||error("Nonlinear native constraint reconstruction mismatch ($state_error)")
     independent_state=sensitivity_independent_state(op,u)
+    if context_only&&info["nonlinear_method"]=="linear_elastic"
+        A=op.K[op.free,op.free];residual=A*u-op.F[op.free]
+        relative=norm(residual)/max(norm(op.F[op.free]),eps())
+        relative<=1e-6||error("Linear SOL106 residual replay failed ($relative)")
+        return (;op,u,expanded,independent_state,A,coefficient=0.,geometric_contexts=Dict{Int,Any}(),
+            diagnostics=Dict("forward_replay_residual"=>relative,"nonlinear_method"=>"linear_elastic",
+                "residual_jacobian"=>"exact_linear_stiffness","final_load_scale"=>1.))
+    end
+    context_only&&info["nonlinear_method"] in ("formal_shell_green_lagrange","formal_shell_von_karman")&&
+        throw(ArgumentError("Formal SOL106 RF derivatives require nonlinear strain/recovery pullbacks; only the actual legacy-geometric and linear-elastic RF residuals are enabled"))
     if info["nonlinear_method"] in ("formal_shell_green_lagrange","formal_shell_von_karman","linear_elastic")
         return sensitivity_nonlinear_formal_context(native,forward,wing,objective,op,info,u,expanded,
             independent_state,matrix_error,state_error;cancelled)
@@ -109,6 +121,14 @@ function sensitivity_nonlinear_context(native,forward,wing,objective;analytic=tr
     residual=(op.K*independent_state+coefficient*G*independent_state-op.F)[op.free]
     forward_residual=norm(residual)/max(norm(op.F[op.free]),eps())
     forward_residual<=1e-6||error("Nonlinear analytic operators do not reproduce converged equilibrium ($forward_residual)")
+    if context_only
+        A=J[op.free,op.free]
+        return (;op,u,expanded,independent_state,A,coefficient,geometric_contexts=contexts,
+            diagnostics=Dict("forward_replay_residual"=>forward_residual,"nonlinear_method"=>info["nonlinear_method"],
+                "residual_model"=>info["residual_model"],"residual_jacobian"=>"exact_element_chain_rule",
+                "final_load_scale"=>info["final_load_scale"],"geometric_replay_relative_error"=>geometric_error,
+                "kernel_replay_relative_error"=>max_replay))
+    end
     target=sensitivity_recovery_target(native,op,objective)
     features=sensitivity_response_features(native,op,wing,objective,expanded,target)
     response=sensitivity_feature_response(features,objective;gradient=true)

@@ -112,16 +112,17 @@ function section_definition(p::AbstractDict, pid::Integer)
             "torsion_model" => "JFEM PBARL rectangular-section approximation",
             "placement" => "Outer face at skin; square inward; centroid offset included in CBAR")
     elseif base_pid == PID_STRINGER_RUNOUT
-        area = STRINGER_RUNOUT_AREA
-        side = sqrt(area)
+        side = Float64(get(component_table_override(p,pid),"side",get(p,"properties.runout_side",sqrt(STRINGER_RUNOUT_AREA))))
+        isfinite(side)&&side>0||throw(ArgumentError("Shared stringer runout side must be finite and positive"))
+        area = side==sqrt(STRINGER_RUNOUT_AREA) ? STRINGER_RUNOUT_AREA : side^2
         return Dict{String,Any}(
             "type" => "PBAR", "shape" => "BAR", "dimensions_m" => [side,side],
             "polygon_yz_m" => [[side/2,-side/2], [side/2,side/2],
                                   [-side/2,side/2], [-side/2,-side/2]],
             "offset_y_m" => 0.0, "area_m2" => area,
             "I1_m4" => area^2/12, "I2_m4" => area^2/12, "J_m4" => 0.1406*area^2,
-            "torsion_model" => "Fixed-area connector equivalent square",
-            "placement" => "Fixed 5 mm2 square connector centered on the GRID line")
+            "torsion_model" => "PBAR square connector; J=0.1406*side^4",
+            "placement" => "Shared P13 stringer runout square centered on the GRID line")
     end
     throw(ArgumentError("no bar section for PID $pid"))
 end

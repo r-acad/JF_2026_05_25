@@ -37,6 +37,8 @@ const preview=Buffer.from(msgpack.encode({aero:{xyz:[0,0,0,1,0,0,1,4,0,0,4,0],co
   assert(await page.locator('#splash').isVisible());assert.equal(await load('{malformed'),false);assert(await page.locator('#splash').isVisible());assert.equal(await page.evaluate(()=>state.autoMeshReady),false);
   checks.push('Initial welcome remains until a Study commits; malformed loading does not dismiss it or create a Study.');
   await page.locator('.startup-study-dialog [data-choice=new]').click();await settle();await authored();assert(!await page.locator('#splash').isVisible());assert.equal(await page.evaluate(()=>state.data),null);
+  assert.equal(count('/api/restore_workspace'),1);assert.equal(count('/api/validate_workspace'),0);
+  assert.equal(count('/api/prepare_workspace'),0);assert.equal(count('/api/generate'),0);
   checks.push('A new authored model dismisses the welcome immediately and shows geometry without a FEM.');
   const saved=await page.evaluate(async()=>{
    const view=WingWorkspace.captureView(document,state,workspaceUI);view.controls['auto-mesh']=true;view.workspace.activeTab='planform';

@@ -1,26 +1,40 @@
 # Shared by native recovery and Boxer result import. No stiffness or solver
 # state is modified here. Units follow the input model (Pa for Boxer SI data).
-# Classical thin-wall VQ/I shear flow and Saint-Venant open-section torsion:
+# Classical VQ/(I b) shear, nominal limb flow and Saint-Venant torsion:
 # https://www.ae.msstate.edu/tupas/SA2/chA14.7_text.html
 # https://www.ae.msstate.edu/tupas/SA2/chA14.8_text.html
 # https://www.ae.msstate.edu/tupas/SA2/chA6.6_text.html
+# https://www.ae.msstate.edu/tupas/SA2/chA6.4_text.html
 
-"""Conservative equivalent-stress envelope within a thin-walled T beam model.
+"""Saint-Venant torsion constant of a finite solid rectangle.
+
+The odd Fourier series is the elasticity solution, not the thin-strip
+approximation. Ninety-nine terms keep its square-section truncation error
+below 2e-9 relative. The function is also usable with local AD scalars.
+"""
+function beam_rectangle_torsion_constant(width,height)
+    a,b=max(width,height),min(width,height)
+    series=sum(tanh(k*pi*a/(2b))/k^5 for k in 1:2:197)
+    a*b^3/3*(1-192b/(pi^5*a)*series)
+end
+
+"""Nominal equivalent-stress envelope for a finite-thickness T beam.
 
 Normal stress uses the actual finite-thickness polygon, centroid and inertias.
-Wall-parallel shear uses VQ/I, starting at each free edge. Triangle bounds
-combine the two transverse components and the free-warping Saint-Venant
-torsion |T|t/J. The possible torque from the centroid/shear-centre offset is
-also bounded, not discarded. The largest normal and shear magnitudes may
-occur at different locations: their combination is a conservative envelope,
-not a pointwise von Mises maximum. Junction concentrations, restrained
-warping and transverse normal stress are outside this beam-section model.
+The VQ/(I b) envelope retains the finite flange's vertical shear and the
+central web's transverse strip shear. Free-warping torsion uses compatible
+rectangular limbs and their finite-rectangle torsion constants. For each
+limb, tau_max <= G*twist*limb_thickness; using their summed rigidity bounds
+the nominal limb shear without the t/b <= 0.10 thin-wall restriction.
+This is a conservative combination WITHIN this stated nominal limb model,
+not a rigorous pointwise bound for a 3D T junction. Sharp-junction stress
+concentrations, restrained warping and transverse normal stress are excluded.
 """
 function beam_t_stress_envelope(prop::AbstractDict, forces::AbstractDict;
         material_type="MAT1", varying_section=false, distributed_loading=false)
     uppercase(string(get(prop,"TYPE","")))=="BAR"&&return beam_rectangular_stress_envelope(prop,forces;material_type,varying_section,distributed_loading)
     unavailable(reason)=Dict{String,Any}("von_mises_recovery"=>Dict{String,Any}(
-        "status"=>"unavailable","method"=>"thin_walled_t_section_envelope","reason"=>reason))
+        "status"=>"unavailable","method"=>"finite_thickness_t_nominal_envelope","reason"=>reason))
     uppercase(string(material_type))=="MAT1"||return unavailable("The T-section equivalent-stress envelope requires an isotropic MAT1 material.")
     uppercase(string(get(prop,"TYPE","")))=="T"||return unavailable("Equivalent-stress recovery is not defined for this beam section; section envelopes support dimension-defined PBARL T and solid rectangular BAR sections.")
     varying_section&&return unavailable("The T-section equivalent-stress envelope requires a constant section; tapered/station-varying beams need interior recovery.")
@@ -30,7 +44,6 @@ function beam_t_stress_envelope(prop::AbstractDict, forces::AbstractDict;
     dims isa AbstractVector&&length(dims)==4&&all(numeric,dims)||return unavailable("The four physical T-section dimensions are missing or nonfinite.")
     b,h,tf,tw=Float64.(dims);hw=h-tf
     b>tw>0&&h>tf>0||return unavailable("T-section dimensions must define a positive nonoverlapping flange and web.")
-    max(tf/b,tw/hw)<=.1*(1+1e-12)||return unavailable("The thin-wall stress model requires flange thickness/full width and web thickness/clear height no greater than 0.10; use shell or solid recovery for thicker sections.")
     area=b*tf+hw*tw;yc=(hw*tw*hw/2+b*tf*(hw+tf/2))/area;yf=hw+tf/2
     i1=tw*hw^3/12+hw*tw*(yc-hw/2)^2+b*tf^3/12+b*tf*(yf-yc)^2
     i2=hw*tw^3/12+tf*b^3/12;j=(hw*tw^3+b*tf^3)/3
@@ -52,28 +65,32 @@ function beam_t_stress_envelope(prop::AbstractDict, forces::AbstractDict;
              (-yc,tw/2),(-yc,-tw/2),(hw-yc,-tw/2),(hw-yc,-b/2))
     normal=maximum(abs(n/area-forces["moment_$(ending)1"]*y/i1-forces["moment_$(ending)2"]*z/i2)
         for ending in ("a","b") for (y,z) in polygon)
-    # Integrate Q from each free edge. Maxima of the web's quadratic flow
-    # occur at an end or at y=yc. Flange bounds add the vertical-load linear
-    # flow and horizontal-load quadratic flow, so their signs cannot cancel
-    # an unexamined local maximum. The small web-width contribution is kept.
+    # The two transverse components are bounded before combination. Retain
+    # both the flange-parallel shear flow and its finite vertical component;
+    # the latter is often discarded in a thin-wall calculation.
     web_q=max(abs(yc*hw-hw^2/2),abs(yc*clamp(yc,0.,hw)-clamp(yc,0.,hw)^2/2))
-    web_shear=abs(vy)*web_q/i1+abs(vz)*tw^2/(8i2)
-    flange_shear=abs(vy)*abs(yf-yc)*b/(2i1)+abs(vz)*b^2/(8i2)
-    # For a symmetric thin T the shear centre lies on the web/flange
-    # intersection. Native section torque is about the centroid. Bounding
-    # both terms avoids a sign-convention-dependent underprediction.
+    web_horizontal_q=(tf*(b^2-tw^2)+h*tw^2)/(8h)
+    flange_y=clamp(yc,hw,h)
+    flange_vertical_q=max(abs((h-yc)^2-(hw-yc)^2),abs((h-yc)^2-(flange_y-yc)^2))/2
+    web_shear=abs(vy)*web_q/i1+abs(vz)*web_horizontal_q/i2
+    flange_shear=abs(vy)*(abs(yf-yc)*b/2+flange_vertical_q)/i1+abs(vz)*b^2/(8i2)
+    # The nominal symmetric-limb shear centre is at the flange midline.
+    # Bound the section torque and the transfer couple before adding shear.
     torque_bound=abs(t)+abs(vz)*abs(yf-yc)
-    web_torsion=torque_bound*tw/j;flange_torsion=torque_bound*tf/j
+    nominal_j=beam_rectangle_torsion_constant(b,tf)+beam_rectangle_torsion_constant(tw,hw)
+    nominal_j>0&&isfinite(nominal_j)||return unavailable("The finite rectangular-limb torsion model is unresolved.")
+    web_torsion=torque_bound*tw/nominal_j;flange_torsion=torque_bound*tf/nominal_j
     shear=max(web_shear+web_torsion,flange_shear+flange_torsion)
     equivalent=hypot(normal,sqrt(3.)*shear)
     all(isfinite,(normal,shear,equivalent))||return unavailable("T-section equivalent-stress envelope exceeds the finite numeric range.")
-    description="Conservative thin-walled T-section equivalent-stress envelope: maximum total axial+bending normal stress at both ends and all polygon vertices, combined with bounded VQ/I transverse shear and free-warping Saint-Venant torsion. Maxima may occur at different points. Includes centroid/shear-centre eccentricity; excludes junction concentrations, restrained warping and transverse normal stresses."
+    description="Finite-thickness nominal T-section engineering envelope: exact polygon axial+bending normal stress at both ends; finite-section VQ/(I b) shear components; compatible rectangular-limb Saint-Venant torsion with finite-rectangle rigidities. Maxima may occur at different points and their combination is conservative within this nominal beam model. Includes the nominal centroid/shear-centre transfer couple. Excludes T-junction concentrations, restrained warping and transverse normal stresses; it is not a pointwise 3D junction-stress prediction."
     return Dict{String,Any}("von_mises"=>equivalent,"von_mises_recovery"=>Dict{String,Any}(
-        "status"=>"complete","method"=>"thin_walled_t_section_envelope","description"=>description,
+        "status"=>"complete","method"=>"finite_thickness_t_nominal_envelope","description"=>description,
         "units"=>Dict("stress"=>"source stress units","moment"=>"source force-length units"),
         "normal_bound"=>normal,"transverse_shear_bound"=>max(web_shear,flange_shear),
         "torsional_shear_bound"=>max(web_torsion,flange_torsion),"combined_shear_bound"=>shear,
         "section_torque_bound"=>torque_bound,"flange_thickness_to_width"=>tf/b,
+        "nominal_torsion_constant"=>nominal_j,"nominal_section_model"=>"finite rectangular limbs; sharp junction and restrained warping excluded",
         "web_thickness_to_clear_height"=>tw/hw,"reason"=>""))
 end
 

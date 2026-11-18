@@ -1,12 +1,13 @@
-/* Portable Studies. Solver results remain in their analysis folders;
+/* Portable Studies can include synchronized FEM results;
  * every reference source file and its current placement travel with the model.
  */
 (function (root, factory) {
   const api = factory(typeof module === 'object' && module.exports ? require('./reference_import.js') : root.WingReferenceImport,
-    typeof module === 'object' && module.exports ? require('./study_watermark.js') : root.WingStudyWatermark);
+    typeof module === 'object' && module.exports ? require('./study_watermark.js') : root.WingStudyWatermark,
+    typeof module === 'object' && module.exports ? require('./study_results.js') : root.WingStudyResults);
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.WingWorkspace = api;
-})(typeof globalThis !== "undefined" ? globalThis : this, function (reference,watermark) {
+})(typeof globalThis !== "undefined" ? globalThis : this, function (reference,watermark,studyResults) {
   "use strict";
   const FORMAT = "wingfegen-workspace", VERSION = 1, MAX_BYTES = 256 * 1024 * 1024;
   const MAX_NOTE_LENGTH=20000,MAX_NOTE_ENTRIES=2000;
@@ -246,6 +247,10 @@
     data.notes=normalizeNotes(data.notes);
     data.identification=normalizeIdentification(data.identification);
     if(data.model_source!==undefined)data.model_source=reference.source(data.model_source);
+    if(data.fem_results!==undefined){
+      if(!studyResults)throw Error('Refresh JFEM-Boxer to load saved FEM results.');
+      data.fem_results=studyResults.normalize(data.fem_results);
+    }
     if(data.saved_at!==undefined)isoTime(data.saved_at);
     validateView(data.view);
     let total=0;
@@ -277,6 +282,7 @@
       references:assets.map(({metadata,bytes})=>({...metadata,data_base64:bytesToBase64(bytes)})),view:display};
     // Apply the same checks on export and import, including the total limit.
     if(options.modelSource)data.model_source=reference.source(options.modelSource);
+    if(options.femResults)data.fem_results=studyResults.normalize(options.femResults);
     parseObject(data); return data;
   }
   function captureView(document,state,workspace) {

@@ -650,8 +650,10 @@ end
 function build_model(cards, cc)
     println("[" * Dates.format(Dates.now(), "HH:MM:SS") * "] Constructing Model Data...")
 
+    mdlprms=ReferenceParser.extract_mdlprm(get(cards,"MDLPRM",Any[]))
+    twbrbml=ReferenceParser.mdlprm_twbrbml(mdlprms)
     # Parse PBARL and PBAR, then merge into unified PBARLs dict
-    pbarls = haskey(cards,"PBARL") ? ReferenceParser.extract_pbarl(cards["PBARL"]) : Dict()
+    pbarls = haskey(cards,"PBARL") ? ReferenceParser.extract_pbarl(cards["PBARL"];twbrbml) : Dict()
     pbars  = haskey(cards,"PBAR")  ? ReferenceParser.extract_pbar(cards["PBAR"])   : Dict()
     # Also handle PBAR* (long-field PBAR) - process_cards stores these under "PBAR*"
     if haskey(cards, "PBAR*")
@@ -667,7 +669,7 @@ function build_model(cards, cc)
         merge!(pbeams, ReferenceParser.extract_pbeam(cards["PBEAM*"]))
     end
     merge!(merged_bars, pbeams)
-    pbeamls = haskey(cards,"PBEAML") ? ReferenceParser.extract_pbeaml(cards["PBEAML"]) : Dict()
+    pbeamls = haskey(cards,"PBEAML") ? ReferenceParser.extract_pbeaml(cards["PBEAML"];twbrbml) : Dict()
     merge!(merged_bars, pbeamls)
 
     # Parse PLOAD2 and merge with PLOAD4
@@ -955,6 +957,7 @@ function build_model(cards, cc)
 
     # Store SOL type from case control
     model["SOL"] = get(cc, "SOL", 101)
+    model["MDLPRMs"] = mdlprms
 
     # Extract PARAM cards
     # Some PARAMs have string values (YES/NO/etc.) — detect and preserve them
@@ -1093,6 +1096,8 @@ function build_model_from_json(raw::AbstractDict)
     cc = Dict{String,Any}(raw["case_control"])
     params = get(raw, "parameters", Dict())
     bd = get(raw, "bulk_data", Dict())
+    mdlprms=ReferenceParser.normalize_mdlprm(get(bd,"MDLPRM",Dict()))
+    twbrbml=ReferenceParser.mdlprm_twbrbml(mdlprms)
 
     # Normalize SUBCASES keys from String to Int (JSON round-trip converts Int keys to String)
     if haskey(cc, "SUBCASES")
@@ -1348,7 +1353,7 @@ function build_model_from_json(raw::AbstractDict)
         card=Any[family,"",Int(p["PID"]),Int(p["MID"]),get(p,"GROUP",""),type_str]
         family=="PBEAML" && append!(card,fill("",4))
         append!(card,dims); push!(card,Float64(get(p,"NSM",0.0)))
-        parsed=family=="PBEAML" ? ReferenceParser.extract_pbeaml([card]) : ReferenceParser.extract_pbarl([card])
+        parsed=family=="PBEAML" ? ReferenceParser.extract_pbeaml([card];twbrbml) : ReferenceParser.extract_pbarl([card];twbrbml)
         merge!(merged_bars,parsed)
     end
     for (pid, p) in get(bd, "PBEAM", Dict())
@@ -1500,6 +1505,7 @@ function build_model_from_json(raw::AbstractDict)
     )
 
     model["SOL"] = get(cc, "SOL", 101)
+    model["MDLPRMs"] = mdlprms
     haskey(raw,"abaqus_import") && (model["abaqus_import"]=deepcopy(raw["abaqus_import"]))
 
     # Add parameters

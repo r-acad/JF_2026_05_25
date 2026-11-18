@@ -8,6 +8,16 @@
  const at=(v,k)=>v instanceof Map?v.get(k)??v.get(String(k)):v?.[k];
  const clone=v=>v instanceof Map?new Map([...v].map(([k,x])=>[k,clone(x)])):Array.isArray(v)?v.map(clone):v&&typeof v==='object'?Object.fromEntries(Object.entries(v).map(([k,x])=>[k,clone(x)])):v;
  const json=v=>JSON.stringify(v,(_,x)=>typeof x==='number'&&!finite(x)?String(x):x);
+ // Regenerated native dictionaries may reorder keys and round derived section
+ // values (notably a numerically integrated J) at slightly different ulps.
+ // Retain strict identities/types and ordered arrays; tolerate only relative
+ // 1e-10 float differences, far below the app's input precision.
+ function equivalentSection(a,b,identity=false){
+  if(Object.is(a,b))return true;
+  if(typeof a==='number'&&typeof b==='number')return !identity&&finite(a)&&finite(b)&&!(Number.isInteger(a)&&Number.isInteger(b))&&Math.abs(a-b)<=1e-10*Math.max(Math.abs(a),Math.abs(b),Number.MIN_VALUE);
+  if(!a||!b||typeof a!=='object'||typeof b!=='object'||Array.isArray(a)!==Array.isArray(b))return false;
+  const x=Object.keys(a),y=Object.keys(b);return x.length===y.length&&x.every(key=>Object.prototype.hasOwnProperty.call(b,key)&&equivalentSection(a[key],b[key],identity||/^(id|pid|mid|material_id|material_ids|material_roles)$/.test(key)));
+ }
  const fail=reason=>({reason}),near=(a,b,tol=1e-9)=>finite(a)&&finite(b)&&Math.abs(a-b)<=tol*Math.max(Math.abs(a),Math.abs(b),Number.MIN_VALUE);
  const sectionCertificates=new WeakMap(),certificates=new WeakMap(),cache=new WeakMap(),laminateCache=new WeakMap();
  const NOTE='Model and results are not in sync. Estimated reserve factors use the edited sections with the last solved element forces and moments held fixed. They ignore load redistribution, changes in mass loads, aeroelastic loads and nonlinear equilibrium. Rerun the FE analysis to confirm the design.';
@@ -137,12 +147,12 @@
   const I12=s.I12_m4??property.I12_m4??0;if(!finite(I12)||Math.abs(I12)>1e-12*Math.sqrt(I1*I2))return fail('The symmetric T-section sizing model requires zero product of inertia.');
   if(!finite(f?.axial))return fail('A finite solved beam axial force is required.');
   const axial=f.axial/A,stress={axial};
-  if(Math.max(tf/b,tw/hw)>.1*(1+1e-12))return{stress:{...stress,von_mises_recovery:{status:'unavailable',reason:'The thin-wall stress model requires flange thickness/width and web thickness/height no greater than 0.10.'}},strain:{},method:'Fixed beam axial force; equivalent stress unavailable for thick walls'};
   const keys=['axial','shear_1','shear_2','torque','moment_a1','moment_a2','moment_b1','moment_b2'];if(!keys.every(k=>finite(f?.[k])))return{stress:{...stress,von_mises_recovery:{status:'unavailable',reason:'Complete beam forces and both end moments are required for an equivalent-stress sizing estimate.'}},strain:{},method:'Fixed beam axial force; incomplete equivalent-stress recovery'};
   const polygon=[[h-yc,-b/2],[h-yc,b/2],[hw-yc,b/2],[hw-yc,tw/2],[-yc,tw/2],[-yc,-tw/2],[hw-yc,-tw/2],[hw-yc,-b/2]],normal=Math.max(...['a','b'].flatMap(end=>polygon.map(([y,z])=>Math.abs(axial-f['moment_'+end+'1']*y/I1-f['moment_'+end+'2']*z/I2))));
-  const cy=Math.max(0,Math.min(hw,yc)),webQ=Math.max(Math.abs(yc*hw-hw*hw/2),Math.abs(yc*cy-cy*cy/2)),webShear=Math.abs(f.shear_1)*webQ/I1+Math.abs(f.shear_2)*tw*tw/(8*I2),flangeShear=Math.abs(f.shear_1)*Math.abs(yf-yc)*b/(2*I1)+Math.abs(f.shear_2)*b*b/(8*I2),torque=Math.abs(f.torque)+Math.abs(f.shear_2)*Math.abs(yf-yc),shear=Math.max(webShear+torque*tw/J,flangeShear+torque*tf/J),equivalent=Math.hypot(normal,Math.sqrt(3)*shear);
+  const rectangleJ=(width,height)=>{const a=Math.max(width,height),t=Math.min(width,height);let sum=0;for(let k=1;k<=197;k+=2)sum+=Math.tanh(k*Math.PI*a/(2*t))/k**5;return a*t**3/3*(1-192*t/(Math.PI**5*a)*sum);};
+  const nominalJ=rectangleJ(b,tf)+rectangleJ(tw,hw),cy=Math.max(0,Math.min(hw,yc)),webQ=Math.max(Math.abs(yc*hw-hw*hw/2),Math.abs(yc*cy-cy*cy/2)),webHorizontalQ=(tf*(b*b-tw*tw)+h*tw*tw)/(8*h),fy=Math.max(hw,Math.min(h,yc)),flangeVerticalQ=Math.max(Math.abs((h-yc)**2-(hw-yc)**2),Math.abs((h-yc)**2-(fy-yc)**2))/2,webShear=Math.abs(f.shear_1)*webQ/I1+Math.abs(f.shear_2)*webHorizontalQ/I2,flangeShear=Math.abs(f.shear_1)*(Math.abs(yf-yc)*b/2+flangeVerticalQ)/I1+Math.abs(f.shear_2)*b*b/(8*I2),torque=Math.abs(f.torque)+Math.abs(f.shear_2)*Math.abs(yf-yc),shear=Math.max(webShear+torque*tw/nominalJ,flangeShear+torque*tf/nominalJ),equivalent=Math.hypot(normal,Math.sqrt(3)*shear);
   if(![axial,normal,shear,equivalent].every(finite))return fail('Projected beam stress exceeds the numeric range.');
-  return{stress:{...stress,von_mises:equivalent,von_mises_recovery:{status:'complete',method:'fixed_load_thin_walled_t_section_envelope',description:'Sizing estimate using the native conservative T-section envelope with fixed solved end forces/moments and updated dimensions; no load redistribution.',normal_bound:normal,combined_shear_bound:shear}},strain:{},method:'Fixed beam resultants, conservative thin-walled T-section envelope'};
+  return{stress:{...stress,von_mises:equivalent,von_mises_recovery:{status:'complete',method:'finite_thickness_t_nominal_envelope',description:'Fixed-resultant finite-thickness nominal T-section estimate: exact polygon normal stress, finite-section shear components and compatible rectangular-limb Saint-Venant torsion. Sharp-junction concentrations, restrained warping and transverse normal stresses are excluded. Reanalyse to verify load redistribution.',normal_bound:normal,combined_shear_bound:shear,nominal_torsion_constant:nominalJ}},strain:{},method:'Fixed beam resultants, finite-thickness nominal T-section envelope'};
  }
  function rectangularRecovery(property,record){
   const s=property.section??property,d=s.dimensions_m,f=record?.forces;
@@ -176,15 +186,16 @@
   const why=topologyReason(base,current);if(why)return reject(why);
   const sourceElements=new Map(entries(base.elements).map(([id,e])=>[Number(id),e])),properties=new Map(),changed=new Set(),compared=new WeakMap();
   for(const[id,element]of entries(current.elements)){const pid=Number(element.group?.pid),oldProperty=sourceElements.get(Number(id))?.group?.properties,property=element.group?.properties;if(!oldProperty||!property)continue;
-   let pairs=compared.get(oldProperty);if(!pairs){pairs=new WeakMap();compared.set(oldProperty,pairs);}let differs=pairs.get(property);if(differs===undefined){differs=json(oldProperty)!==json(property);pairs.set(property,differs);}if(differs){changed.add(pid);properties.set(Number(id),{oldProperty,property,pid});}}
-  const diagnostics=[],seenReasons=new Set(),seenCases=new Map();
+   let pairs=compared.get(oldProperty);if(!pairs){pairs=new WeakMap();compared.set(oldProperty,pairs);}let differs=pairs.get(property);if(differs===undefined){differs=!equivalentSection(oldProperty,property);pairs.set(property,differs);}if(differs){changed.add(pid);properties.set(Number(id),{oldProperty,property,pid});}}
+  const diagnostics=[],seenReasons=new Set(),seenCases=new Map();let recoveredElementRecords=0;
   function recordCase(item){if(!item||typeof item!=='object')return item;if(seenCases.has(item))return seenCases.get(item);
    const out={...item,signature:current.signature,meshIdentity:current.meshIdentity};seenCases.set(item,out);
    // Never upgrade failed, mismatched or partial baseline eligibility. Only
    // the provenance coordinates change for cases verified at the baseline.
    out.matches=item.matches===true&&item.signature===base.signature&&item.meshIdentity===base.meshIdentity;out.estimated=true;
    const source=item.elementResults??item.element_results;
-   if(source){const records=new Map(entries(source));for(const[eid,{oldProperty,property,pid}]of properties){const raw=at(source,eid);if(!raw)continue;
+   if(source){const records=properties.size?new Map(entries(source)):source;for(const[eid,{oldProperty,property,pid}]of properties){const raw=at(source,eid);if(!raw)continue;
+     recoveredElementRecords++;
      const projected=recovery(oldProperty,property,raw),reason=projected.reason,stress=reason?{von_mises_recovery:{status:'unavailable',reason:'Sizing estimate unavailable: '+reason}}:projected.stress,strain=reason?{}:projected.strain;
      const key=records.has(eid)?eid:records.has(String(eid))?String(eid):eid;records.set(key,{...raw,stress,strain,estimated:true,sizing_method:projected.method||'',sizing_reason:reason||'',stress_units:'Pa'});
      const note=reason||stress?.von_mises_recovery?.status==='unavailable'&&stress.von_mises_recovery.reason;if(note&&!seenReasons.has(pid+':'+note)){seenReasons.add(pid+':'+note);diagnostics.push({pid,reason:note});}
@@ -193,7 +204,7 @@
   }
   const context={...base,...current,modelDirty:false,pendingDrafts:false,running:false,estimated:true,allowables:clone(current.allowables),assessmentPolicy:clone(current.assessmentPolicy),assessmentPolicyWarnings:clone(current.assessmentPolicyWarnings),componentFixities:clone(current.componentFixities),cases:new Map(entries(base.cases).map(([key,item])=>[key,recordCase(item)])),estimateMessage:NOTE,estimateSource:{studyEpoch:base.studyEpoch,signature:base.signature,meshIdentity:base.meshIdentity},estimateCertificate:{}};
   certificates.set(context.estimateCertificate,Object.fromEntries(certifiedKeys.map(key=>[key,context[key]])));
-  const value={context,estimated:true,changedPropertyIds:[...changed].sort((a,b)=>a-b),diagnostics,message:NOTE+(diagnostics.length?' Some edited-property stress checks remain unassessed; see assessment details.':'')};cache.set(base,{refs,value});return value;
+  const value={context,estimated:true,changedPropertyIds:[...changed].sort((a,b)=>a-b),recoveredElementRecords,diagnostics,message:NOTE+(diagnostics.length?' Some edited-property stress checks remain unassessed; see assessment details.':'')};cache.set(base,{refs,value});return value;
  }
  return{project,certifySections,compatibility,definitionCompatible,isEstimateContext,NOTE,recovery,shellRecovery,beamRecovery,laminate,materialQ};
 });

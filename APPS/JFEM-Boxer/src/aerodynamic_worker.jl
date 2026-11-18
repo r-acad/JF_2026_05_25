@@ -1,6 +1,7 @@
 # Dedicated VLM process. Service mode retains compiled Julia methods between
 # requests; the original one-file command remains available for batch use.
 const AERODYNAMIC_PACKAGE_LOAD_STARTED=time()
+include(joinpath(@__DIR__,"..","..","..","utils","julia_tools","compilation_defaults.jl"))
 using WingFEGen, JSON, LinearAlgebra
 include(joinpath(@__DIR__,"sensitivity_io.jl"))
 BLAS.set_num_threads(min(4,Sys.CPU_THREADS))

@@ -16,6 +16,8 @@ function sensitivity_field_descriptor(id)
     elseif any(endswith(id,f) for f in ("flange_width","flange_thickness","web_thickness","height"))
         f=last(filter(f->endswith(id,f),("flange_width","flange_thickness","web_thickness","height")))
         "section."*f,"T "*replace(f,'_'=>' ')
+    elseif id in ("properties.runout_side","properties.components#stringer_runout:1#side")
+        "section.square_side","Square stringer runout side"
     elseif id=="properties.spar_cap_side" || occursin(r"^properties\.components#(?:front|rear)_(?:upper|lower)_cap:\d+#side$",id)
         "section.square_side","Square spar cap side"
     else

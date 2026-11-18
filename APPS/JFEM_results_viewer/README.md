@@ -1,4 +1,4 @@
-> **Before first launch:** run `setup.cmd` (Windows), `bash setup.sh` (Linux), or `bash setup.command` (macOS) at the repository root. This installs shared packages and creates the shared image under the root `sysimage/` directory. Wait until setup completes.
+> **Before first launch:** run `setup.cmd` (Windows), `bash setup.sh` (Linux), or `bash setup.command` (macOS) at the repository root. This installs shared packages and automatically reuses/builds an image when resources permit. Low memory or an image-build failure selects ordinary Julia loading with the same app features.
 
 # JFEM results viewer
 

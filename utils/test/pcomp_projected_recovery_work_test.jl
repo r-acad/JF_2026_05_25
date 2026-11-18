@@ -116,9 +116,12 @@ ENDDATA
         model_at(70000.)
         text=replace(read(path,String),"MAT1,1,70000.0,,.3"=>"MAT8,1,70000.,23000.,.3,12000.,9000.,7000.")
         write(path,text);aniso=OpenJFEM.bdf_to_model(path)
-        @test_throws ArgumentError S.analytic_shell_constitutive(aniso,10)
-        @test_throws ArgumentError S.analytic_shell_stress_tangent(
-            merge(capture.contexts[1],(model=aniso,)),NamedTuple(),u,ids,X,R,normals)
+        state=S.analytic_shell_constitutive(aniso,10)
+        @test isapprox(state.Cm,aniso["PSHELLs"]["10"]["Cm"];rtol=2e-12)
+        @test isapprox(state.Cb,aniso["PSHELLs"]["10"]["Cb"];rtol=2e-12)
+        # A context from a different material model must still be recaptured.
+        @test_throws ArgumentError S.analytic_shell_tangent(
+            merge(capture.contexts[1],(model=aniso,)),NamedTuple())
         ar,af=recover(aniso)
         for row in ar["forces"]["quad4"]
             eid=row["eid"];sr=only(filter(r->r["eid"]==eid,ar["stresses"]["quad4"]))

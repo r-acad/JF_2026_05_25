@@ -34,6 +34,7 @@ const read=file=>JSON.parse(fs.readFileSync(file,'utf8'));
    },{model:[...fs.readFileSync(path.join(base,'model.msgpack'))],raw,source});assert(loaded.accepted,JSON.stringify(loaded));
    const select=page.locator('#material-library-select');if(await select.isVisible())await select.selectOption('8');else await page.locator('#allowable-material').selectOption('8');
    await page.locator('#allowable-mode').selectOption('stress');await page.locator('#allowable-stress').fill('400000');await page.evaluate(()=>activateWorkspaceTab('stressreport'));
+   await page.locator('#stress-report-failure-mode').selectOption('von_mises');
    if(!popup){const pending=page.waitForEvent('popup');await page.locator('#btn-reserve-factor-table').click();popup=await pending;await popup.waitForLoadState();popup.setDefaultTimeout(30000);}
    await popup.waitForFunction(()=>document.querySelectorAll('.rf-value[data-value]:not([data-value=""])').length===2);
    assert.equal(await popup.locator('#structural-group').inputValue(),'all');assert.equal(await popup.locator('#table-view').inputValue(),'flat');assert(await popup.locator('#table-view option[value="grid"]').evaluate(o=>o.disabled));

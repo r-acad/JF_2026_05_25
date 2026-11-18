@@ -4,6 +4,7 @@
 # warming only the latter leaves most Boxer sensitivity code to compile on use.
 # No child solver is started and all generated outputs are temporary.
 using OpenJFEM
+include(joinpath(@__DIR__,"rf_precompile_workload.jl"))
 let app=normpath(joinpath(@__DIR__,"..","..","APPS","JFEM-Boxer"))
     isfile(joinpath(app,"Project.toml"))||error("Shared image requires the bundled JFEM-Boxer package")
     Core.eval(Main,:(using WingFEGen))
@@ -56,6 +57,8 @@ let app=normpath(joinpath(@__DIR__,"..","..","APPS","JFEM-Boxer"))
                 "finite_derivatives"=>finite,"solver_counts"=>result["solver_counts"],
                 "has_shells"=>any(g->g.kind in (:quad,:tria),model.groups),
                 "has_bars"=>any(g->g.kind===:bar,model.groups)))
+            push!(records,Base.invokelatest(run_rf_precompile_workload,W,model,
+                joinpath(output,"rf_shared_image"),solve))
         end
         records
     end

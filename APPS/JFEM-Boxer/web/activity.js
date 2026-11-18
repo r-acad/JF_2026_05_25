@@ -2,6 +2,7 @@
 (function (root) {
   "use strict";
   const jobs = new Map(); let next = 0, timer = null, notice = null, noticeTimer = null;
+  const inlineJobs = new Set(), inlineOwners = new WeakMap(); let inlineTimer = null;
   const now = () => performance.now();
   const byId = id => document.getElementById(id);
   function elapsed(milliseconds) {
@@ -96,8 +97,41 @@
     try { await yieldFrame(); return await action(token); }
     finally { end(token); }
   }
-  root.WingActivity = {begin, update, end, announce, dismiss, phase, yieldFrame, run, elapsed,
-    get count() { return jobs.size; }};
+  // Keep clocks outside the live phase text so ordinary textContent updates
+  // cannot erase them and screen readers do not announce each timer tick.
+  function inline(status) {
+    if (!status?.ownerDocument || !status.parentNode) return null;
+    if (inlineOwners.has(status)) return inlineOwners.get(status);
+    const doc=status.ownerDocument,wrap=doc.createElement('div'),spinner=doc.createElement('span'),clock=doc.createElement('span');
+    wrap.className='activity-inline';wrap.dataset.running='false';wrap.setAttribute('aria-busy','false');
+    spinner.className='activity-spinner';spinner.setAttribute('aria-hidden','true');
+    clock.className='activity-inline-elapsed';clock.setAttribute('aria-live','off');clock.title='Elapsed time for the current operation';
+    status.classList.add('activity-inline-message');status.before(wrap);wrap.append(spinner,status,clock);
+    let started=0,running=false,destroyed=false,lastSeconds=-1;
+    function drawInline(){
+      if (!status.isConnected || doc.defaultView?.closed) { stop(); return; }
+      const seconds=Math.max(0,Math.floor((now()-started)/1000));if(seconds===lastSeconds)return;lastSeconds=seconds;
+      clock.textContent='Elapsed '+elapsed(now()-started);clock.dataset.seconds=String(seconds);
+    }
+    function start({restart=false}={}) {
+      if(destroyed)return;
+      if(!running||restart){started=now();lastSeconds=-1;}
+      running=true;wrap.dataset.running='true';wrap.setAttribute('aria-busy','true');status.setAttribute('aria-busy','true');
+      inlineJobs.add(drawInline);drawInline();
+      if(inlineJobs.size&&!inlineTimer)inlineTimer=setInterval(()=>{for(const draw of [...inlineJobs])draw();},250);
+    }
+    function stop(){
+      running=false;inlineJobs.delete(drawInline);wrap.dataset.running='false';wrap.setAttribute('aria-busy','false');status.setAttribute('aria-busy','false');
+      if(!inlineJobs.size&&inlineTimer){clearInterval(inlineTimer);inlineTimer=null;}
+    }
+    const api={start,stop,setBusy(value,options){if(value)start(options);else stop();},get running(){return running;},destroy(){
+      if(destroyed)return;stop();destroyed=true;inlineOwners.delete(status);status.classList.remove('activity-inline-message');
+      if(wrap.parentNode)wrap.replaceWith(status);
+    }};
+    inlineOwners.set(status,api);return api;
+  }
+  root.WingActivity = {begin, update, end, announce, dismiss, phase, yieldFrame, run, elapsed, inline,
+    get count() { return jobs.size; },get inlineCount(){return inlineJobs.size;}};
   root.WingActivity.startup = begin("Starting JFEM-Boxer", {detail:"Loading the 3D viewer and parameter definitions…"});
   root.addEventListener("error", event => {
     if (!root.WingActivity.startup) return;

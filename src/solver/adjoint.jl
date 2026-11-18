@@ -898,7 +898,7 @@ function _get_beam_element_data(eid::Int, model, id_map, node_coords, node_R, re
     i1, i2 = id_map[ga], id_map[gb]
     p1 = SVector{3,Float64}(node_coords[i1, 1], node_coords[i1, 2], node_coords[i1, 3])
     p2 = SVector{3,Float64}(node_coords[i2, 1], node_coords[i2, 2], node_coords[i2, 3])
-    wa, wb, has_offset, p1_eff, p2_eff = bar_offsets_and_endpoints(beam, p1, p2)
+    wa, wb, has_offset, p1_eff, p2_eff = bar_offsets_and_endpoints(beam, p1, p2; model=model, id_map=id_map, node_coords=node_coords)
     axis = p2_eff - p1_eff
     L = norm(axis)
     L > 1e-9 || return nothing

@@ -81,7 +81,10 @@
    for(const key of["scale","showCG","markerRadius"])if(key in settings)options[key]=settings[key];
    if(!Number.isFinite(options.markerRadius)||options.markerRadius<=0)throw Error("Mass marker radius must be positive and finite.");
    for(const mesh of meshes)mesh.setEnabled(false);errors.length=0;const bays=[];
-   for(const bay of currentFuel?.bays||[]){let glyph;try{glyph=ellipsoidData(bay,{...options,kind});}catch(error){errors.push({bay:bay.index??bay.start_rib,message:error.message});continue;}bays.push(glyph);const e=entry(glyph.bay),active=enabled&&glyph.mass>0;
+   for(const bay of currentFuel?.bays||[]){let glyph;try{glyph=ellipsoidData(bay,{...options,kind});}catch(error){errors.push({bay:bay.index??bay.start_rib,message:error.message});continue;}bays.push(glyph);
+    // Numerical bay details remain available with the overlay hidden. Build
+    // its spheres and line buffers only when a nonzero mass is displayed.
+    const active=enabled&&glyph.mass>0;if(!active)continue;const e=entry(glyph.bay);
     const origin=point(glyph.reference),axes=glyph.axes.map(axis=>point(axis));e.ellipse.position.copyFrom(origin);e.ellipse.scaling.copyFromFloats(...glyph.scaledRadii);e.ellipse.rotationQuaternion=B.Quaternion.RotationQuaternionFromAxis(...axes);e.ellipse.setEnabled(active);e.axes.position.copyFrom(origin);e.axes.scaling.copyFrom(e.ellipse.scaling);e.axes.rotationQuaternion=e.ellipse.rotationQuaternion.clone();e.axes.setEnabled(active);
     e.rings.position.copyFrom(origin);e.rings.scaling.copyFrom(e.ellipse.scaling);e.rings.rotationQuaternion=e.ellipse.rotationQuaternion.clone();e.rings.setEnabled(active);
     e.ref.position.copyFrom(origin);e.ref.scaling.setAll(options.markerRadius);e.ref.setEnabled(active);

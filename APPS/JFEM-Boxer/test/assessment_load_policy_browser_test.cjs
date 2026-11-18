@@ -25,7 +25,7 @@ const strengthKey='assessment.strength_safety_factor',bucklingKey='assessment.bu
    const url=new URL(route.request().url()),body=route.request().method()==='POST'?route.request().postDataJSON():null;
    if(url.pathname.startsWith('/api/'))requests.push({path:url.pathname});
    if(url.pathname==='/api/input')return route.fulfill({json:schema});
-   if(url.pathname==='/api/validate_workspace'){
+   if(['/api/validate_workspace','/api/restore_workspace'].includes(url.pathname)){
     const p=body.parameters||body.params||body;
     if(!Object.hasOwn(p,strengthKey)&&!Object.hasOwn(p,bucklingKey))return route.fulfill({json:{ok:true,parameters:{...p,...legacy}}});
     if(![strengthKey,bucklingKey].every(key=>typeof p[key]==='number'&&Number.isFinite(p[key])&&p[key]>0))return route.fulfill({status:400,json:{error:'Assessment load policy factors must be finite and greater than zero.'}});

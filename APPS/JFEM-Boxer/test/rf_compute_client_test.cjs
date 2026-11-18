@@ -22,6 +22,10 @@ let passed=0;async function check(name,fn){await fn();passed++;console.log('PASS
  await check('A mismatched reply ID cannot settle the current request',async()=>{
   const s=setup(),pending=s.client.evaluate(input());s.workers[0].onmessage({data:{id:999,report:{marker:'wrong'}}});s.reply(s.workers[0]);assert.equal((await settle(pending)).marker,'current');s.client.destroy();
  });
+ await check('Progress updates preserve the active request and ignore cancelled generations',async()=>{
+  const s=setup(),seen=[],first=s.client.evaluate(input(),null,null,{onProgress:detail=>seen.push(detail.phase)}).catch(error=>error.name),next=s.client.evaluate(input(),null,null,{onProgress:detail=>seen.push(detail.phase)});
+  s.workers[0].onmessage({data:{id:s.workers[0].request.id,progress:{phase:'obsolete'}}});s.workers[1].onmessage({data:{id:s.workers[1].request.id,progress:{phase:'assessment'}}});assert.deepEqual(seen,['assessment']);s.reply(s.workers[1]);assert.equal((await settle(next)).marker,'current');assert.equal(await first,'AbortError');s.client.destroy();
+ });
  await check('Current-worker errors reject their own request and permit recovery',async()=>{
   const s=setup(),first=s.client.evaluate(input());s.workers[0].onerror({message:'current error'});await assert.rejects(settle(first),/current error/);const second=s.client.evaluate(input());s.reply(s.workers[1]);assert.equal((await settle(second)).marker,'current');s.client.destroy();
  });

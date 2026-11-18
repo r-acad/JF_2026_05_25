@@ -4,7 +4,7 @@
 """Physical beam stringer segments and their actual PBARL free-web dimensions.
 
 The unsupported blade height is DIM2-DIM3, measured from the attached
-flange/web junction to the free tip; a zero-flange PBARL BAR uses its full height from the attached skin edge. Fixed-area runout connectors, rib bars
+flange/web junction to the free tip; a zero-flange PBARL BAR uses its full height from the attached skin edge. Runout connectors, rib bars
 and spar caps are excluded. Normal T-stringer segments ending at a runout
 remain eligible for the long-outstand-plate check; it does not require the
 two rib restraints used by the separate global Euler-column check.

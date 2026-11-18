@@ -168,8 +168,29 @@ end
 end
 
 
+"""Whether two MAT1 IDs define the same mechanical shell law.
+
+Material IDs and density are bookkeeping/mass data, not elastic recovery terms.
+Keep temperature-dependent aliases separate until their active laws are known.
+"""
+function _pshell_equivalent_mat1_law(model, left::Int, right::Int)
+    left == right && return true
+    get(model,"_active_temp_sid",nothing) === nothing || return false
+    mats=get(model,"MATs",Dict())
+    a=get(mats,string(left),nothing);b=get(mats,string(right),nothing)
+    a isa AbstractDict && b isa AbstractDict || return false
+    get(a,"TYPE","MAT1")=="MAT1" && get(b,"TYPE","MAT1")=="MAT1" || return false
+    # A separately supplied G determines transverse shear; do not replace it
+    # by the E/nu relation or overlook a different MID3 law.
+    for key in ("E","NU","G")
+        av=get(a,key,nothing);bv=get(b,key,nothing)
+        av isa Real && bv isa Real && isfinite(av) && isfinite(bv) && av==bv || return false
+    end
+    true
+end
+
 """True when the legacy isotropic shell recovery/local derivative omits constitutive terms."""
-function _pshell_local_constitutive_gap(prop, model)
+function _pshell_local_constitutive_gap(prop, model; equivalent_materials::Bool=false)
     get(prop, "TYPE", "") == "PCOMP_CLT" && return false
     mid1 = Int(get(prop, "MID", 0))
     bending_active = get(prop, "BEND_RATIO", 1.0) > 1e-12
@@ -179,7 +200,9 @@ function _pshell_local_constitutive_gap(prop, model)
     for mid in (mid1, bending_active ? Int(get(prop, "MID2", 0)) : 0,
                       bending_active ? Int(get(prop, "MID3", 0)) : 0)
         mid > 0 || continue
-        mid != mid1 && return true
+        if mid != mid1
+            equivalent_materials && _pshell_equivalent_mat1_law(model,mid1,mid) || return true
+        end
         mat = get(mats, string(mid), nothing)
         mat !== nothing && get(mat, "TYPE", "") in ("MAT2", "MAT8") && return true
     end
@@ -227,7 +250,7 @@ function _pshell_macneal_mean_shear_data(model, prop, mat, coords, coords3d, sno
     get(prop, "TYPE", "") == "PCOMP_CLT" && return nothing
     # Parsed MAT1 dictionaries predate the optional material TYPE metadata.
     get(mat, "TYPE", "MAT1") == "MAT1" || return nothing
-    _pshell_local_constitutive_gap(prop, model) && return nothing
+    _pshell_local_constitutive_gap(prop, model; equivalent_materials=true) && return nothing
     sol = get(model, "SOL", 101)
     # SOL106 retains this same linear transverse-shear energy, including
     # explicit formal membrane methods. Recover its work-conjugate mean Q.
@@ -319,6 +342,57 @@ function _pshell_rectangular_anisotropic_recovery_data(model,prop,el,id_map,X,sn
     Cs,_=shell_transverse_shear_matrix(shear,h,tst,beta)
     all(isfinite,C)&&all(isfinite,Cs)&&isposdef(Symmetric(C))&&isposdef(Symmetric(Cs)) || return nothing
     (C=C,Cm=h*C,Cb=(br*h^3/12)*C,Cs=Cs,h=h)
+end
+
+"""Actual homogeneous PSHELL section for ordinary projected MacNeal output.
+
+MID1 and MID2 may use distinct IDs with the same in-plane tensor. MID3 is
+an independent physical transverse-shear law. MID4/thermal/research branches
+still require their separate recovery contract; this does not relax AD guards.
+"""
+function _pshell_homogeneous_recovery_data(model,prop,el,id_map,X,snorm_normals)
+    get(prop,"TYPE","")=="PCOMP_CLT" && return nothing
+    get(model,"SOL",101) in (101,105) || return nothing
+    nids=get(el,"NODES",Int[]);length(nids)==4 || return nothing
+    all(k->get(id_map,k,0)>0,nids) || return nothing
+    mid=Int(get(prop,"MID",0));mid2=Int(get(prop,"MID2",0));mid3=Int(get(prop,"MID3",0))
+    min(mid,mid2,mid3)>0 && Int(get(prop,"MID4",0))==0 || return nothing
+    get(model,"_active_temp_sid",nothing)===nothing || return nothing
+    br=Float64(get(prop,"BEND_RATIO",1.));br==1. || return nothing
+    h=Float64(get(prop,"T",0.));tst=Float64(get(prop,"TS_T",5/6))
+    h>0 && tst>0 && all(isfinite,(h,tst)) || return nothing
+    for key in keys(ENV)
+        any(p->startswith(key,p),("JFEM_Q4_","JFEM_PSHELL_","JFEM_MAT8_",
+            "JFEM_SOL101_","JFEM_SOL105_STATIC_","JFEM_PARAM_SNORM")) && return nothing
+    end
+    mats=get(model,"MATs",Dict());a=get(mats,string(mid),nothing)
+    b=get(mats,string(mid2),nothing);shear=get(mats,string(mid3),nothing)
+    all(m->m isa AbstractDict && get(m,"TYPE","MAT1") in ("MAT1","MAT2","MAT8"),(a,b,shear)) || return nothing
+    # A physical fiber stress exists because both in-plane material laws are
+    # identical, not merely because their numerical IDs happen to agree.
+    C0=pshell_plane_stress_matrix(a,0.);D0=pshell_plane_stress_matrix(b,0.)
+    C0==D0 || return nothing
+    p=[SVector{3}(X[id_map[k],:]) for k in nids]
+    indices=[id_map[k] for k in nids]
+    v1,v2,v3=shell_element_frame_quad4(p...,q4_frame_mode_from_env("JFEM_Q4_FRAME_MODE_STATIC"))
+    v1,v2,v3=apply_snorm_to_frame(v1,v2,v3,indices,snorm_normals)
+    pq=snorm_element_pq(v1,v2,v3,indices,snorm_normals)
+    pq!==nothing && !snorm_quad4_field_is_active(pq,p,v1,v3) && (pq=nothing)
+    snorm_director_enabled() && return nothing
+    pq===nothing || FEM.quad4_snorm_normal_moment_mode() || return nothing
+    center=sum(p)/4;xy=[dot(q-center,v) for q in p,v in (v1,v2)]
+    xyz=reduce(vcat,permutedims.(p))
+    theta=deg2rad(Float64(get(el,"THETA",0.)))
+    mcid=shell_material_coordinate_id(el)
+    beta=shell_material_coordinate_active(mcid,model["CORDs"]) ?
+        shell_pcomp_material_rotation(:element,v1,v2,v3,p...,theta,mcid,model["CORDs"]) :
+        shell_material_rotation_from_g12(v1,v2,v3,p[1],p[2],theta)
+    C=pshell_plane_stress_matrix(a,beta);Cs,_=shell_transverse_shear_matrix(shear,h,tst,beta)
+    all(isfinite,C)&&all(isfinite,Cs)&&isposdef(Symmetric(C))&&isposdef(Symmetric(Cs)) || return nothing
+    diagonal=max(norm(p[3]-p[1]),norm(p[4]-p[2]))
+    warp=maximum(abs,FEM.quad4_local_z_from_coords3d(xyz))/max(diagonal,1e-12)
+    compatible=q4_pshell_mat2_membrane_projection(get(a,"TYPE","")=="MAT2",warp;snorm_pq=pq)
+    (C=C,Cm=h*C,Cb=(h^3/12)*C,Cs=Cs,h=h,compatible=compatible,beta=beta)
 end
 
 # Default projected MacNeal PCOMP branch, shared by physical recovery and
@@ -460,10 +534,17 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
             prop=copy(prop);prop["T"]=corner_data.thickness[1]
         end
         reported_thickness=Float64(prop["T"])
-        constitutive_gap = _pshell_local_constitutive_gap(prop, model)
-        anisotropic_center = constitutive_gap || (variable_thickness && !variable_triangle) ?
-            _pshell_rectangular_anisotropic_recovery_data(model,prop,el,id_map,X,snorm_normals;
-                corner_thickness=variable_thickness) : nothing
+        # Equal MAT1 aliases are physically equivalent for output recovery.
+        # Derivative callers keep the strict ID-based default: perturbing one
+        # independent material ID need not preserve that equivalence.
+        constitutive_gap = _pshell_local_constitutive_gap(prop, model; equivalent_materials=true)
+        anisotropic_center = if variable_thickness && !variable_triangle
+            _pshell_rectangular_anisotropic_recovery_data(model,prop,el,id_map,X,snorm_normals;corner_thickness=true)
+        elseif constitutive_gap
+            _pshell_homogeneous_recovery_data(model,prop,el,id_map,X,snorm_normals)
+        else
+            nothing
+        end
         variable_thickness && !variable_triangle && anisotropic_center===nothing && throw(ArgumentError(
             "Shell $eid nonuniform corner-thickness recovery requires ordinary projected PSHELL kinematics and compatible positive material laws"))
         if constitutive_gap && anisotropic_center === nothing
@@ -733,12 +814,36 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
                     get!(results_json,"solver_diagnostics",Dict{String,Any}())["shell_recovery"]=diagnostic
                 end
             elseif anisotropic_center !== nothing
-                N,M,Q,s_z1,s_z2,e_z1,e_z2 = _pshell_rectangular_anisotropic_center(view(lc_buf,1:4,:),u_el,anisotropic_center;recover_resultants=static_fields === nothing)
+                data=anisotropic_center
+                fields=FEM.quad4_condensed_section_fields(view(lc_buf,1:4,:),u_el,
+                    data.Cm,nothing,data.Cb,data.Cs,data.h,mat["E"];
+                    membrane_incomp=!data.compatible,membrane_shear_center_row=data.compatible,
+                    material_shear_rotation=data.compatible ? 0. : data.beta,
+                    coords_3d=coords3d_sr,snorm_pq=snorm_pq,k6rot=0.,kernel_mode="macneal")
+                eps=fields.eps_average;kap=fields.kappa_average
+                e_z1=eps-(data.h/2)*kap;e_z2=eps+(data.h/2)*kap
+                N=fields.N_average;M=-fields.M_average
+                s_z1=data.C*e_z1;s_z2=data.C*e_z2
+                Q=zeros(2)
                 if static_fields === nothing
-                    diagnostic=get!(results_json,"recovery_diagnostics",Dict{String,Any}("status"=>"partial"))
-                    push!(get!(diagnostic,"unavailable_corner_force_eids",Int[]),eid)
-                    diagnostic["corner_force_reason"]="Anisotropic PSHELL center resultants and fiber fields are recovered; corner-force interpolation remains unsupported."
-                    get!(results_json,"solver_diagnostics",Dict{String,Any}())["shell_recovery"]=diagnostic
+                    projected_u=FEM.quad4_physical_displacement_map(view(lc_buf,1:4,:),coords3d_sr,snorm_pq)*u_el
+                    coupled_shear_workspace===nothing && (coupled_shear_workspace=FEM.create_macneal_shear_workspace())
+                    Q=FEM.quad4_macneal_mean_shear_resultant(view(lc_buf,1:4,:),projected_u,
+                        data.Cb,data.Cs,data.h;Cm=data.Cm,msws=coupled_shear_workspace)
+                    diagnostic=get!(results_json,"recovery_diagnostics",Dict{String,Any}())
+                    push!(get!(diagnostic,"area_mean_transverse_shear_eids",Int[]),eid)
+                    diagnostic["transverse_shear_location"]="Area-mean physical MacNeal PSHELL shear; material tensors and warp/normal maps match elastic assembly."
+                    nc=zeros(4,3);mc=zeros(4,3)
+                    for (k,(r,s)) in enumerate(((-1.,-1.),(1.,-1.),(1.,1.),(-1.,1.)))
+                        nc[k,:].=FEM.interp_2x2_gauss_sigma(fields.N,r,s)
+                        mc[k,:].=-FEM.interp_2x2_gauss_sigma(fields.M,r,s)
+                    end
+                    shell_membrane_is_isotropic(data.Cm) && (mc[:,3].=M[3])
+                    for k=0:4
+                        nk=k==0 ? N : view(nc,k,:);mk=k==0 ? M : view(mc,k,:)
+                        push!(quad4_bilin_rows,Dict("eid"=>eid,"grid_id"=>(k==0 ? "CEN/4" : nids[k]),
+                            "fx"=>nk[1],"fy"=>nk[2],"fxy"=>nk[3],"mx"=>mk[1],"my"=>mk[2],"mxy"=>mk[3],"qx"=>Q[1],"qy"=>Q[2]))
+                    end
                 end
             else
             try
@@ -829,6 +934,20 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
                 end
                 if static_fields === nothing
                     N_corners, M_corners = recovered[8], recovered[9]
+                    if pshell_mean_shear_data!==nothing && get(model,"SOL",101) in (101,105) &&
+                       solver_env_bool("JFEM_Q4_STATIC_BENDING_INCOMP",true)
+                        # Bb*u alone omits the stationary internal bending
+                        # amplitudes. Recover the same condensed MacNeal
+                        # field used by K before extrapolating corner moments.
+                        data=pshell_mean_shear_data
+                        fields=FEM.quad4_condensed_section_fields(view(lc_buf,1:4,:),u_el,
+                            data.A,nothing,data.D,data.Cs,data.h,mat["E"];
+                            coords_3d=coords3d_sr,snorm_pq=snorm_pq,k6rot=0.,kernel_mode="macneal",
+                            macneal_rigid_shear=data.rigid)
+                        for (k,(r,s)) in enumerate(((-1.,-1.),(1.,-1.),(1.,1.),(-1.,1.)))
+                            M_corners[k,:].=-FEM.interp_2x2_gauss_sigma(fields.M,r,s)
+                        end
+                    end
                     Q_out = if pshell_mean_shear_data === nothing && clt_Cm === nothing && curvature_membrane === nothing && abs(br) > 1e-12
                         _quad4_blend_recovered_shear(Q, _quad4_equilibrium_shear_from_bending(view(lc_buf,1:4,:), M_corners))
                     else
@@ -836,7 +955,10 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
                     end
                     # Reference's bilinear shell-force output keeps twisting moment
                     # constant across the QUAD4 corner rows.
-                    M_corners[:, 3] .= M[3]
+                    # Isotropic twisting is constant. With anisotropic D16
+                    # or D26, varying normal curvature also contributes to
+                    # twisting moment and must remain visible at corners.
+                    (!is_pcomp_clt || get(prop,"IS_ISOTROPIC",false)) && (M_corners[:, 3] .= M[3])
                     Q .= Q_out
                     push!(quad4_bilin_rows, Dict(
                         "eid" => eid,
@@ -1357,7 +1479,7 @@ function recover_bar_stresses!(
         p1 = SVector{3}(X[i1,1], X[i1,2], X[i1,3])
         p2 = SVector{3}(X[i2,1], X[i2,2], X[i2,3])
 
-        wa, wb, has_offset, p1_eff, p2_eff = bar_offsets_and_endpoints(bar, p1, p2)
+        wa, wb, has_offset, p1_eff, p2_eff = bar_offsets_and_endpoints(bar, p1, p2; model=model, id_map=id_map, node_coords=X)
         L = norm(p2_eff - p1_eff)
         if L < 1e-9; continue; end
         vx = normalize(p2_eff - p1_eff)
@@ -1480,7 +1602,7 @@ function recover_bar_stresses!(
         p1 = SVector{3}(X[i1,1], X[i1,2], X[i1,3])
         p2 = SVector{3}(X[i2,1], X[i2,2], X[i2,3])
 
-        wa, wb, has_offset, p1_eff, p2_eff = bar_offsets_and_endpoints(bar, p1, p2)
+        wa, wb, has_offset, p1_eff, p2_eff = bar_offsets_and_endpoints(bar, p1, p2; model=model, id_map=id_map, node_coords=X)
         L = norm(p2_eff - p1_eff)
         if L < 1e-9; continue; end
         vx = normalize(p2_eff - p1_eff)

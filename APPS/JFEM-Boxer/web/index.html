@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>JFEM-Boxer - torsion box FE generator</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="rf_sensitivity.css">
   <link rel="stylesheet" href="activity.css">
   <link rel="stylesheet" href="reference.css">
   <link rel="stylesheet" href="section_editor.css">
@@ -58,6 +59,7 @@
   <link rel="stylesheet" href="mesh_quality_review.css">
   <link rel="stylesheet" href="form_help.css">
   <link rel="stylesheet" href="fe_edit.css">
+  <link rel="stylesheet" href="boxer_chat.css">
 </head>
 <body>
 
@@ -94,12 +96,15 @@
       <label id="autosave-label" class="live-switch" title="Save settled geometry, property, load, notes and design-variable edits automatically. Enabling chooses the Study file once; view changes alone do not trigger a save."><input id="auto-save" type="checkbox" disabled><span>Autosave</span></label>
       <label class="live-switch" title="Automatically rebuild after parameter edits"><input id="auto-mesh" type="checkbox" checked><span>Live mesh</span></label>
       <span id="jfem-running" class="jfem-running" role="status" aria-live="polite" hidden>JFEM is running</span>
-      <span id="mesh-status" role="status" aria-live="polite">Starting…</span>
-      <span id="geometry-preview-status" role="status" aria-live="polite" hidden></span>
     </div>
     <button id="btn-study-information" type="button" class="workspace-help" aria-label="Information: Study and server input" aria-controls="study-information" aria-expanded="false" title="Information: current Study, save status, TOML and server input">ⓘ</button>
     <label class="background-picker" title="Change the viewport background color">Background<input id="background-color" type="color" value="#0e131a" aria-label="Viewport background color"></label>
+    <button id="boxer-chat-toggle" type="button" class="workspace-help" data-boxer-private="chat" aria-controls="boxer-chat" aria-expanded="false" title="Talk to Boxer, find menu commands, or connect an AI assistant through MCP">Chat</button>
     <button id="btn-quick-help" class="workspace-help" title="Define geometry and properties, create the mesh, set cases, then run an analysis. Open this guide for navigation, display controls and saving studies." aria-label="Help: workflow and controls">?</button>
+    <div id="workspace-statuses" role="group" aria-label="Geometry and mesh status">
+      <span id="mesh-status" role="status" aria-live="polite" aria-label="Finite element mesh status">Starting…</span>
+      <span id="geometry-preview-status" role="status" aria-live="polite" aria-label="Geometry preview status" hidden></span>
+    </div>
     <section id="study-information" class="file-status-row" role="region" aria-label="Study and server information" hidden>
       <div class="study-information-heading"><strong>Study information</strong><button id="btn-close-study-information" type="button" aria-label="Close Study information">×</button></div>
       <span id="study-file-status" role="status" aria-live="polite">Study: unsaved · TOML: reading…</span>
@@ -128,8 +133,8 @@
     <div class="hud-title panel-heading"><span id="workspace-title" role="heading" aria-level="2">Planform</span><button id="btn-aero-information" class="aero-info-button" type="button" title="Aerodynamics information" aria-label="Aerodynamics information" aria-haspopup="dialog" popovertarget="aero-information" hidden>i</button><button id="btn-max-drawing" class="mini" type="button" aria-pressed="false" title="Maximize the 2D drawing and its parameters">Maximize</button><button id="btn-max-aerostudy" class="mini" hidden>Maximize</button></div>
     <div id="workspace-content">
       <section id="panel-mesh-actions" class="workspace-panel workspace-action-panel" data-workspace-panel="mesh" role="tabpanel" aria-labelledby="tab-mesh" hidden>
-        <div id="mesh-create-slot" class="workspace-actions"><button id="btn-create" disabled class="primary" title="Rebuild the FEM using the current geometry, mesh, properties and loads">Create FEM</button></div>
-        <p class="pick-note">Live mesh rebuilds after edits. When disabled, Create FEM moves beside Live mesh in the top bar. Red means the current model needs updating.</p>
+        <div id="mesh-create-slot" class="workspace-actions"><button id="btn-analyze-fem" disabled hidden title="Regenerate the FEM with the edited properties and run the selected JFEM analysis">Analyze FEM</button><button id="btn-create" disabled class="primary" title="Rebuild the FEM using the current geometry, mesh, properties and loads">Create FEM</button></div>
+        <p class="pick-note">Create FEM appears when the model needs generating or updating. Live mesh rebuilds after edits; when disabled, Create FEM moves beside Live mesh in the top bar. Red marks an outdated model.</p>
       </section>
       <section id="panel-analysis-actions" class="workspace-panel workspace-action-panel" data-workspace-panel="analysis" role="tabpanel" aria-labelledby="tab-analysis" hidden>
         <div class="workspace-actions"><button id="btn-jfem" disabled class="primary accent" title="Run the selected analysis for every enabled load case">Run in JFEM</button><button id="btn-stop-jfem" class="ghost danger" hidden>Stop the run</button></div>
@@ -165,6 +170,7 @@
 
       <section id="panel-geometry-export" class="workspace-panel" data-workspace-panel="analysis" role="tabpanel" aria-labelledby="tab-analysis" hidden>
         <div class="parameter-heading"><h2>Geometry export</h2><button id="export-help" class="mini" title="Export selected surfaces and physical beam sections as STL or GLB. Choose which layers and deformation state to include; this exports geometry, not a solver deck." aria-label="Help: geometry export">?</button></div>
+        <fieldset id="mesh-geometry-export" class="ui-form-section"><legend>STL and GLB</legend>
         <label class="display-control" for="export-scope">Entities <select id="export-scope"><option value="all">All model entities and load cases</option><option value="visible">Visible layers and selected case</option></select></label>
         <label class="display-control" for="export-state">Geometry <select id="export-state"><option value="undeformed">Undeformed model</option><option value="displayed">Displayed deformation and scale</option></select></label>
         <label class="layer"><input id="export-references" type="checkbox" checked><span>Include imported references</span></label>
@@ -172,6 +178,21 @@
         <div class="hud-row"><button id="export-stl">Export STL</button><button id="export-glb">Export GLB</button></div>
         <p class="pick-note">Includes shells, full beam sections, nodes, constraints, RBE3 spiders, aero/VLM, tank and load glyphs. STL keeps FE XYZ in metres; GLB preserves colors, groups and IDs with standard Y-up placement. Labels and camera helpers are excluded.</p>
         <p id="export-status" class="pick-note" role="status" aria-live="polite">Create a model, then choose an export format.</p>
+        </fieldset>
+        <fieldset id="solidcraft-export" class="ui-form-section">
+          <legend>SolidCraft</legend>
+          <p class="pick-note">Create named solid CAD bodies from the current Study. The complete model is checked and saved before it opens in a new SolidCraft window. Export before or after FEM generation.</p>
+          <label class="layer" title="Include the Study's structural components as named CAD bodies."><input id="solidcraft-structure" type="checkbox" checked><span>Include structure</span></label>
+          <label class="layer" title="Create the opposite half of the lifting surface across its symmetry plane."><input id="solidcraft-mirror" type="checkbox"><span>Mirror across symmetry plane</span></label>
+          <label class="layer" title="Rotate movable surfaces about their defined hinge axes using the Study's geometric deflections."><input id="solidcraft-deflected" type="checkbox"><span>Apply movable-surface deflections</span></label>
+          <details class="ui-form-disclosure"><summary>SolidCraft connection</summary>
+            <label class="display-control" for="solidcraft-cli">SolidCraft CLI<input id="solidcraft-cli" type="text" placeholder="Automatic" title="Optional full path to solidcraft-cli. Leave blank to detect the installed MCP bridge."></label>
+            <label class="display-control" for="solidcraft-app">SolidCraft application<input id="solidcraft-app" type="text" placeholder="Automatic" title="Optional full path to SolidCraft. Leave blank to detect the installed application."></label>
+          </details>
+          <div class="hud-row"><button id="solidcraft-create" class="primary" type="button" title="Create, check and save the current Study as native solid bodies through SolidCraft's local MCP bridge, then open the complete model.">Create in SolidCraft</button><button id="solidcraft-cancel" type="button" hidden title="Stop between SolidCraft operations. A model opens only after every body has been created, checked and saved.">Cancel</button></div>
+          <p id="solidcraft-status" class="pick-note" role="status" aria-live="polite">Load a wing Study to export its solid geometry.</p>
+          <div id="solidcraft-output" hidden><label class="display-control" for="solidcraft-path">Saved SolidCraft document<input id="solidcraft-path" type="text" readonly title="Full path to the saved native SolidCraft document. Select or copy this path to open it later."></label><button id="solidcraft-copy-path" class="mini" type="button" title="Copy the saved SolidCraft document path.">Copy path</button></div>
+        </fieldset>
       </section>
 
       <section id="panel-displayloads" class="workspace-panel display-pane" data-workspace-panel="displayloads" role="tabpanel" aria-labelledby="tab-displayloads" hidden>
@@ -697,6 +718,7 @@
 <script src="flight_conditions.js" defer></script>
 <script src="numbers.js" defer></script>
 <script src="numeric_inputs.js" defer></script>
+<script src="parameter_units.js" defer></script>
 <script src="coordinate_inputs.js" defer></script>
 <script src="result_display.js" defer></script>
 <script src="parameter_locks.js" defer></script>
@@ -730,6 +752,7 @@
 <script src="loft_cuts.js" defer></script>
 <script src="geometry_display.js" defer></script>
 <script src="geometry_export.js" defer></script>
+<script src="solidcraft_export.js" defer></script>
 <script src="project_menu.js" defer></script>
 <script src="view_planes.js" defer></script>
 <script src="viewport_tools.js" defer></script>
@@ -755,6 +778,7 @@
 <script src="assessment_load_policy.js" defer></script>
 <script src="buckling_outputs.js" defer></script>
 <script src="imported_cases.js" defer></script>
+<script src="study_results.js" defer></script>
 <script src="workspace.js" defer></script>
 <script src="study_comments.js" defer></script>
 <script src="recent_studies.js" defer></script>
@@ -803,8 +827,11 @@
 <script src="stress_report_data.js" defer></script>
 <script src="reserve_factor_table_data.js" defer></script>
 <script src="rf_sizing_estimate.js" defer></script>
+<script src="rf_panel_scope.js" defer></script>
 <script src="rf_field_data.js" defer></script>
 <script src="rf_field_visibility.js" defer></script>
+<script src="rf_panel_boundaries.js" defer></script>
+<script src="rf_panel_render.js" defer></script>
 <script src="rib_bay_filter.js" defer></script>
 <script src="inspect_highlight.js" defer></script>
 <script src="rf_property_editor.js" defer></script>
@@ -813,13 +840,19 @@
 <script src="rf_property_pick.js" defer></script>
 <script src="stress_report_snapshot.js" defer></script>
 <script src="rf_incremental.js" defer></script>
+<script src="rf_native_report_view.js" defer></script>
 <script src="rf_compute_client.js" defer></script>
 <script src="stress_report.js" defer></script>
+<script src="rf_sensitivity.js" defer></script>
 <script src="panel_override_review.js" defer></script>
 <script src="mesh_quality_review.js" defer></script>
 <script src="form_help.js" defer></script>
 <script src="fe_edit.js" defer></script>
 <script src="fe_edit_viewport.js" defer></script>
+<script src="boxer_commands.js" defer></script>
+<script src="boxer_voice.js" defer></script>
+<script src="boxer_chat.js" defer></script>
+<script src="boxer_app_control.js" defer></script>
 <script src="app.js" defer></script>
 </body>
 </html>

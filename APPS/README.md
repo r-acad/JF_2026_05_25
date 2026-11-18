@@ -1,12 +1,12 @@
-**Run the root `setup.cmd`, `bash setup.sh` or `bash setup.command` first.** Setup downloads packages and builds one image for all apps under the root `sysimage/` folder. App folders contain launchers, not installers.
-
-**Run the root `setup.cmd`, `bash setup.sh` or `bash setup.command` first.** Setup downloads packages and builds one image for all apps under the root `sysimage/` folder. App folders contain launchers, not installers.
+**Run the root `setup.cmd`, `bash setup.sh` or `bash setup.command` first.** Setup installs shared packages and automatically reuses/builds the shared image when resources permit. Low memory or an image-build failure selects ordinary Julia loading; apps remain usable. App folders contain launchers, not installers.
 
 # JFEM applications
 
 Install once with the setup launcher for your operating system in
 [`__Start here!__`](<../__Start here!__/README.md>). All applications share the
-repository root Project/Manifest and the compiled solver image.
+repository root Project/Manifest. They run without a sysimage and use a compatible
+local image when available. Setup handles image construction and fallback
+automatically. Without an image, first use can compile Julia code.
 
 Each application keeps its launchers in `Windows/`, `Linux/` and `Mac/`.
 The shortcuts in `__Start here!__` forward here; only the shared setup launchers live at the repository root.

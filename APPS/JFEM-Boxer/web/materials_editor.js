@@ -10,6 +10,7 @@
   const nodes=[],cards=[],library=[],listeners=[],selects=[],hidden=[],moved=[],selectionListeners=new Set();let destroyed=false,updating=false,supplementalMaterials=[];
   const el=(tag,text,cls)=>{const node=doc.createElement(tag);if(text!==undefined)node.textContent=text;if(cls)node.className=cls;return node;};
   const listen=(node,event,fn)=>{node.addEventListener(event,fn);listeners.push(()=>node.removeEventListener(event,fn));};
+  const modelDimension=key=>{const input=doc.getElementById('p-'+key);return root.WingParameterUnits?.readModel(input,key)??Number(input?.value);};
   const parse=key=>{const rows=JSON.parse(canonical[key].value||"[]");if(!Array.isArray(rows))throw Error(key+" needs an array.");return rows;};
   const parsed=Object.fromEntries(KEYS.map(key=>[key,parse(key)]));
   for(const key of KEYS){const row=canonical[key].closest(".row");if(row){hidden.push([row,row.hidden]);row.hidden=true;}}
@@ -34,10 +35,10 @@
   function selectMaterial(id){librarySelect.value=String(id);refreshLibrarySelection();notifySelection();}
   listen(librarySelect,"change",()=>{refreshLibrarySelection();notifySelection();});
   function rawLibrary(){return library.map(row=>({id:row.id,name:row.name.value,E:numeric(row.E,1e9),nu:numeric(row.nu),rho:numeric(row.rho),...(row.referenceData?{reference_data:row.referenceData}:{})}));}
-  function flangeTotal(card){return Number(doc.getElementById("p-"+card.thicknessKey)?.value);}
+  function flangeTotal(card){return modelDimension(card.thicknessKey);}
   function flangeSections(strict=false){
    if(doc.getElementById("p-stringers.model")?.value!=="shell")return[];
-   const width=Number(doc.getElementById("p-properties.stringer_flange_width")?.value),total=Number(doc.getElementById("p-properties.stringer_flange_thickness")?.value),sections=width>0?[{key:null,total}]:[];
+   const width=modelDimension('properties.stringer_flange_width'),total=modelDimension('properties.stringer_flange_thickness'),sections=width>0?[{key:null,total}]:[];
    let overrides=[];try{overrides=JSON.parse(doc.getElementById("p-properties.panels")?.value||"[]");}catch(error){if(strict)throw error;}
    for(const override of overrides){const stringer=override.stringer||{};if(Number(stringer.flange_width??width)>0)sections.push({key:override.key,total:Number(stringer.flange_thickness??total),material:stringer.material});}
    return sections;
@@ -51,7 +52,7 @@
   function validate(){const draft=raw(),ids=new Set([1]);if(library.length>256)throw Error("The library supports at most 256 additional materials.");for(const row of draft[KEYS[0]]){validId(row.id,"Material");if(row.id===1||ids.has(row.id))throw Error("Additional material IDs must be unique and start at 2.");ids.add(row.id);row.name=row.name.trim();if(!row.name||/[\u0000-\u001f\u007f]/.test(row.name))throw Error("Material "+row.id+" needs a single-line name.");validPositive(row.E,"Material "+row.id+" E (GPa)");validPositive(row.rho,"Material "+row.id+" density");if(typeof row.nu!=="number"||!Number.isFinite(row.nu)||row.nu<0||row.nu>=.5)throw Error("Material "+row.id+" Poisson ratio must satisfy 0 <= nu < 0.5. Negative (auxetic) values are not supported by the native MAT1 path.");}
    for(const card of cards){if(card.addedFlange&&!card.present)continue;const row=rawCard(card),prefix=card.label+": ";for(const key of card.shell?["material","face_material","core_material"]:["material"])validId(row[key],prefix+key);if(card.shell){if(!["monolithic","sandwich"].includes(row.kind))throw Error(prefix+"choose monolithic or sandwich construction.");validPositive(row.face_thickness,prefix+"each face thickness");validPositive(row.core_thickness,prefix+(card.addedFlange&&row.kind==="sandwich"?"remaining core (total flange thickness minus two faces)":"core thickness"));}
     for(const field of card.shell&&row.kind==="sandwich"?["face_material","core_material"]:["material"])if(!ids.has(row[field]))throw Error(prefix+"select a defined material (missing ID "+row[field]+").");
-    if(card.shell&&row.kind==='sandwich'&&!card.addedFlange){const floor=Number(doc.getElementById('p-'+card.thicknessKey)?.value),total=2*row.face_thickness+row.core_thickness;if(Number.isFinite(floor)&&total<floor-1e-10*Math.max(floor,total,1e-12))throw Error(prefix+'sandwich total thickness must be at least the minimum thickness '+format(floor*1000)+' mm. Increase the face/core gauges or deliberately edit that total minimum.');}
+    if(card.shell&&row.kind==='sandwich'&&!card.addedFlange){const floor=modelDimension(card.thicknessKey),total=2*row.face_thickness+row.core_thickness;if(Number.isFinite(floor)&&total<floor-1e-10*Math.max(floor,total,1e-12))throw Error(prefix+'sandwich total thickness must be at least the minimum thickness '+format(floor*1000)+' mm. Increase the face/core gauges or deliberately edit that total minimum.');}
     if(card.shell&&["rib_web","spar_web"].includes(card.component)){const rib=card.component==='rib_web',key=rib?'properties.ribs':'properties.spar_bays',value=doc.getElementById("p-"+key)?.value,components=JSON.parse(doc.getElementById('p-properties.components')?.value||'[]');for(const override of JSON.parse(value||"[]"))for(const field of rib?["thickness"]:["front_thickness","rear_thickness"]){const part=rib?'rib_web':field==='front_thickness'?'front_web':'rear_web',local=components.find(item=>item.key===part+':'+(rib?override.rib:override.bay))||{};if(override[field]===undefined||(local.kind??row.kind)!=='sandwich')continue;const face=local.face_thickness??row.face_thickness,core=local.core_thickness??override[field]-2*face;if(!(core>0))throw Error(prefix+"the active total thickness override for "+(rib?"rib "+override.rib:"bay "+override.bay)+" must exceed twice its face thickness; the remaining core must be positive.");}}
     if(card.addedFlange&&row.kind==="sandwich")for(const section of flangeSections(true))if(!(section.total>2*row.face_thickness))throw Error(prefix+"the total flange thickness for "+(section.key?"panel "+section.key:"the default stringer")+" must exceed twice the face thickness; the remaining core must be positive.");
    }
@@ -73,7 +74,7 @@
    card.mono.hidden=sandwich;card.layers.hidden=!sandwich;
    // The total minimum remains an active bound for sandwich stacks as well.
    if(card.thicknessRow&&!card.addedFlange)card.thicknessRow.hidden=card.thicknessWasHidden;
-   const face=row.face_thickness,total=card.addedFlange?(example?.total??flangeTotal(card)):sandwich?2*face+row.core_thickness:Number(doc.getElementById("p-"+card.thicknessKey)?.value),core=card.addedFlange?total-2*face:row.core_thickness;
+   const face=row.face_thickness,total=card.addedFlange?(example?.total??flangeTotal(card)):sandwich?2*face+row.core_thickness:modelDimension(card.thicknessKey),core=card.addedFlange?total-2*face:row.core_thickness;
    card.total.textContent=(card.addedFlange?"Added flange thickness: ":"Total thickness: ")+format(total*1000)+" mm"+(perPanel?" · example panel "+example.key:"");
    card.sample.textContent=card.addedFlange?(perPanel?"Flanges exist only through individual panel overrides; the default blade thickness is not used. ":"")+(inherited?"Uses each panel's stringer material, including material overrides. ":"")+"Additional flange only. The FE property also contains the thinnest skin under either side of the flange; combined thickness and layer materials vary by panel. Sandwich core = total added flange thickness − two faces. The total and any panel thickness overrides stay authoritative.":"Section sample width: "+format(1.2*total*1000)+" mm (illustration only; thickness defines the property).";
    card.preview.replaceChildren();

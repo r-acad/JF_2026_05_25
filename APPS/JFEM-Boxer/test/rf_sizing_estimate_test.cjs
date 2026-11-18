@@ -63,8 +63,14 @@ test('Native T-section stress envelope uses updated area, inertia and all end mo
 });
 test('Beam torsion and transverse shear are retained, never replaced with an axial-stress proxy',()=>{
  const p=tProperty([.05,.06,.003,.002]);for(const forces of [{axial:0,torque:100},{axial:0,shear_1:100},{axial:0,shear_2:100}]){const r=E.beamRecovery(p,beamRecord(forces));assert(r.stress.von_mises>0);assert.equal(r.stress.axial,0);}
- const incomplete=beamRecord();delete incomplete.forces.torque;assert.equal(E.beamRecovery(p,incomplete).stress.von_mises_recovery.status,'unavailable');const thick=E.beamRecovery(tProperty([.05,.06,.009,.002]),beamRecord());assert.equal(thick.stress.von_mises_recovery.status,'unavailable');assert(Number.isFinite(thick.stress.axial));
+ const incomplete=beamRecord();delete incomplete.forces.torque;assert.equal(E.beamRecovery(p,incomplete).stress.von_mises_recovery.status,'unavailable');const thick=E.beamRecovery(tProperty([.05,.06,.009,.002]),beamRecord());assert.equal(thick.stress.von_mises_recovery.status,'complete');near(thick.stress.von_mises,Math.abs(thick.stress.axial));
  assert.match(E.beamRecovery({...p,section:{...p.section,I12_m4:1e-8}},beamRecord()).reason,/zero product/);
+});
+test('Finite-thickness T sizing estimates agree with independently executed native RF kernels',()=>{
+ const force={axial:-1300,shear_1:21,shear_2:-11,torque:1.7,moment_a1:17,moment_a2:-23,moment_b1:-3,moment_b2:11};
+ for(const[d,expected]of[[[.03,.032,.004,.0015],59447418.653598875],[[.04,.05,.002,.01],36595545.5120009],[[.04,.05,.015,.02],6745375.7997207],[[.04,.05,.002,.002],62773166.64027317]]){
+  const result=E.beamRecovery(tProperty(d),{forces:force});assert.equal(result.stress.von_mises_recovery.status,'complete');near(result.stress.von_mises,expected,2e-13);assert.match(result.stress.von_mises_recovery.description,/junction concentrations/);
+ }
 });
 test('Stringer blade RF changes both its local plate capacity and the fixed-force axial stress',()=>{
  const b=base(),p=tProperty([.05,.06,.003,.002]),q=tProperty([.05,.06,.003,.004]),f=beamRecord();b.elements=new Map([[1,elem(p,10,[0,1],'bar')]]);b.cases.get(1).elementResults[1]={...f,...E.beamRecovery(p,f)};
@@ -107,5 +113,23 @@ test('Section-only sizing keeps the actual FEM dirty and binds each estimate to 
  assert(!E.project(b,{...c,elements:new Map(c.elements)}).estimated);
  assert(!E.project(b,{...c,studyEpoch:2}).estimated);
  assert(!E.project(b,{...c,sectionUpdateCertificate:{}}).estimated);
+});
+test('A local edit recovers only its elements despite reordered regenerated dictionaries',()=>{
+ const reorder=value=>Array.isArray(value)?value.map(reorder):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).reverse().map(([key,item])=>[key,reorder(item)])):value;
+ const b=base(),old=new Map(),next=new Map(),records={};
+ for(let pid=10;pid<210;pid++){const original=shell(.002),updated=reorder(shell(pid===10?.004:.002));for(let j=0;j<10;j++){const eid=(pid-10)*10+j+1;old.set(eid,elem(original,pid));next.set(eid,elem(updated,pid));records[eid]=shellRecord();}}
+ b.elements=old;b.cases.get(1).elementResults=records;const before=JSON.stringify(records),c={...current(b,.004),elements:next},p=estimate(b,c);
+ assert.deepEqual(p.changedPropertyIds,[10]);assert.equal(p.recoveredElementRecords,10);
+ for(const[eid,element]of next){const projected=rec(p.context,eid),full=E.recovery(old.get(eid).group.properties,element.group.properties,records[eid]);near(projected.stress.z1.von_mises,full.stress.z1.von_mises);if(element.group.pid!==10)assert.equal(projected,records[eid]);}
+ assert.equal(JSON.stringify(records),before);
+});
+test('Allowable-only estimates reuse unchanged recovery collections without mutating them',()=>{
+ const b=base(),source=b.cases.get(1).elementResults,c={...current(b,.002),allowables:[{...b.allowables[0],stress:600e6}]},p=estimate(b,c);
+ assert.deepEqual(p.changedPropertyIds,[]);assert.equal(p.recoveredElementRecords,0);assert.equal(p.context.cases.get(1).elementResults,source);near(S.build(p.context).rows[0].reserveFactor,1);near(source[1].stress.z1.von_mises,600e6);
+});
+test('Derived section roundoff does not dirty bars while real dimensions and integer material identities do',()=>{
+ const p=tProperty([.03,.032,.004,.0015]),b=base();b.elements=new Map([[1,elem(p,10,[0,1],'bar')]]);const force=beamRecord();b.cases.get(1).elementResults[1]={...force,...E.beamRecovery(p,force)};
+ const q={...p,section:{...p.section,J_m4:p.section.J_m4*(1+3e-14)}};const unchanged=estimate(b,{...current(b),elements:new Map([[1,elem(q,10,[0,1],'bar')]])});assert.equal(unchanged.recoveredElementRecords,0);assert.deepEqual(unchanged.changedPropertyIds,[]);
+ for(const changed of [{...q,material:{...q.material,id:2}},{...q,material:{...q.material,id:1+1e-14}},tProperty([.03,.032,.0041,.0015])]){const result=estimate(b,{...current(b),elements:new Map([[1,elem(changed,10,[0,1],'bar')]])});assert.deepEqual(result.changedPropertyIds,[10]);assert.equal(result.recoveredElementRecords,1);}
 });
 console.log(JSON.stringify({passed,failed:0}));

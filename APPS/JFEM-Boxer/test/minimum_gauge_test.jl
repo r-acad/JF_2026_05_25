@@ -30,14 +30,10 @@ checks=@testset "Global minimum gauges and actual generated-property metadata" b
     definitions=W.model_property_definitions(m)
     for property in definitions
         gauge=property["minimum_gauge"]
-        if W.component_base_pid(property["pid"])==W.PID_STRINGER_RUNOUT
-            @test gauge["status"]=="not_applicable"
-        else
-            @test gauge["status"]=="known"
-            @test gauge["at_minimum"]&&!gauge["can_reduce"]
-            @test !isempty(gauge["dimensions"])
-            @test all(d->d["value_m"]>=d["minimum_m"]-W.minimum_gauge_tolerance(d["value_m"],d["minimum_m"]),gauge["dimensions"])
-        end
+        @test gauge["status"]=="known"
+        @test gauge["at_minimum"]&&!gauge["can_reduce"]
+        @test !isempty(gauge["dimensions"])
+        @test all(d->d["value_m"]>=d["minimum_m"]-W.minimum_gauge_tolerance(d["value_m"],d["minimum_m"]),gauge["dimensions"])
     end
     for group in m.groups
         @test W.element_properties(m,group)["minimum_gauge"]==W.property_minimum_gauge(m.params,group.pid)
@@ -159,7 +155,7 @@ checks=@testset "Global minimum gauges and actual generated-property metadata" b
         end
     end
     @test W.property_minimum_gauge(Dict("imported.native"=>Dict()),123)["status"]=="not_applicable"
-    @test W.property_minimum_gauge(p,W.PID_STRINGER_RUNOUT)["status"]=="not_applicable"
+    @test W.property_minimum_gauge(p,W.PID_STRINGER_RUNOUT)["status"]=="known"
     @test W.minimum_dimension("t",.003*(1-1e-12),.003,"min")["at_minimum"]
     @test_throws ArgumentError W.minimum_dimension("t",.003*(1-1e-8),.003,"min")
     summary["shell_properties"]=length(W.model_property_definitions(sm))

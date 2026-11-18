@@ -406,16 +406,35 @@ function mesh_payload(m::Model; progress = stage -> nothing)
 
     progress("aerodynamic_loads")
     aerodynamic_cases=case_loads(m)
+    # Geometry, materials, engine masses and structural mass properties are
+    # shared by every load case. Only fuel percentage changes this report.
+    # An unfuelled multi-case model needs one mass integration, not one per
+    # case followed by another for the global report.
+    progress("weights")
+    base_weights=weights_payload(m)
+    case_weight_key(params)=fuel_case_percent(params)
+    case_weights=Dict{Float64,Any}(case_weight_key(m.params)=>base_weights)
     progress("case_preparation")
     cases = [begin
         case_model=model_for_load_case(m,c)
+        report=get!(case_weights,case_weight_key(case_model.params)) do
+            if get(case_model.params,"fuel.enabled",false)
+                weights_payload(case_model)
+            else
+                # Retain the inactive case percentage as editable metadata,
+                # without reintegrating an identical unfuelled structure.
+                result=copy(base_weights);fuel_case=copy(base_weights["fuel"])
+                fuel_case["fuel_percent"]=fuel_case_percent(case_model.params)
+                fuel_case["fill_fraction"]=fuel_case["fuel_percent"]/100
+                result["fuel"]=fuel_case;result
+            end
+        end
         Dict{String,Any}("id"=>c.id,"label"=>c.label,"loads"=>load_payload(c.loads;model=case_model),
-            "fuel"=>fuel_mass_state(case_model),"weights"=>weights_payload(case_model))
+            "fuel"=>fuel_mass_state(case_model),"weights"=>report)
     end for c in aerodynamic_cases]
-    progress("fuel_display")
+    get(m.params,"fuel.enabled",false) && progress("fuel_display")
     fuel = fuel_payload(m)
-    progress("weights")
-    weights = weights_payload(m)
+    weights = copy(base_weights)
     weights["structural_inertia"] = structural_inertia_payload(m)
     progress("annotations")
     annotations = physical_annotations(m)
@@ -428,6 +447,13 @@ function mesh_payload(m::Model; progress = stage -> nothing)
         coordinates["note"]=replace(coordinates["note"],"GRID positions (CP) and displacement axes (CD) use BASIC."=>"GRID positions (CP) use BASIC. Physical hinge-tip GRID displacement frames use their hinge CORD2R; all other CD frames use BASIC.")
     end
     append!(coordinates["systems"],movable_coordinate_records(m))
+    # HTTP generation omits summaries during meshing, then reuses the reports
+    # prepared above. Keep standalone build_model/print_report compatibility.
+    info=copy(m.info);existing_info=Set(first.(info))
+    for row in vcat(get(m.params,"fuel.enabled",false) ? fuel_info(m;summary=fuel) : Tuple{String,String}[],
+                    weights_info(m;data=weights))
+        first(row) in existing_info || push!(info,row)
+    end
     return Dict{String,Any}(
         "ok" => true,
         "format" => "wingfegen-mesh-1",
@@ -527,7 +553,7 @@ function mesh_payload(m::Model; progress = stage -> nothing)
             "deformation_note" => "The aerodynamic loft follows solved FE translations and rotations. Beyond the box, massless RBE3 grids transfer loads to the terminal structural rib and interpolate deformation back to the aerodynamic surface; they add no elastic skin or mass. Inboard section blending approximates general strain away from structural sections. VLM pressures are not automatically recomputed during a structural solve.",
         ),
         "bbox" => bbox_of(m),
-        "info" => vcat(Any[Any[k, v] for (k, v) in m.info],
+        "info" => vcat(Any[Any[k, v] for (k, v) in info],
             Any[Any["Section migration", note] for note in get(m.params, "section_migration_notes", String[])]),
         "checks" => Any[Any[n, d, ok] for (n, d, ok) in m.checks],
         "checks_pass" => all_checks_pass(m),

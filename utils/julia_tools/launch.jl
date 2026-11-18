@@ -1,14 +1,12 @@
 #!/usr/bin/env julia
 # A bare Julia process checks provenance before starting the chosen application.
 include("runtime_images.jl")
+JFEMRuntimeImages.consume_no_sysimage_option!(ARGS)
 length(ARGS)>=3||error("usage: launch.jl solver|boxer ROOT ENTRY [arguments...]")
 kind,root,entry=ARGS[1:3]
-image,reason=JFEMRuntimeImages.selected_image(abspath(root);kind)
+image,reason=JFEMRuntimeImages.selected_image(abspath(root);kind,probe=true)
 if image===nothing
-    if !(reason in ("image_missing","disabled"))
-        hint=isempty(strip(get(ENV,"JFEM_PACKAGE_ENV",""))) ? "run setup" : "run JFEM_BUILD_SYSIMAGE (build_prepared_sysimage.jl)"
-        println(stderr,"JFEM: local image skipped ($reason); $hint to refresh it.")
-    end
+    println(stderr,JFEMRuntimeImages.loading_message(reason))
 else
     println("JFEM: using verified ",kind," sysimage.")
 end

@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 const assert=require('node:assert/strict'),api=require('../web/rf_property_pick.js'),tables=require('../web/reserve_factor_table_data.js');
 const context={groups:[{pid:5000001,kind:'quad',name:'UPPER_SKIN',properties:{type:'PSHELL'}},{pid:7000001,kind:'bar',name:'STRINGERS',properties:{type:'PBARL'}},{pid:2,kind:'quad',name:'aero'},{pid:7,kind:'rbe3',name:'ENGINE_CONNECTIONS'}],panels:[{id:1,key:'u:1',skin:'upper',rib_bay:1,stringer:1,segment:1,shell_pid:5000001,stringer_pid:7000001}]};
 const core=require('../web/rf_property_editor.js'),standalone=core.assessmentSummary({failureMode:'von_mises',rows:[{pid:5000001,complete:true,reserveFactor:.7,envelopeCaseLabel:'2.5g',coverage:{total:1,recovered:1}}]},5000001);
@@ -11,13 +11,25 @@ const compact=tables.compact({report,panels:context.panels,componentGroups:conte
 const canvas={getBoundingClientRect:()=>({left:100,top:200})},event={button:0,clientX:140,clientY:260};let coordinates;
 const state={activeTab:'inspect',hasModel:true},pick=(x,y)=>{coordinates=[x,y];return{pid:5000001,eid:42,kind:'quad'};};
 assert.deepEqual(api.target({event,canvas,state,pick}),{pid:5000001,eid:42,kind:'quad'});assert.deepEqual(coordinates,[40,60]);
+const physicalPoint=[1.23456789,2,-.5],physicalHit={pid:5000001,eid:42,kind:'quad',scopeKey:'plain:upper:bay2:skinstrip1:segment1',point:physicalPoint};
+const physicalTarget=api.target({event,canvas,state,pick:()=>physicalHit});assert.equal(physicalTarget.scopeKey,physicalHit.scopeKey);assert.deepEqual(physicalTarget.point,physicalPoint);assert.notEqual(physicalTarget.point,physicalPoint);
+assert.equal(api.target({event,canvas,state,pick:()=>({...physicalHit,point:[0,NaN,0]})}).point,undefined);
+
 for(const key of ['busy','exclusivePick'])assert.equal(api.target({event,canvas,state:{...state,[key]:true},pick}),null);
 for(const activeTab of ['utils','sensitivity','aerostudy','planform'])assert.equal(api.target({event,canvas,state:{...state,activeTab},pick}),null);
 assert.equal(api.target({event:{...event,button:2},canvas,state,pick}),null);assert.equal(api.target({event,canvas,state,pick:()=>null}),null);
 assert.equal(api.target({event,canvas,state,pick:()=>({pid:1,eid:1,kind:'quad',name:'aero'})}),null);
-let bridgeOptions,opened=[],inspected=[],reads=0;
-const controller=api.create({canvas,readState:()=>state,pick,readContext:()=>context,readReport:()=>{reads++;return null;},tables:{connect(options){bridgeOptions=options;return{openProperty:pid=>{opened.push(pid);return true;},refresh(){},destroy(){}};}},editor:{},onInspect:hit=>inspected.push(hit)});
+let bridgeOptions,opened=[],inspected=[],reads=0,editOptions;
+const controller=api.create({canvas,readState:()=>state,pick,readContext:()=>context,readReport:()=>{reads++;return null;},tables:{connect(options){bridgeOptions=options;return{openProperty:pid=>{opened.push(pid);return true;},refresh(){},destroy(){}};}},editor:{resolve:()=>({editable:true})},onInspect:hit=>inspected.push(hit),onEditProperty:(pid,doc,options)=>{editOptions=options;}});
 const action={...event,preventDefault(){this.prevented=true;},stopImmediatePropagation(){this.stopped=true;}};
-assert.equal(controller.handleDoubleClick(action),true);assert.equal(action.prevented,true);assert.equal(action.stopped,true);assert.deepEqual(opened,[5000001]);assert.equal(inspected[0].eid,42);assert.equal(reads,0,'pointer dispatch itself must not request assessments');
-assert.equal(bridgeOptions.readSnapshot().report.rows[0].reserveFactor,null);assert.equal(bridgeOptions.readSnapshot().propertyPreview,true);assert.equal(bridgeOptions.readSnapshot().onlyBelowOne,false);controller.destroy();assert.equal(controller.handleDoubleClick(action),false);
-console.log('PASS quick property targeting, metadata-only grey RFs, popup gesture and exclusive-mode guards');
+assert.equal(controller.handleDoubleClick(action),true);assert.equal(action.prevented,true);assert.equal(action.stopped,true);assert.deepEqual(opened,[]);assert.equal(inspected[0].eid,42);assert.equal(reads,1,'Opening the local editor reads cached report metadata; it does not request an assessment');
+assert.equal(bridgeOptions.readSnapshot().report.rows[0].reserveFactor,null);assert.equal(bridgeOptions.readSnapshot().propertyPreview,true);assert.equal(bridgeOptions.readSnapshot().onlyBelowOne,false);bridgeOptions.onEditProperty(5000001,null,{});assert.equal(editOptions.pickedElementId,42,'the exact picked element must reach physical panel scoping');controller.open(physicalHit);bridgeOptions.onEditProperty(5000001,null,{});assert.equal(editOptions.scopeKey,physicalHit.scopeKey);assert.deepEqual(editOptions.point,physicalPoint);assert.equal(editOptions.pickedElementId,42);physicalPoint[0]=999;assert.equal(controller.target.point[0],1.23456789,'A physical pick must own its point coordinates.');bridgeOptions.onEditProperty(7000001,null,{});assert.equal(editOptions.scopeKey,undefined,'Another property cannot borrow the prior fragment scope.');assert.equal(editOptions.point,undefined);
+controller.destroy();assert.equal(controller.handleDoubleClick(action),false);
+const mainDocument={identity:'main viewport document'},directOpen=[],directInspect=[],directErrors=[],directTable=[];
+const direct=api.create({canvas:{...canvas,ownerDocument:mainDocument},readContext:()=>context,readReport:()=>({report:{rows:[]},sourceContext:{id:'saved'}}),
+ scope:{resolve:(_input,focus)=>focus.pid===5000001?{kind:'compression_panel',key:'physical:chosen'}:{kind:'property',key:'property:'+focus.pid}},
+ tables:{connect(){return{openProperty:pid=>{directTable.push(pid);return true;},refresh(){},destroy(){}};}},editor:{resolve:()=>({editable:true})},
+ onInspect:hit=>directInspect.push(hit),onEditProperty:(pid,doc,hooks)=>directOpen.push({pid,doc,hooks}),onError:message=>directErrors.push(message)});
+assert(direct.open({...physicalHit,scopeKey:'physical:chosen',point:[.1,.2,.3]}));assert.equal(directTable.length,0,'A physical panel must not open a detached property-wide RF table.');assert.equal(directOpen[0].doc,mainDocument);assert.equal(directOpen[0].hooks.scopeKey,'physical:chosen');assert.deepEqual(directOpen[0].hooks.point,[.1,.2,.3]);assert.equal(directOpen[0].hooks.pickedElementId,42);assert.equal(directOpen[0].hooks.sourceContext.id,'saved');assert.equal(directInspect.length,1);assert.deepEqual(directErrors,[]);
+assert(direct.open({pid:7000001,eid:99,kind:'bar'}));assert.deepEqual(directTable,[],'Generic Inspect properties also use the local editor and never open detached tables.');assert.equal(directOpen.length,2);assert.equal(directOpen[1].doc,mainDocument);assert.equal(directOpen[1].hooks.pickedElementId,99);direct.destroy();
+console.log('PASS quick property targeting, metadata-only grey RFs, local editors and exclusive-mode guards');

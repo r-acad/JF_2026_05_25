@@ -3,8 +3,12 @@ using Pkg, TOML, Libdl
 include("environment_setup.jl")
 include("prepared_sysimage_environment.jl")
 include("sysimage_provenance.jl")
+include("sysimage_publication.jl")
+include("runtime_images.jl")
 const Environment = JFEMPreparedSysimageEnvironment
 const Provenance = JFEMSysimageProvenance
+const atomic_replace = JFEMSysimagePublication.atomic_replace
+const publish_image = JFEMSysimagePublication.publish_image
 
 function usage(io=stdout)
     println(io, """
@@ -57,6 +61,8 @@ function options(args, root)
     (check_only=check_only, help=help, image=abspath(image), workload=workload)
 end
 
+trace_thread_environment!()=(ENV["JULIA_NUM_THREADS"]=string(Threads.nthreads()))
+
 function offline!()
     ENV["JULIA_PKG_OFFLINE"]="true"
     ENV["JULIA_PKG_SERVER"]=""
@@ -66,6 +72,10 @@ function offline!()
     ENV["JFEM_SYSIMAGE"]=""
     get!(ENV,"JULIA_NUM_PRECOMPILE_TASKS","2")
     get!(ENV,"JULIA_IMAGE_THREADS","2")
+    # PackageCompiler's execution process does not inherit --threads. Warm
+    # the selected parallel solver branch; its final image compiler still
+    # explicitly uses one thread for upstream compiler safety.
+    trace_thread_environment!()
     Pkg.offline(true)
 end
 
@@ -95,43 +105,6 @@ function smoke_image(root, environment, image; packages=["OpenJFEM","WingFEGen"]
     output=read(command,String)
     occursin("JFEM_PREPARED_IMAGE_OK",output)||error("Fresh-process image validation failed")
     nothing
-end
-
-function atomic_replace(source, destination)
-    temp,io=mktemp(dirname(destination);cleanup=false);close(io)
-    try
-        cp(source,temp;force=true)
-        # Same-directory OS rename replaces the complete file atomically.
-        # Unlike mv(force=true), this does not delete the destination on failure.
-        Base.Filesystem.rename(temp,destination)
-    finally
-        isfile(temp)&&rm(temp)
-    end
-end
-
-"""Keep an earlier image available if compilation or validation fails."""
-function publish_image(candidate, destination; validator=()->nothing)
-    destination=abspath(destination);candidate=abspath(candidate)
-    candidate==destination&&error("Build into a separate candidate file before publication")
-    candidate_receipt=Provenance.sidecar(candidate)
-    isfile(candidate)&&isfile(candidate_receipt)||error("Candidate image/receipt is incomplete")
-    mkpath(dirname(destination))
-    backup=joinpath(dirname(candidate),"previous-image."*Libdl.dlext)
-    receipt=Provenance.sidecar(destination);backup_receipt=Provenance.sidecar(backup)
-    had_image=isfile(destination);had_receipt=isfile(receipt)
-    had_image&&cp(destination,backup;force=true)
-    had_receipt&&cp(receipt,backup_receipt;force=true)
-    try
-        atomic_replace(candidate,destination)
-        atomic_replace(candidate_receipt,receipt)
-        validator()
-    catch
-        # Restore only these explicitly named files; retain build diagnostics.
-        had_image ? atomic_replace(backup,destination) : (isfile(destination)&&rm(destination))
-        had_receipt ? atomic_replace(backup_receipt,receipt) : (isfile(receipt)&&rm(receipt))
-        rethrow()
-    end
-    destination
 end
 
 function build(root, args=String[])
@@ -185,6 +158,8 @@ function build(root, args=String[])
             project=derived,sysimage_path=candidate,precompile_execution_file=script))
         all(isfile(joinpath(derived,name))&&Provenance.digest(joinpath(derived,name))==hash for (name,hash) in derived_inputs)||
             error("PackageCompiler changed the derived package records; candidate image will not replace the current image")
+        JFEMRuntimeImages.image_loadable(candidate; project=environment) ||
+            error("Candidate image failed its native-library check")
         println("Checking the image in a fresh Julia process...");flush(stdout)
         smoke_image(root,environment,candidate)
         Provenance.write_sidecar(root,candidate,inputs,workloads;environment,environment_before=before)

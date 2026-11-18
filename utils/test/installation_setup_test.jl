@@ -40,6 +40,7 @@ end
     @test InstallationSetup.parse_options(["--sysimage","--no-precompile","--no-verify"])[:sysimage]==""
     @test_throws ErrorException InstallationSetup.parse_options(["--sysimage="])
     @test InstallationSetup.parse_options(["--sysimage","--wingfegen-only"])[:selection]==:wingfegen
+    @test InstallationSetup.parse_options(["--sysimage","--sysimage-threads=2"])[:sysimage_threads]=="2"
     @test InstallationSetup.parse_options(["--sysimage-threads=2"])[:sysimage_threads]=="2"
     @test_throws ErrorException InstallationSetup.parse_options(["--sysimage","--sysimage-threads=0"])
     @test_throws ErrorException InstallationSetup.parse_options(["--sysimage","--sysimage-threads=two"])
@@ -64,10 +65,12 @@ end
             "--deck",deck,"--manifest="*manifest,"--flags","JFEM_EXPORT_BINARY=false","--offline"])
         command=InstallationSetup.sysimage_command(root,options)
         @test "--threads=2" in command.exec
+        @test "JULIA_NUM_THREADS=2" in command.env
         @test "--sysimage="*image in command.exec
         @test deck in command.exec && manifest in command.exec
         @test "JULIA_PKG_OFFLINE=true" in command.env
         @test "JFEM_PRECOMPILE_BOXER=1" in command.env
+        @test "JFEM_SOL105_PRECOMPILE_WORKLOAD=true" in command.env
         @test any(startswith("JULIA_NUM_PRECOMPILE_TASKS="),command.env)
         @test any(startswith("JULIA_IMAGE_THREADS="),command.env)
         @test !any(arg->occursin("install-packagecompiler",arg),command.exec)
@@ -91,6 +94,135 @@ end
         @test InstallationSetup.build_sysimage(root,reuse;runner=cmd->error("current image must be reused"))==image
         write(joinpath(root,"src","tiny.jl"),"# modified\n")
         @test_throws ErrorException InstallationSetup.build_sysimage(root,options;runner=cmd->nothing)
+    end
+end
+
+@testset "Ordinary setup uses bounded package compilation without image training" begin
+    withenv("JULIA_NUM_PRECOMPILE_TASKS"=>nothing,"JULIA_IMAGE_THREADS"=>nothing,
+            "JFEM_SOL105_PRECOMPILE_WORKLOAD"=>nothing) do
+        command=InstallationSetup.verification_command("JFEM",InstallationSetup.repo_root())
+        @test "JULIA_NUM_PRECOMPILE_TASKS=1" in command.env
+        @test "JULIA_IMAGE_THREADS=1" in command.env
+        @test "JFEM_SOL105_PRECOMPILE_WORKLOAD=false" in command.env
+        @test !any(startswith("--sysimage"),command.exec)
+        @test InstallationSetup.sysimage_path(InstallationSetup.repo_root(),InstallationSetup.parse_options(["--no-sysimage"]))===nothing
+        @test InstallationSetup.build_sysimage(InstallationSetup.repo_root(),InstallationSetup.parse_options(["--no-sysimage"]);
+            runner=cmd->error("An unrequested image must not build"),checker=(args...)->error("An unrequested image must not be checked"))===nothing
+        @test_throws ErrorException InstallationSetup.sysimage_command(InstallationSetup.repo_root(),InstallationSetup.parse_options(["--no-sysimage"]))
+        mktemp() do path,io
+            redirect_stdout(io) do
+                @test InstallationSetup.main(["--dry-run"])==0
+            end
+            flush(io);seekstart(io)
+            plan=read(io,String)
+            @test occursin("Shared image build/reuse with automatic memory fallback:",plan)
+            @test !occursin("Sysimage: skipped",plan)
+        end
+    end
+    withenv("JULIA_NUM_PRECOMPILE_TASKS"=>"3","JULIA_IMAGE_THREADS"=>"2",
+            "JFEM_SOL105_PRECOMPILE_WORKLOAD"=>"true") do
+        command=InstallationSetup.verification_command("JFEM",InstallationSetup.repo_root())
+        @test "JULIA_NUM_PRECOMPILE_TASKS=3" in command.env
+        @test "JULIA_IMAGE_THREADS=2" in command.env
+        @test "JFEM_SOL105_PRECOMPILE_WORKLOAD=true" in command.env
+    end
+end
+
+@testset "Optional image errors preserve successful application setup" begin
+    options=InstallationSetup.parse_options(String[])
+    missing=(args...)->(false,"image_missing")
+    messages=IOBuffer()
+    @test InstallationSetup.prepare_shared_image(InstallationSetup.repo_root(),
+        InstallationSetup.parse_options(["--no-sysimage"]);
+        runner=cmd->error("disabled build must not run"),checker=(args...)->error("disabled check must not run"),io=messages)==:disabled
+    @test InstallationSetup.prepare_shared_image(InstallationSetup.repo_root(),options;
+        runner=cmd->error("a current image must not rebuild"),checker=(args...)->(true,"current"),io=messages)==:ready
+    mktempdir() do directory
+        guard=InstallationSetup.JFEMSysimageBuildGuard
+        low=()->(;available=guard.GIB,total=32guard.GIB)
+        runner=cmd->guard.run_build(cmd;log_root=directory,memory_probe=low)
+        @test InstallationSetup.prepare_shared_image(InstallationSetup.repo_root(),options;
+            runner,checker=(args...)->(true,"current"),io=messages)==:ready
+        @test isempty(readdir(directory))
+    end
+    for failure in (OutOfMemoryError(),ErrorException("compiler unavailable"))
+        @test InstallationSetup.prepare_shared_image(InstallationSetup.repo_root(),options;
+            runner=cmd->throw(failure),checker=missing,io=messages)==:source
+    end
+    @test InstallationSetup.prepare_shared_image(InstallationSetup.repo_root(),options;
+        runner=cmd->nothing,checker=missing,io=messages)==:source
+    @test InstallationSetup.prepare_shared_image(InstallationSetup.repo_root(),options;
+        runner=cmd->nothing,checker=(args...)->error("receipt could not be read"),io=messages)==:source
+    checks=Ref(0)
+    checker=(args...)->begin
+        checks[]+=1
+        checks[]==1 ? (false,"image_missing") : (true,"current")
+    end
+    @test InstallationSetup.prepare_shared_image(InstallationSetup.repo_root(),options;
+        runner=cmd->nothing,checker,io=messages)==:ready
+    @test checks[]==2
+    @test occursin("Setup is ready using normal Julia package loading",String(take!(messages)))
+end
+
+@testset "Image memory guard owns and cleans its compiler process tree" begin
+    guard=InstallationSetup.JFEMSysimageBuildGuard
+    high=(;available=32guard.GIB,total=64guard.GIB)
+    low=(;available=guard.GIB,total=64guard.GIB)
+    @test guard.memory_reserve((;available=8guard.GIB,total=16guard.GIB))==2guard.GIB
+    @test guard.memory_reserve(high)==high.total÷10
+    mktempdir() do directory
+        executable=joinpath(Sys.BINDIR,Sys.iswindows() ? "julia.exe" : "julia")
+        command=`$executable --startup-file=no --threads=1 -e nothing`
+        @test_throws guard.BuildUnavailable guard.run_build(command;log_root=directory,memory_probe=()->low)
+        @test_throws guard.BuildUnavailable guard.run_build(command;log_root=directory,memory_probe=()->nothing)
+        @test_throws guard.BuildUnavailable guard.run_build(command;log_root=directory,memory_probe=()->error("memory query failed"))
+        @test isempty(readdir(directory))
+        successful=guard.run_build(command;log_root=directory,memory_probe=()->high,sample_interval=.02)
+        @test TOML.parsefile(joinpath(successful,"status.toml"))["status"]=="complete"
+        boundary=(;available=guard.MINIMUM_AVAILABLE,total=32guard.GIB)
+        successful=guard.run_build(command;log_root=directory,memory_probe=()->boundary,sample_interval=.02)
+        @test TOML.parsefile(joinpath(successful,"status.toml"))["status"]=="complete"
+        failing=`$executable --startup-file=no --threads=1 -e "exit(17)"`
+        @test_throws guard.BuildUnavailable guard.run_build(failing;log_root=directory,memory_probe=()->high,sample_interval=.02)
+
+        function pid_running(pid)
+            if Sys.iswindows()
+                handle=ccall((:OpenProcess,"kernel32"),Ptr{Cvoid},(UInt32,Cint,UInt32),0x1000,0,pid)
+                handle==C_NULL&&return false
+                try
+                    code=Ref{UInt32}(0)
+                    success=ccall((:GetExitCodeProcess,"kernel32"),Cint,(Ptr{Cvoid},Ref{UInt32}),handle,code)
+                    return success!=0&&code[]==259
+                finally
+                    ccall((:CloseHandle,"kernel32"),Cint,(Ptr{Cvoid},),handle)
+                end
+            end
+            ccall(:kill,Cint,(Cint,Cint),pid,0)==0
+        end
+
+        for mode in ("memory","unknown","root_exit")
+            marker=joinpath(directory,mode*"_pids.txt")
+            script="""
+                executable=joinpath(Sys.BINDIR,Sys.iswindows() ? "julia.exe" : "julia")
+                child=run(`\$executable --startup-file=no --threads=1 -e \"sleep(60)\"`;wait=false)
+                write($(repr(marker)),string(getpid(),"\\n",getpid(child)))
+                $(mode=="root_exit" ? "exit(137)" : "sleep(60)")
+                """
+            command=`$executable --startup-file=no --threads=1 -e $script`
+            probe=()->isfile(marker)&&mode!="root_exit" ? (mode=="memory" ? low : nothing) : high
+            failure=try
+                guard.run_build(command;log_root=directory,memory_probe=probe,sample_interval=.02)
+                nothing
+            catch exception
+                exception
+            end
+            @test failure isa guard.BuildUnavailable
+            @test failure.reason==(mode=="memory" ? :low_memory : mode=="unknown" ? :memory_unknown : :compiler_failed)
+            @test isfile(marker)
+            pids=parse.(Int,readlines(marker))
+            @test length(pids)==2
+            @test timedwait(()->all(pid->!pid_running(pid),pids),5.;pollint=.05)==:ok
+        end
     end
 end
 

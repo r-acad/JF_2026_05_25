@@ -7,7 +7,7 @@ const{chromium}=require(modulePath),schema=JSON.parse(fs.readFileSync(path.join(
  fs.mkdirSync(out,{recursive:true});const errors=[],requests=[],checks=[],browser=await chromium.launch({channel:'chrome',headless:true,args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']}),context=await browser.newContext({viewport:{width:1600,height:1100}}),page=await context.newPage();page.setDefaultTimeout(60000);page.on('pageerror',e=>errors.push(e.stack));
  const origin='http://127.0.0.1:43972';await context.route(origin+'/**',route=>{const p=new URL(route.request().url()).pathname;
   if(p==='/api/input')return route.fulfill({json:{...schema,ok:true}});
-  if(p==='/api/validate_workspace')return route.fulfill({json:{ok:true,parameters:route.request().postDataJSON()}});
+  if(['/api/validate_workspace','/api/restore_workspace'].includes(p))return route.fulfill({json:{ok:true,parameters:route.request().postDataJSON()}});
   if(['/api/prepare_workspace','/api/generate'].includes(p)){requests.push(p);return route.fulfill({body:fs.readFileSync(path.join(fixture,'payload.msgpack')),contentType:'application/msgpack'});}
   if(p==='/api/rf_sections'){
    const assignment=route.request().postDataJSON().parameters['materials.shells'].find(r=>r.component==='spar_web'),stage=assignment.kind==='sandwich'&&stages.find(s=>{const expected=s.parameters['materials.shells'].find(r=>r.component==='spar_web');return['face_thickness','core_thickness'].every(key=>assignment[key]===expected[key]);});

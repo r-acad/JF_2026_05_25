@@ -96,6 +96,10 @@ function requirements(root;repo=locate_solver(root))
 end
 
 function restart_if_needed(root,entry,args=ARGS;use_image=true)
+    if isdefined(@__MODULE__,:JFEMRuntimeImages)
+        JFEMRuntimeImages.configure_compilation_defaults!()
+        JFEMRuntimeImages.consume_no_sysimage_option!(args)
+    end
     major,minor=requirements(root)
     if VERSION.major==major&&VERSION.minor==minor
         use_image&&restart_with_image(root,entry,args)
@@ -123,15 +127,15 @@ end
 function restart_with_image(root,entry,args)
     repo=locate_solver(root);repo===nothing&&return nothing
     isdefined(@__MODULE__,:JFEMRuntimeImages)||return nothing
-    selected,reason=JFEMRuntimeImages.selected_image(repo;kind="boxer")
     loaded=unsafe_string(Base.JLOptions().image_file)
+    # A currently loaded eligible image has already proved loadable. Probe only
+    # before starting a new process with a different optional image.
+    probe=abspath(loaded)!=abspath(JFEMRuntimeImages.image_path(repo,"boxer"))
+    selected,reason=JFEMRuntimeImages.selected_image(repo;kind="boxer",probe)
     baked=Base.PkgId(Base.UUID("88b3fba0-1c22-4de6-bb97-e868cbde42d1"),"WingFEGen") in keys(Base.loaded_modules)
     selected!==nothing&&abspath(loaded)==abspath(selected)&&return nothing
     if selected===nothing&&!baked
-        if !(reason in ("image_missing","disabled"))
-            hint=isempty(strip(get(ENV,"JFEM_PACKAGE_ENV",""))) ? "run setup" : "run JFEM_BUILD_SYSIMAGE (build_prepared_sysimage.jl)"
-            println("JFEM-Boxer: local image skipped ($reason); $hint to refresh it.")
-        end
+        println(JFEMRuntimeImages.loading_message(reason;name="JFEM-Boxer"))
         return nothing
     end
     println(selected===nothing ? "JFEM-Boxer: restarting without stale application image ($reason)." : "JFEM-Boxer: using verified shared sysimage.")

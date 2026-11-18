@@ -21,8 +21,19 @@ test('Every generated component family resolves to its physical rib/bay key',()=
  const c=context(),expected={8:'front_upper_cap',9:'front_lower_cap',10:'rear_upper_cap',11:'rear_lower_cap',12:'leading_upper_skin',13:'leading_lower_skin',14:'leading_rib',15:'rib_web',16:'rib_stiffener',17:'front_web',18:'rear_web'};
  for(const[family,part]of Object.entries(expected)){const d=api.resolve(c,Number(family)*1000000+2);assert.equal(d.editable,true,part);assert.equal(d.key,part+':2');assert.equal(d.parameter,'properties.components');}
 });
-test('Imported, unavailable, shared and nonexistent regions remain explicitly uneditable',()=>{
- const c=context();assert.match(api.resolve({...c,readOnly:true},6000001).reason,/Imported/);assert.match(api.resolve({...c,data:{imported_deck:{}}},6000001).reason,/Imported/);assert.match(api.resolve(c,99999999).reason,/absent/);assert.equal(api.resolve(c,13).editable,false);assert.equal(api.resolve(c,1).editable,false);assert.equal(api.resolve({...c,updating:true},6000001).editable,false);
+test('Imported, unavailable, unrelated shared and nonexistent regions remain explicitly uneditable',()=>{
+ const c=context();assert.match(api.resolve({...c,readOnly:true},6000001).reason,/Imported/);assert.match(api.resolve({...c,data:{imported_deck:{}}},6000001).reason,/Imported/);assert.match(api.resolve(c,99999999).reason,/absent/);assert.equal(api.resolve(c,1).editable,false);assert.equal(api.resolve({...c,updating:true},6000001).editable,false);
+});
+test('Shared P13 runouts have an explicit square editor, SI persistence and unchanged normal stringers',()=>{
+ const c=context(),before=clone(c.parameters),d=api.resolve(c,13);assert(d.editable);assert.equal(d.kind,'runouts');assert.equal(d.key,'stringer_runout:1');assert.equal(d.parameter,'properties.components');assert.match(d.note,/every actual P13/);assert.equal(d.values.side,Math.sqrt(5e-6));assert.equal(d.minimums[0].minimum,Math.sqrt(5e-6));assert.throws(()=>api.prepare(c,13,{side:'2'}),/minimum gauge/);
+ const patch=api.prepare(c,13,{side:'3',material:'2'});assert.deepEqual(patch.rows,[{key:'stringer_runout:1',side:.003,material:2}]);c.parameters[patch.parameter]=patch.rows;
+ const saved=JSON.parse(JSON.stringify(c)),again=api.resolve(saved,13);assert.equal(again.values.side,.003);assert.equal(again.values.material,2);assert.equal(c.parameters['properties.stringer_height'],before['properties.stringer_height']);assert.deepEqual(c.parameters['properties.panels'],before['properties.panels']);assert.deepEqual(api.prepare(c,13,{side:'',material:''}).rows,[]);
+});
+test('P13 displays a clean minimum and typing it restores exact inheritance without lowering the physical gauge',()=>{
+ const c=context(),format=require('../web/numeric_inputs.js').format,d=api.resolve(c,13);assert.equal(format(d.inherited.side*1000),'2.236');
+ const typed=api.validate(d,{side:'2.236'});assert(typed.valid);assert.equal(typed.values.side,Math.sqrt(5e-6));assert.equal(api.validate(d,{side:'2.235'}).valid,false);
+ c.parameters['properties.components']=[{key:'stringer_runout:1',side:.003}];const patch=api.prepare(c,13,{side:'2.236'});assert.deepEqual(patch.rows,[]);c.parameters[patch.parameter]=patch.rows;assert.equal(api.resolve(c,13).values.side,Math.sqrt(5e-6));
+ for(const value of[2.236067977,12.345678,1.234567e-9]){const text=format(value),mantissa=text.split('e')[0];assert((mantissa.split('.')[1]||'').length<=3);assert(mantissa.replace(/[-.]/g,'').replace(/^0+/,'').length<=5);assert(Number(text)!==0);}
 });
 test('Below-minimum values remain invalid without mutating canonical parameters',()=>{
  const c=context(),before=clone(c),d=api.resolve(c,6000001),r=api.validate(d,{thickness:'2.9'});assert.equal(r.valid,false);assert.deepEqual(r.belowMinimumFields,['thickness']);assert.throws(()=>api.prepare(c,6000001,{thickness:'2.9'}),/minimum gauge/);assert.deepEqual(c,before);assert.equal(api.validate(d,{thickness:'3'}).valid,true);
@@ -62,6 +73,14 @@ test('Editor summarizes every failing mode and load case, not only the governing
  const r=api.assessmentSummary(report,6000001);assert(r.available&&r.estimated);assert.equal(r.mode,'Skin buckling');assert.deepEqual(r.failures.map(a=>a.value),[.4,.8,.9]);assert.equal(r.failures[1].caseLabel,'Case 1');assert.equal(api.assessmentSummary(report,1).available,false);
  report.rows[0].complete=false;report.rows[0].reserveFactor=null;report.rows[0].reserveFactorReason='Missing recovery';report.rows[0].combined.assessments.push({complete:false,modeLabel:'Web',reason:'Missing load case'});
  const partial=api.assessmentSummary(report,6000001);assert.equal(partial.available,false);assert.equal(partial.failures.length,3);assert.match(partial.incomplete[0],/Missing load case/);
+});
+test('A no-demand alias sentinel does not outrank a calculated RF above 99',()=>{
+ const report={failureMode:'minimum_rf',rows:[
+  {pid:19000001,complete:true,reserveFactor:99,combined:{sentinel:true,governingModeLabel:'No demand',assessments:[{failureMode:'von_mises',scopeKey:'property:19000001',complete:true,noDemand:true,reserveFactor:99}]}},
+  {pid:20000001,complete:true,reserveFactor:120,combined:{governingModeLabel:'Von Mises stress',assessments:[{failureMode:'von_mises',scopeKey:'property:20000001',complete:true,noDemand:false,reserveFactor:120}]}}
+ ]};
+ const summary=api.assessmentSummary(report,19000001,{propertyIds:[19000001,20000001]});
+ assert(summary.available);assert.equal(summary.value,120);assert.equal(summary.mode,'Von Mises stress');assert.equal(summary.checks.length,2);
 });
 console.log(JSON.stringify({passed:true,checks}));
 module.exports={context};

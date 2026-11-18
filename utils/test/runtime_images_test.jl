@@ -3,6 +3,97 @@ include(joinpath(@__DIR__,"..", "..","utils","julia_tools","runtime_images.jl"))
 const RuntimeImages=JFEMRuntimeImages
 const ImageReceipt=RuntimeImages.JFEMSysimageProvenance
 
+@testset "Ordinary package loading has bounded, overridable compilation defaults" begin
+    environment=Dict{String,String}()
+    @test RuntimeImages.configure_compilation_defaults!(environment)===environment
+    @test environment==Dict("JULIA_NUM_PRECOMPILE_TASKS"=>"1","JULIA_IMAGE_THREADS"=>"1",
+        "JFEM_SOL105_PRECOMPILE_WORKLOAD"=>"false")
+    explicit=Dict("JULIA_NUM_PRECOMPILE_TASKS"=>"3","JULIA_IMAGE_THREADS"=>"4",
+        "JFEM_SOL105_PRECOMPILE_WORKLOAD"=>"true")
+    saved=copy(explicit)
+    @test RuntimeImages.configure_compilation_defaults!(explicit)==saved
+    args=["model with spaces !.bdf","--no-sysimage","--port","9000"]
+    @test RuntimeImages.consume_no_sysimage_option!(args,environment)===args
+    @test args==["model with spaces !.bdf","--port","9000"]
+    @test environment["JFEM_NO_SYSIMAGE"]=="1"
+    @test occursin("optional",RuntimeImages.loading_message("project_changed"))
+    @test !occursin("run setup",RuntimeImages.loading_message("image_missing"))
+end
+
+@testset "Optional-image preflight timeout closes only its own probe" begin
+    mktempdir() do root
+        # Use a real read-only image as the eligibility input. The injected
+        # runner below starts an ordinary sleeping Julia process, never an
+        # intentionally malformed native library.
+        image=unsafe_string(Base.JLOptions().image_file)
+        @test isfile(image)
+        child=Ref{Any}(nothing)
+        function sleeper(command)
+            @test image in command.exec
+            process_command=`$(RuntimeImages.bare_julia()) --startup-file=no --threads=1 -e "sleep(60)"`
+            Sys.iswindows()&&(process_command=Cmd(process_command;windows_hide=true))
+            child[]=run(pipeline(ignorestatus(process_command);stdout=devnull,stderr=devnull);wait=false)
+        end
+        started=time()
+        @test !RuntimeImages.image_loadable(image;timeout=.25,runner=sleeper)
+        @test process_exited(child[])
+        @test time()-started<15
+        invalid_header=joinpath(root,"invalid-header.txt")
+        write(invalid_header,"invalid binary header")
+        loader_called=Ref(false)
+        @test !RuntimeImages.image_loadable(invalid_header;runner=command->begin
+            loader_called[]=true
+            error("invalid headers must never start a loader")
+        end)
+        @test !loader_called[]
+    end
+end
+
+@testset "Launch falls back before application execution when an image is absent or unusable" begin
+    repo=normpath(joinpath(@__DIR__,"..",".."))
+    mktempdir() do work
+        root=joinpath(work,"checkout with spaces !");helpers=joinpath(root,"utils","julia_tools")
+        mkpath(helpers);mkpath(joinpath(root,"src"))
+        for file in ("launch.jl","runtime_images.jl","sysimage_provenance.jl","compilation_defaults.jl")
+            cp(joinpath(repo,"utils","julia_tools",file),joinpath(helpers,file))
+        end
+        write(joinpath(root,"Project.toml"),"[deps]\n")
+        write(joinpath(root,"Manifest.toml"),"julia_version = \"$(VERSION)\"\nmanifest_format = \"2.0\"\n")
+        source=joinpath(root,"src","OpenJFEM.jl");write(source,"# fixture\n")
+        image=RuntimeImages.image_path(root);mkpath(dirname(image))
+        target=joinpath(root,"capture.jl")
+        marker=joinpath(root,"target_count.txt")
+        write(target,"open("*repr(marker)*",\"a\") do io;println(io,\"once\");end\n"*
+            "println(\"CAPTURE:\",join(ARGS,\"|\"));println(\"CUSTOM:\",unsafe_string(Base.JLOptions().image_file)==ARGS[1]);"*
+            "println(\"COMPILE:\",join((get(ENV,k,\"missing\") for k in (\"JULIA_NUM_PRECOMPILE_TASKS\",\"JULIA_IMAGE_THREADS\",\"JFEM_SOL105_PRECOMPILE_WORKLOAD\")),\"|\"));exit(7)\n")
+        capture()=ImageReceipt.write_sidecar(root,image,ImageReceipt.input_hashes(root),ImageReceipt.workload_hashes(String[],"fixture"))
+        for (index,state) in enumerate(("missing","invalid_receipt","stale","invalid_binary_header","disabled"))
+            if state!="missing"
+                write(image,"not a loadable binary; receipt fixture")
+                capture()
+                if state=="invalid_receipt"
+                    write(ImageReceipt.sidecar(image),"not valid [toml\n")
+                elseif state=="stale"
+                    write(source,"# changed source\n")
+                end
+            end
+            args=state=="disabled" ? ["--no-sysimage"] : String[]
+            command=`$(RuntimeImages.bare_julia()) --startup-file=no --threads=1 $(joinpath(helpers,"launch.jl")) solver $root $target $image $(args) --fixture`
+            envcommand=addenv(command,"JFEM_NO_SYSIMAGE"=>nothing,"JULIA_NUM_PRECOMPILE_TASKS"=>nothing,
+                "JULIA_IMAGE_THREADS"=>nothing,"JFEM_SOL105_PRECOMPILE_WORKLOAD"=>nothing)
+            Sys.iswindows()&&(envcommand=Cmd(envcommand;windows_hide=true))
+            io=IOBuffer();result=run(pipeline(ignorestatus(envcommand);stdout=io,stderr=io));output=String(take!(io))
+            @test result.exitcode==7
+            @test occursin("CUSTOM:false",output)
+            @test occursin("COMPILE:1|1|false",output)
+            @test occursin("CAPTURE:"*image*"|--fixture",output)
+            @test length(readlines(marker))==index
+            @test occursin("normal Julia package loading",output)
+            state=="invalid_binary_header"&&(@test occursin("image_load_failed",output))
+        end
+    end
+end
+
 module CanonicalBoxerBootstrap
 include(joinpath(@__DIR__,"..", "..","APPS","JFEM-Boxer","src","runtime_bootstrap.jl"))
 end
@@ -178,7 +269,7 @@ end
         mktempdir() do temp
             root=joinpath(temp,"Checkout with spaces ! (fixture)");mkpath(root)
             target=joinpath(root,"utils","julia_tools");mkpath(target)
-            for file in ("runtime_images.jl","sysimage_provenance.jl","launch.jl")
+            for file in ("runtime_images.jl","compilation_defaults.jl","sysimage_provenance.jl","launch.jl")
                 cp(joinpath(repo,"utils","julia_tools",file),joinpath(target,file))
             end
             solver=joinpath(root,"APPS","JFEM-solver","Windows");mkpath(solver)

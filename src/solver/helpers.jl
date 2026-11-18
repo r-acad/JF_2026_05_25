@@ -265,9 +265,15 @@ end
 # CBAR V-vector resolution (G0 grid point or direct vector)
 function resolve_bar_vref(bar, p_ga::SVector{3,Float64}, id_map, node_coords, node_R=nothing; model=nothing)
     g0 = get(bar, "G0", 0)
-    if g0 > 0 && haskey(id_map, g0)
-        ig0 = id_map[g0]
-        p_g0 = SVector{3}(node_coords[ig0,1], node_coords[ig0,2], node_coords[ig0,3])
+    if g0 > 0
+        if id_map !== nothing && node_coords !== nothing && haskey(id_map, g0)
+            ig0 = id_map[g0]
+            p_g0 = SVector{3}(node_coords[ig0,1], node_coords[ig0,2], node_coords[ig0,3])
+        elseif model !== nothing && haskey(get(model, "GRIDs", Dict()), string(g0))
+            p_g0 = SVector{3,Float64}(model["GRIDs"][string(g0)]["X"])
+        else
+            throw(ArgumentError("Beam orientation GRID G0=$g0 is unavailable."))
+        end
         return p_g0 - p_ga
     else
         v_raw = bar["V"]
@@ -280,9 +286,7 @@ function resolve_bar_vref(bar, p_ga::SVector{3,Float64}, id_map, node_coords, no
         # coordinate system. G0 above is a point and is already resolved in
         # BASIC coordinates. End-offset flags and WA/WB are independent.
         if flag == 'G'
-            if node_R !== nothing
-                return SVector{3,Float64}(node_R[id_map[bar["GA"]]] * v)
-            elseif model !== nothing
+            if model !== nothing
                 grid = get(get(model, "GRIDs", Dict()), string(bar["GA"]), nothing)
                 cd = grid === nothing ? 0 : Int(get(grid, "CD", 0))
                 if cd != 0
@@ -291,6 +295,8 @@ function resolve_bar_vref(bar, p_ga::SVector{3,Float64}, id_map, node_coords, no
                         "$(get(bar, "TYPE", "Beam")) $(get(bar, "ID", "?")): GA $(bar["GA"]) refers to undefined displacement coordinate system $cd."))
                     return SVector{3,Float64}(_node_dof_rotation(cord, p_ga) * v)
                 end
+            elseif node_R !== nothing && id_map !== nothing
+                return SVector{3,Float64}(node_R[id_map[bar["GA"]]] * v)
             end
         end
         return v
@@ -327,16 +333,51 @@ end
     return @SMatrix [0.0 -w[3] w[2]; w[3] 0.0 -w[1]; -w[2] w[1] 0.0]
 end
 
-# Get CBAR offset vectors and effective endpoints
-function bar_offsets_and_endpoints(bar, p1::SVector{3,Float64}, p2::SVector{3,Float64})
+# Resolve both end offsets to BASIC before applying the rigid-arm DOF map.
+# OFFT=O uses the orientation frame on the original GA--GB line. The element
+# axes are subsequently constructed on the offset endpoints by each caller.
+function bar_offsets_and_endpoints(bar, p1::SVector{3,Float64}, p2::SVector{3,Float64};
+                                   model=nothing, id_map=nothing, node_coords=nothing,
+                                   node_R=nothing)
     wa_raw = get(bar, "WA", [0.0, 0.0, 0.0])
     wb_raw = get(bar, "WB", [0.0, 0.0, 0.0])
     wa = SVector{3}(wa_raw...)
     wb = SVector{3}(wb_raw...)
+    all(isfinite, wa) && all(isfinite, wb) ||
+        throw(ArgumentError("Beam end offsets must be finite."))
     has_offset = (wa[1]^2+wa[2]^2+wa[3]^2) > 1e-20 || (wb[1]^2+wb[2]^2+wb[3]^2) > 1e-20
-    p1_eff = has_offset ? p1 + wa : p1
-    p2_eff = has_offset ? p2 + wb : p2
-    return wa, wb, has_offset, p1_eff, p2_eff
+    has_offset || return wa, wb, false, p1, p2
+
+    offt = uppercase(strip(string(get(bar, "OFFT", "GGG"))))
+    isempty(offt) && (offt = "GGG")
+    length(offt) == 3 && all(flag -> flag in ('B', 'G', 'O'), offt) &&
+        first(offt) in ('B', 'G') ||
+        throw(ArgumentError("Beam OFFT must specify a B/G orientation and B/G/O end-offset frames."))
+    offset_axes = if 'O' in offt[2:3]
+        vx, vy, vz = beam_section_axes(bar, p1, p2-p1, id_map, node_coords, node_R; model=model)
+        hcat(vx, vy, vz)
+    else
+        nothing
+    end
+
+    function basic_offset(vector, flag, grid_id, position)
+        flag == 'B' && return vector
+        flag == 'O' && return SVector{3,Float64}(offset_axes * vector)
+        if model !== nothing
+            grid = get(get(model, "GRIDs", Dict()), string(grid_id), nothing)
+            cd = grid === nothing ? 0 : Int(get(grid, "CD", 0))
+            cd == 0 && return vector
+            cord = get(get(model, "CORDs", Dict()), string(cd), nothing)
+            cord === nothing && throw(ArgumentError("Beam GRID $grid_id references undefined displacement coordinate system $cd."))
+            return SVector{3,Float64}(_node_dof_rotation(cord, position) * vector)
+        elseif node_R !== nothing && id_map !== nothing
+            return SVector{3,Float64}(node_R[id_map[grid_id]] * vector)
+        end
+        return vector
+    end
+    wa = basic_offset(wa, offt[2], get(bar, "GA", 0), p1)
+    wb = basic_offset(wb, offt[3], get(bar, "GB", 0), p2)
+    return wa, wb, true, p1+wa, p2+wb
 end
 
 @inline function _subcase_temp_load_sid(sub::AbstractDict, cc::AbstractDict)
@@ -1950,7 +1991,7 @@ function shell_projected_reference_offset_map(coords,coords_3d,zoffs;snorm_pq=no
             "Projected reference-plane offsets require normal-moment SNORM"))
     end
     P=FEM.quad4_physical_displacement_map(coords,coords_3d,snorm_pq)
-    Z=Matrix{Float64}(I,24,24)
-    shell_reference_offset_transform!(Z,Float64(zoffs))
+    Z=Matrix{promote_type(eltype(P),typeof(zoffs))}(I,24,24)
+    shell_reference_offset_transform!(Z,zoffs)
     return P\(Z*P)
 end

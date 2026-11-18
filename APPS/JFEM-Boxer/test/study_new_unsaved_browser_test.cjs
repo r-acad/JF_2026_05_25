@@ -20,7 +20,7 @@ schema.defaults=JSON.parse(fs.readFileSync(path.join(fixture,'params.json'),'utf
   await page.route('http://127.0.0.1:43988/**',async route=>{
    const u=new URL(route.request().url()),data=route.request().method()==='POST'?route.request().postDataJSON():null;if(u.pathname.startsWith('/api/'))requests.push(u.pathname);
    if(u.pathname==='/api/input')return route.fulfill({json:schema});
-   if(u.pathname==='/api/validate_workspace')return route.fulfill({json:{ok:true,parameters:data}});
+   if(['/api/validate_workspace','/api/restore_workspace'].includes(u.pathname))return route.fulfill({json:{ok:true,parameters:data}});
    if(['/api/generate','/api/prepare_workspace'].includes(u.pathname))return route.fulfill({body:fs.readFileSync(path.join(fixture,'payload.msgpack')),contentType:'application/msgpack'});
    if(u.pathname==='/api/activity')return route.fulfill({json:{ok:true,events:[]}});
    if(u.pathname==='/api/last_deck')return route.fulfill({json:{ok:true,available:false}});
@@ -31,6 +31,10 @@ schema.defaults=JSON.parse(fs.readFileSync(path.join(fixture,'params.json'),'utf
   });
   await page.goto('http://127.0.0.1:43988/');await page.locator('.startup-study-dialog [data-study-identification=text]').fill('Original assignment');await page.locator('.startup-study-dialog [data-choice=new]').click();
   await page.waitForFunction(()=>state.autoMeshReady&&!state.workspaceBusy&&!state.meshRequestInFlight,null,{timeout:120000});assert.equal(await unsaved().count(),0);
+  assert(requests.includes('/api/restore_workspace'));assert(!requests.includes('/api/validate_workspace'));
+  assert(!requests.includes('/api/prepare_workspace'));assert(!requests.includes('/api/generate'));
+  assert.equal(await page.evaluate(()=>state.data),null);
+  checks.push('New Study restores built-in defaults without physical validation or FEM generation.');
   await page.evaluate(()=>{
    state.autoMeshEnabled=false;document.getElementById('auto-mesh').checked=false;cancelAutoMeshTimer();window.savedFiles=[];window.pickerCalls=0;window.cancelPicker=false;window.failWrite=false;window.nextName='Original.wingfem.json';
    window.makeHandle=name=>({name,kind:'file',requestPermission:async()=> 'granted',createWritable:async()=>({write:async text=>{if(window.failWrite)throw Error('Fixture disk full');window.savedFiles.push({name,text,epoch:state.studyEpoch});},close:async()=>{},abort:async()=>{}})});

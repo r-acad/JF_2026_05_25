@@ -15,4 +15,12 @@
 #log .numerical {color:#83c6ff;}
 #log .preparation,#log .compilation {color:#ffc078;}
 @keyframes activity-spin { to { transform:rotate(360deg); } }
-@media(prefers-reduced-motion:reduce) { .activity-spinner { animation-duration:3s; } }
+.activity-inline { display:grid; grid-template-columns:18px minmax(0,1fr) auto; gap:8px; align-items:center; min-width:0; margin:8px 0; }
+.activity-inline > .activity-inline-message { min-width:0; margin:0; }
+.activity-inline > .activity-spinner { width:18px; height:18px; border-width:2px; border-color:#7093ad; border-top-color:#d7f1ff; }
+.activity-inline-elapsed { padding:3px 7px; border:1px solid #4d7592; border-radius:5px; background:#183d58; color:#e2f3ff; white-space:nowrap; font-size:12px; font-variant-numeric:tabular-nums; }
+.activity-inline[data-running="false"] { display:block; }
+.activity-inline[data-running="false"] > :is(.activity-spinner,.activity-inline-elapsed) { display:none; }
+.activity-inline:has(> .activity-inline-message[hidden]) { display:none; }
+@media(max-width:520px) { .activity-inline { grid-template-columns:18px minmax(0,1fr); } .activity-inline-elapsed { grid-column:2; justify-self:start; } }
+@media(prefers-reduced-motion:reduce) { .activity-spinner { animation:none; border-style:dotted; } }

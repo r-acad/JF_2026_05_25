@@ -10,9 +10,14 @@ function _report_card_inventory(cards)
         "SPC1", "SPC", "SPCADD", "SPCD", "MPC", "MPCADD", "LOAD",
         "CONM2", "CONM1", "CMASS1", "CMASS2", "PMASS",
         "CTETRA", "CHEXA", "CPENTA",
-        "EIGRL", "EIGB", "NLPARM", "TEMP", "TEMPD", "DMIG", "PARAM"])
+        "EIGRL", "EIGB", "NLPARM", "TEMP", "TEMPD", "DMIG", "PARAM", "MDLPRM"])
     unprocessed = Dict{String,Int}()
     for (cname, clist) in cards
+        if cname=="MDLPRM"
+            names=setdiff(Set(keys(ReferenceParser.extract_mdlprm(clist))),Set(["TWBRBML"]))
+            isempty(names) || println("    WARNING: retained but unimplemented MDLPRM options: $(join(sort!(collect(names)), ", "))")
+            continue
+        end
         if cname in ("ACCEL","FORCE1","FORCE2","MOMENT1","MOMENT2")
             println("    $cname: $(length(clist)) retained unsupported load card(s); selecting a nonzero contribution raises a capability error.")
             continue

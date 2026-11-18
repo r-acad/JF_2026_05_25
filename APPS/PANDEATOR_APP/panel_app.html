@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JFEM Stiffened Panel - Buckling</title>
+<title>PANDEATOR ? Stiffened-panel buckling and adjoints</title>
 <!-- Vendored locally (APPS/PANDEATOR_APP/vendor/) so the app loads fast and works fully offline.
      Babylon = minified production build; msgpack exposes the global `MessagePack`.
      When served by panel_server.jl these resolve to /vendor/...; opening the file
@@ -11,6 +11,8 @@
 <script src="vendor/babylon.js"></script>
 <script src="../jfem_graphics.js"></script>
 <script src="vendor/msgpack.min.js"></script>
+<script src="panel_workflow.js"></script>
+<link rel="stylesheet" href="panel_workflow.css">
 <style>
   :root { --bg:#1b1b1f; --panel:#26262c; --accent:#00d0ff; --txt:#ddd; }
   body,html{margin:0;padding:0;height:100%;width:100%;overflow:hidden;font-family:'Segoe UI',sans-serif;background:var(--bg);color:var(--txt);}
@@ -96,7 +98,7 @@
 <body>
 <div id="app">
   <div id="side">
-    <h1>JFEM Buckling &amp; FE Analysis</h1>
+    <h1>PANDEATOR ? Stiffened-panel buckling</h1>
 
     <h2>Analysis source</h2>
     <div class="seg" id="srcToggle">
@@ -125,29 +127,29 @@
 
     <div id="panelInputs">
     <h2>Geometry (cylindrical)</h2>
-    <div class="hint">Curvature about the y-direction; stringer runs along x at mid-width.</div>
+    <div class="hint">The stringer runs along x at mid-width. Radius R = 0 creates a flat panel; positive R creates a cylinder about x.</div>
     <div class="row">
-      <div><label>Radius R (mm)</label><input id="R" type="number" value="1000" step="any"></div>
+      <div><label>Radius R (mm)</label><input id="R" type="number" value="1000" step="any" min="0" title="Cylinder radius in mm. Use 0 for a flat panel; positive radius bends the skin across its width."></div>
       <div><label>Arc width b (mm)</label><input id="width" type="number" value="600" step="any"></div>
     </div>
-    <div class="hint">Arc width = projected chord span in y (we treat it as developed arc length).</div>
+    <div class="hint">Width is the developed skin arc length, not the projected chord. The same physical footprint is used in mesh, loads and reports.</div>
     <div class="row">
       <div><label>Length L, x (mm)</label><input id="length" type="number" value="800" step="any"></div>
-      <div><label>Stringer web height h (mm)</label><input id="bladeH" type="number" value="40" step="any"></div>
+      <div><label>Stringer web height h (mm)</label><input id="bladeH" type="number" value="40" step="any" min="0" title="Blade height measured from the skin reference surface toward the inner side. Use 0 for a bare panel."></div>
     </div>
-    <div><label>Attached flange (foot) width w (mm)</label><input id="footW" type="number" value="50" step="any"></div>
-    <div class="hint">Web = the blade standing on the inner (+z) side; flange = the foot strip bonded flat to the skin crown.</div>
+    <div><label>Attached-flange footprint width w (mm)</label><input id="footW" type="number" value="50" step="any" min="0" title="Developed width of added flange material bonded to the skin. Zero creates a blade-only stringer."></div>
+    <div class="hint">The flange footprint replaces the covered skin cells with a single combined skin + flange shell. The web shares conforming nodes; there is no independent overlapping foot plate.</div>
 
     <h2>Mesh</h2>
     <div class="row">
       <div><label>Elems along x</label><input id="nx" type="number" value="40" step="1" min="2"></div>
-      <div><label>Elems across half-skin</label><input id="ny" type="number" value="12" step="1" min="1"></div>
+      <div><label>Elements in each outside half-gap</label><input id="ny" type="number" value="12" step="1" min="1"></div>
     </div>
     <div class="row">
       <div><label>Elems up web</label><input id="nz" type="number" value="6" step="1" min="1"></div>
-      <div><label>Elems across foot</label><input id="nf" type="number" value="4" step="1" min="1"></div>
+      <div><label>Elements across flange footprint</label><input id="nf" type="number" value="4" step="2" min="2" title="Elements across the full flange footprint. An even count includes the shared web centerline."></div>
     </div>
-    <div class="hint">Skin uses 2x(ny) elements across width; foot/web sit on the mid line.</div>
+    <div class="hint">The skin mesh conforms exactly to both flange edges and the web centerline. Outside the flange, each half-gap uses the requested transverse count.</div>
 
     <h2>Material</h2>
     <div class="seg">
@@ -159,7 +161,7 @@
         <div><label>E (MPa)</label><input id="E" type="number" value="71000" step="any"></div>
         <div><label>nu</label><input id="nu" type="number" value="0.33" step="any"></div>
       </div>
-      <div><label>density rho (t/mm^3)</label><input id="rho" type="number" value="2.7e-9" step="any"></div>
+
     </div>
     <div id="compBox" style="display:none">
       <div class="row">
@@ -173,28 +175,39 @@
       <div><label>ply thickness t_ply (mm)</label><input id="tply" type="number" value="0.18" step="any"></div>
     </div>
 
+    <div><label>Density ρ (tonne/mm³)</label><input id="rho" type="number" value="2.7e-9" step="any" title="Material density in tonne/mm³, consistent with N, mm and seconds. For example, aluminium is about 2.7e-9 tonne/mm³ (2700 kg/m³)."></div>
+
     <h2 id="isoThickHdr">Thicknesses (isotropic)</h2>
     <div id="isoThick">
       <div class="row">
         <div><label>Skin t (mm)</label><input id="tSkin" type="number" value="2.0" step="any"></div>
         <div><label>Web t (mm)</label><input id="tWeb" type="number" value="2.0" step="any"></div>
       </div>
-      <div><label>Foot t (mm)</label><input id="tFoot" type="number" value="2.0" step="any"></div>
+      <div><label>Added flange t (mm)</label><input id="tFoot" type="number" value="2.0" step="any" title="Added flange thickness only. The combined footprint shell contains this plus the skin thickness."></div>
     </div>
     <div id="compLam" style="display:none">
       <label>Skin laminate</label><input id="lamSkin" type="text" value="(45/-45/0/90)S">
       <label>Web laminate</label><input id="lamWeb" type="text" value="(45/-45/0/90)S">
-      <label>Foot laminate</label><input id="lamFoot" type="text" value="(45/-45/0/90)S">
+      <label>Added flange laminate</label><input id="lamFoot" type="text" value="(45/-45/0/90)S">
+      <div class="row"><div><label>Skin ply-thickness scale</label><input id="scaleSkin" type="number" value="1" min="0.000001" step="any" title="Multiply each skin ply thickness while preserving its material, order and angle."></div><div><label>Web ply-thickness scale</label><input id="scaleWeb" type="number" value="1" min="0.000001" step="any" title="Multiply each web ply thickness; ply count and angles stay fixed for sensitivity calculations."></div></div>
+      <label>Added flange ply-thickness scale</label><input id="scaleFoot" type="number" value="1" min="0.000001" step="any" title="Multiply each added flange ply thickness. The underlying skin stack is controlled separately.">
       <div class="hint">Notation: <code>(45/-45/0/90)S</code> full-symmetric, <code>(...)$</code> mid-plane symmetric, <code>(...)</code> as-is. Repeat with <code>2(45/-45)</code>.</div>
     </div>
 
-    <h2>Loads (force flow, N/mm)</h2>
-    <div><label>Axial compression Nx (N/mm, +compressive)</label><input id="Nx" type="number" value="200" step="any"></div>
-    <div><label>Shear flow Nxy (N/mm)</label><input id="Nxy" type="number" value="0" step="any"></div>
-    <div><label>Transverse compression Ny (N/mm, +compressive)</label><input id="Ny" type="number" value="0" step="any"></div>
+    <h2>Supports and shell reference</h2>
+    <label>Boundary-condition preset</label><select id="boundary_mode" title="Skin perimeter normal displacement is restrained, web ends have fork support, and minimal anchors remove in-plane rigid motion. Other rotations remain free."><option value="simply_supported">Simply supported · minimal anchors</option></select>
+    <label class="panel-variable"><input id="shell_offsets" type="checkbox" title="Represent the combined skin/flange physical stack toward the inner side using shell reference offsets. The web shares the same conforming attachment line."> Use physical shell offsets</label>
+    <div class="hint">Offsets place the added flange toward the inner side. The combined laminate and web attachment use the same shared reference mesh as Boxer.</div>
+
+    <h2>LIMIT loads (force flow, N/mm)</h2>
+    <div><label>Axial compression Nx (N/mm, +compressive)</label><input id="Nx" type="number" value="200" step="any" title="Positive axial compression. Total end resultant is Nx ? skin width, shared by the section axial stiffness; it is not applied once per skin/web/flange."></div>
+    <div><label>Shear flow Nxy (N/mm)</label><input id="Nxy" type="number" value="0" step="any" title="Balanced complementary shear tractions on all four edges. The canonical report checks resultant force and moment balance."></div>
+    <div><label>Chordwise compression Ny (N/mm, +compressive)</label><input id="Ny" type="number" value="0" step="any" title="Balanced BASIC-Y compression on the chordwise edges. On a curved panel this has local normal and tangent components; no hidden radial pressure is added."></div>
 
     <h2>Buckling</h2>
     <div><label>Modes to extract (SOL 105)</label><input id="nModes" type="number" value="8" step="1" min="1"></div>
+    <label>Buckling policy factor</label><input id="buckling_policy_factor" type="number" value="1" min="0.000001" step="any" title="Buckling is assessed against LIMIT loads ? this factor. The raw SOL 105 eigenvalue is ?; the reported reserve factor is RF = ? / policy factor. Loads are not scaled twice.">
+    <div class="hint">Mode shapes retain the raw SOL 105 load factor λ. RF tables assess the chosen buckling-policy load level.</div>
     </div><!-- /#panelInputs -->
 
     <h2>Run</h2>
@@ -304,6 +317,7 @@ function serverBase(){
 }
 const num = id => parseFloat($(id).value);
 const int = id => Math.max(1, Math.round(parseFloat($(id).value)));
+let panelWorkflow=null;
 function setStatus(msg, cls){ const s=$("status"); s.textContent=msg; s.className=cls||""; }
 
 // ---- solve-progress overlay: live elapsed-seconds counter ------------------
@@ -389,419 +403,17 @@ function syncMatUI(){
 document.querySelectorAll('input[name=mat]').forEach(r=>r.addEventListener('change',syncMatUI));
 syncMatUI();
 
-// Reference COMMA free-field formatter.
-// OpenJFEM's parser (get_reference_fields_from_line) splits on commas and maps
-// data field 1 -> parser index 3, so "CARD,d1,d2,..." is the safe form used by
-// the validation probe decks. We emit real numbers with a decimal point so
-// the parser treats them as reals, never accidental integers.
-function rstr(x){
-  if (x === "" || x === null || x === undefined) return "";
-  if (typeof x === "number"){
-    if (!isFinite(x)) return "0.0";
-    if (x === 0) return "0.0";
-    // 6 significant digits, always with a decimal point or exponent
-    let s = x.toPrecision(6);
-    // trim trailing zeros in the mantissa but keep a decimal point
-    if (s.indexOf('e') < 0 && s.indexOf('E') < 0){
-      if (s.indexOf('.') >= 0) s = s.replace(/0+$/,'').replace(/\.$/,'.0');
-      else s += '.0';
-    }
-    return s;
-  }
-  return String(x);
-}
-function istr(x){ return String(x); }  // integer field, verbatim
-
-// =====================================================================
-//  PART 2 - laminate notation parser
-//  (45/-45/0/90)S  -> full symmetric (mirror all)
-//  (45/-45/0/90)$  -> mid-plane symmetric (mirror excluding last ply)
-//  (45/-45/0/90)   -> as listed
-//  2(45/-45)       -> repeat group: 45,-45,45,-45
-// =====================================================================
-function parseLaminate(spec){
-  spec = (spec||"").trim();
-  if (!spec) throw new Error("empty laminate");
-  // outer symmetry suffix
-  let sym = null;
-  let m = spec.match(/^(.*)\)\s*([sS\$])?\s*$/);
-  // We will parse recursively for the body inside the OUTERMOST parens.
-  // Find matching outer parens.
-  let open = spec.indexOf('(');
-  if (open<0) { // bare list like 45/-45/0
-    return expandGroup(spec);
-  }
-  // detect leading repeat e.g. 2(...)  on the whole thing
-  let lead = spec.slice(0,open).trim();
-  let close = matchParen(spec, open);
-  let body = spec.slice(open+1, close);
-  let suffix = spec.slice(close+1).trim();
-  let plies = expandGroup(body);
-  let reps = lead? parseInt(lead,10) : 1;
-  if (reps>1){ let base=plies.slice(); plies=[]; for(let i=0;i<reps;i++) plies.push(...base); }
-  if (suffix==='S' || suffix==='s'){ plies = plies.concat(plies.slice().reverse()); }
-  else if (suffix==='$'){ plies = plies.concat(plies.slice(0,-1).reverse()); }
-  return plies;
-}
-function matchParen(s, open){
-  let depth=0;
-  for (let i=open;i<s.length;i++){ if(s[i]==='(')depth++; else if(s[i]===')'){depth--; if(depth===0) return i;} }
-  throw new Error("unbalanced parentheses in laminate");
-}
-// expand a slash-separated group that may contain nested groups / repeats
-function expandGroup(body){
-  let out=[]; let i=0;
-  while (i<body.length){
-    // skip separators / whitespace
-    while (i<body.length && (body[i]==='/'||body[i]===' '||body[i]===',')) i++;
-    if (i>=body.length) break;
-    // optional repeat count
-    let numStart=i;
-    while (i<body.length && /[0-9]/.test(body[i])) i++;
-    let maybeNum = body.slice(numStart,i);
-    if (i<body.length && body[i]==='('){
-      let close=matchParen(body,i);
-      let sub=expandGroup(body.slice(i+1,close));
-      let reps = maybeNum? parseInt(maybeNum,10):1;
-      for(let r=0;r<reps;r++) out.push(...sub);
-      i=close+1;
-      // possible symmetry suffix on a nested group
-      if (body[i]==='S'||body[i]==='s'){ /* nested S rarely used; treat group symmetric */ i++; }
-    } else {
-      // it was actually a (possibly signed) angle; backtrack to capture sign
-      i=numStart;
-      let aStart=i;
-      if (body[i]==='+'||body[i]==='-') i++;
-      while (i<body.length && /[0-9.]/.test(body[i])) i++;
-      let ang = body.slice(aStart,i).trim();
-      if (ang!=='' ) out.push(parseFloat(ang));
-    }
-  }
-  if (!out.length) throw new Error("no plies parsed from '"+body+"'");
-  return out;
-}
-
-// =====================================================================
-//  PART 3 - geometry generation (cylindrical -> rectangular GRID coords)
-//
-//  Coordinate convention (basic rectangular frame):
-//    x  : panel length direction (stringer axis)
-//    y,z: cross-section plane; the skin is an arc of radius R centered at
-//         (y=0, z=R) so the crown sits at z=0, opening downward.
-//  Cylindrical CORD2C (id 1): origin at (0,0,R), z-axis along +x (the
-//  cylinder axis), so R,theta map the curved skin. GRID CD=1 lets the
-//  curved edges be constrained in the radial/tangential frame.
-//
-//  theta measured from the crown; arc half-angle = (b/2)/R.
-// =====================================================================
-function buildGeometry(P){
-  const {R, width, length, bladeH, footW, nx, ny, nz, nf} = P;
-  const nodes = [];           // {id, x,y,z}
-  const nodeId = new Map();   // key -> id
-  let nextId = 1;
-  const grid = (key, x, y, z) => {
-    if (nodeId.has(key)) return nodeId.get(key);
-    const id = nextId++;
-    nodeId.set(key, id);
-    nodes.push({id, x, y, z});
-    return id;
-  };
-  const half = width/2;
-  const halfAng = half / R;                 // arc half-angle (rad)
-  // skin: nodes indexed [i in 0..nx][j in 0..2ny] across full arc
-  const nyTot = 2*ny;
-  const skin = [];
-  for (let i=0;i<=nx;i++){
-    const x = (i/nx)*length;
-    const col=[];
-    for (let j=0;j<=nyTot;j++){
-      const theta = -halfAng + (j/nyTot)*(2*halfAng);   // crown at theta=0
-      const y = R*Math.sin(theta);
-      const z = R - R*Math.cos(theta);                  // crown z=0, edges dip +z
-      col.push(grid(`s_${i}_${j}`, x, y, z));
-    }
-    skin.push(col);
-  }
-  const jMid = ny;            // crown column index where stringer attaches
-  // foot: shares the crown line of the skin; extends as flat strip in skin tangent.
-  // Model the foot as coincident with the skin crown band (width footW), i.e. a
-  // separate property region on the skin columns nearest the crown. For a clean
-  // T we instead add explicit foot nodes offset slightly is unnecessary; the
-  // foot is the skin strip [jMid-? .. jMid+?]. To keep it simple & physical we
-  // build the foot as its own flat plate bonded on top of the crown.
-  // --- Web: vertical blade rising from the crown toward the INNER side of the
-  // panel. The cylinder's curvature center is at z=+R, so "inner" (toward the
-  // center, the concave side) is +z. The skin crown sits at z=0 and its free
-  // edges dip to +z; the stringer stands up on the same (inner) side, +z.
-  const web = [];
-  for (let i=0;i<=nx;i++){
-    const x=(i/nx)*length;
-    const col=[];
-    for (let k=0;k<=nz;k++){
-      const z = (k/nz)*bladeH;        // inner side = +z (toward curvature center)
-      if (k===0){ col.push(skin[i][jMid]); }   // base shares the skin crown node
-      else col.push(grid(`w_${i}_${k}`, x, 0, z));
-    }
-    web.push(col);
-  }
-  // --- Foot: flat flange straddling the crown, width footW, in +/-y.
-  // Build as its own nodes so it can carry its own property; bonded to skin by
-  // sharing the crown column nodes at its centerline.
-  const foot = [];
-  const footHalf = footW/2;
-  for (let i=0;i<=nx;i++){
-    const x=(i/nx)*length;
-    const col=[];
-    for (let j=0;j<=nf;j++){
-      const yy = -footHalf + (j/nf)*footW;
-      if (Math.abs(yy)<1e-9){ col.push(skin[i][jMid]); }      // centerline shares skin crown
-      else col.push(grid(`f_${i}_${j}`, x, yy, 0));            // flat at crown z=0
-    }
-    foot.push(col);
-  }
-
-  // --- element connectivity (CQUAD4, 1-based node ids, CCW) ---
-  const quads = [];  // {n:[a,b,c,d], pid}
-  const PID_SKIN=1, PID_WEB=2, PID_FOOT=3;
-  for (let i=0;i<nx;i++) for (let j=0;j<nyTot;j++){
-    quads.push({n:[skin[i][j], skin[i+1][j], skin[i+1][j+1], skin[i][j+1]], pid:PID_SKIN});
-  }
-  for (let i=0;i<nx;i++) for (let k=0;k<nz;k++){
-    quads.push({n:[web[i][k], web[i+1][k], web[i+1][k+1], web[i][k+1]], pid:PID_WEB});
-  }
-  for (let i=0;i<nx;i++) for (let j=0;j<nf;j++){
-    quads.push({n:[foot[i][j], foot[i+1][j], foot[i+1][j+1], foot[i][j+1]], pid:PID_FOOT});
-  }
-
-  // edges for BC/loads
-  const edgeX0 = skin[0].slice();        // x=0   loaded edge (all skin cols)
-  const edgeX1 = skin[nx].slice();       // x=L   loaded edge
-  const edgeY0 = [], edgeY1 = [];        // lateral edges (j=0 and j=2ny) all i
-  for (let i=0;i<=nx;i++){ edgeY0.push(skin[i][0]); edgeY1.push(skin[i][nyTot]); }
-  // web also spans x edges (its top/bottom belongs to stringer ends)
-  const webX0=web[0].slice(), webX1=web[nx].slice();
-  const footX0=foot[0].slice(), footX1=foot[nx].slice();
-
-  // ---- corner nodes (for a minimal statically-determinate 3-2-1 restraint) ----
-  // The four skin corners. We pin in-plane rigid-body motion at the corners ONLY
-  // (never an interior line - that would suppress bending modes). Naming by end
-  // and side: c00 = (x=0, y0), c01 = (x=0, y1), cL0 = (x=L, y0), cL1 = (x=L, y1).
-  const c00 = skin[0][0],   c01 = skin[0][nyTot];
-  const cL0 = skin[nx][0],  cL1 = skin[nx][nyTot];
-
-  return {nodes, quads, R, halfAng,
-          edges:{edgeX0,edgeX1,edgeY0,edgeY1,webX0,webX1,footX0,footX1,
-                 c00,c01,cL0,cL1},
-          counts:{nNodes:nodes.length, nQuads:quads.length}};
-}
-
-// =====================================================================
-//  PART 4 - BDF generation (SOL 105 linear buckling), COMMA free-field
-//
-//  Field convention (matches OpenJFEM get_reference_fields_from_line):
-//    "CARD,d1,d2,..."  -> data field d1 is parser index 3, d2 index 4, ...
-//  Continuation lines start with "+," and continue the field count.
-//  Reals carry a decimal point so the parser never reads them as ints.
-// =====================================================================
-function buildBDF(P, geo){
-  const L=[];
-  const card = (name, ...fields) => {
-    L.push(name + "," + fields.map(f => (f===""||f===null||f===undefined)?"":String(f)).join(","));
-  };
-  // ---- Executive + Case Control (SOL 105) ----
-  L.push("SOL 105");
-  L.push("CEND");
-  L.push("TITLE = JFEM stiffened panel buckling");
-  L.push("ECHO = NONE");
-  L.push("SUBCASE 1");
-  L.push("  SUBTITLE = static preload");
-  L.push("  SPC = 10");
-  L.push("  LOAD = 20");
-  L.push("SUBCASE 2");
-  L.push("  SUBTITLE = buckling");
-  L.push("  SPC = 10");
-  L.push("  STATSUB = 1");
-  L.push("  METHOD = 30");
-  L.push("  DISPLACEMENT(PLOT) = ALL");
-  L.push("BEGIN BULK");
-  L.push("PARAM,POST,-1");
-  L.push("PARAM,AUTOSPC,YES");
-
-  // ---- Cylindrical coordinate system (CORD2C cid=1) for curved-edge BCs/loads ----
-  //   A = curvature center (0,0,R); B on local z-axis = cylinder axis along +x;
-  //   C fixes theta=0 toward the crown. In CD=1: dof1=radial, dof2=tangential,
-  //   dof3=axial(=x_global).
-  card("CORD2C", istr(1), istr(0), rstr(0), rstr(0), rstr(P.R), rstr(P.R), rstr(0), rstr(P.R));
-  L.push("+," + [rstr(0), rstr(0), rstr(0)].join(","));   // C point
-
-  // ---- Materials ----
-  if (matMode()==='iso'){
-    card("MAT1", istr(100), rstr(P.E), "", rstr(P.nu), rstr(P.rho));
-  } else {
-    card("MAT8", istr(100), rstr(P.E1), rstr(P.E2), rstr(P.nu12),
-                 rstr(P.G12), rstr(P.G12), rstr(P.G12), rstr(P.rho));
-  }
-
-  // ---- Properties (PSHELL: PID MID1 T MID2 12I/T^3 MID3) ----
-  if (matMode()==='iso'){
-    card("PSHELL", istr(1), istr(100), rstr(P.tSkin), istr(100), rstr(1.0), istr(100));
-    card("PSHELL", istr(2), istr(100), rstr(P.tWeb ), istr(100), rstr(1.0), istr(100));
-    card("PSHELL", istr(3), istr(100), rstr(P.tFoot), istr(100), rstr(1.0), istr(100));
-  } else {
-    emitPCOMP(L, 1, P.lamSkin, P.tply);
-    emitPCOMP(L, 2, P.lamWeb , P.tply);
-    emitPCOMP(L, 3, P.lamFoot, P.tply);
-  }
-
-  // ---- GRID (CP=0 input coords, CD=1 so BCs/loads are cylindrical) ----
-  for (const nd of geo.nodes){
-    card("GRID", istr(nd.id), istr(0), rstr(nd.x), rstr(nd.y), rstr(nd.z), istr(1));
-  }
-
-  // ---- Elements (CQUAD4: EID PID G1 G2 G3 G4) ----
-  let eid=1;
-  for (const q of geo.quads){
-    card("CQUAD4", istr(eid++), istr(q.pid), istr(q.n[0]), istr(q.n[1]), istr(q.n[2]), istr(q.n[3]));
-  }
-
-  // ---- Constraints (SPC1 set 10), DOFs in the CD=1 cylindrical frame ----
-  //   1=radial, 2=tangential(theta), 3=axial(x).
-  //   This panel is one bay of a larger stiffened assembly, so its edges are held
-  //   by the neighbouring panels in-plane as well as out-of-plane:
-  //   - ALL four edges get 1+2 (radial + tangential): no out-of-plane bulge AND
-  //     no tangential fan-out of the curved ends (the neighbours hold them hoop-
-  //     wise). Axial (3) is left FREE on the edges so the panel can shorten under
-  //     the applied axial compression - locking it would fight the load.
-  //   - The only remaining rigid-body freedom is axial translation (x). Pin it
-  //     with a SINGLE axial(3) point lock at ONE corner. One lock is exactly what
-  //     is needed (the axial load is self-equilibrated, so this lock carries
-  //     ~zero net reaction); a second would be statically redundant.
-  const uniq = a => [...new Set(a)];
-  const allEdges = uniq([
-    ...geo.edges.edgeX0, ...geo.edges.edgeX1,
-    ...geo.edges.edgeY0, ...geo.edges.edgeY1,
-  ]);
-  spc1(L, 10, "12", allEdges);            // all 4 edges: radial + tangential
-  spc1(L, 10, "3",  [geo.edges.c00]);     // ONE corner (x=0,y0): axial point lock
-
-  // ---- Loads (force flow N/mm -> nodal FORCE in the CD=1 cylindrical frame) ----
-  emitEdgeFlow(L, card, geo, P);
-
-  // ---- EIGRL (method 30): SID V1 V2 ND -> nModes lowest buckling factors ----
-  card("EIGRL", istr(30), "", "", istr(P.nModes));
-
-  L.push("ENDDATA");
-  return L.join("\n")+"\n";
-}
-
-function emitPCOMP(L, pid, lamSpec, tply){
-  const ang = parseLaminate(lamSpec);
-  // PCOMP header: PID Z0 NSM SB FT TREF GE LAM (blank -> defaults; symmetry is
-  // expanded client-side into explicit plies, so no SYM here).
-  L.push("PCOMP," + [istr(pid), "", "", "", "", "", "", ""].join(","));
-  // Plies, 2 per continuation line: MID T THETA SOUT
-  let i=0;
-  while (i<ang.length){
-    const f=[];
-    for (let k=0;k<2 && i<ang.length;k++,i++){
-      f.push(istr(100), rstr(tply), rstr(ang[i]), "YES");
-    }
-    L.push("+," + f.join(","));
-  }
-}
-
-function spc1(L, sid, comp, nids){
-  // SPC1: SID C G1 G2 ...  Continuation "+," carries more grids.
-  if (!nids.length) return;
-  let i=0;
-  let first = ["SPC1", istr(sid), istr(comp)];
-  for (let k=0;k<6 && i<nids.length;k++,i++) first.push(istr(nids[i]));
-  L.push(first.join(","));
-  while (i<nids.length){
-    const f=["+"];
-    for (let k=0;k<8 && i<nids.length;k++,i++) f.push(istr(nids[i]));
-    L.push(f.join(","));
-  }
-}
-
-// Edge force-flows as nodal FORCE cards (set 20). Directions in the CD=1
-// cylindrical frame: [radial, tangential(theta), axial(x)].
-// FORCE: SID G CID F N1 N2 N3   (CID=1 -> components in the cylindrical frame).
-function emitEdgeFlow(L, card, geo, P){
-  const sid=20;
-  const {edgeX0, edgeX1, edgeY0, edgeY1, webX0, webX1, footX0, footX1} = geo.edges;
-  const D = a => [...new Set(a)];
-  const force = (nid, mag, d) => card("FORCE", istr(sid), istr(nid), istr(1),
-                                      rstr(mag), rstr(d[0]), rstr(d[1]), rstr(d[2]));
-  // Axial compression Nx [N/mm]: applied EQUAL AND OPPOSITE on the two ends so
-  // the load is self-equilibrated and the compression field is symmetric about
-  // x=L/2. Each end pushes inward (toward mid-length): x=0 pushes +axial, x=L
-  // pushes -axial.
-  // The WHOLE stiffened section is compressed - skin AND the stringer (web +
-  // attached flange) end nodes - so the blade carries its share of the axial
-  // load. The flow Nx is applied over the developed end length of each part:
-  //   skin  -> arc width            (P.width)
-  //   web   -> blade height         (P.bladeH)
-  //   foot  -> flange width         (P.footW)
-  if (Math.abs(P.Nx)>0){
-    const endLoad=(nids, devLen, sgn)=>{        // sgn = +1 at x=0, -1 at x=L
-      const u=D(nids); if(!u.length) return;
-      const per=(P.Nx*devLen)/u.length;
-      for (const nid of u) force(nid, per, [0,0,sgn]);
-    };
-    endLoad(edgeX0, P.width,  1); endLoad(edgeX1, P.width,  -1);  // skin
-    endLoad(webX0,  P.bladeH, 1); endLoad(webX1,  P.bladeH, -1);  // stringer web
-    endLoad(footX0, P.footW,  1); endLoad(footX1, P.footW,  -1);  // stringer flange
-  }
-  // Shear flow Nxy [N/mm]: a CIRCULATING (head-to-tail) flow around the panel
-  // perimeter. Each edge carries the same flow q tangent to that edge, chained
-  // so adjacent edges meet consistently at the corners. The four edge flows
-  // form a closed loop => zero net force and zero net moment, so NO resultant
-  // has to be carried by the restraints - it is self-equilibrated. The flows
-  // converge into two opposite corners (one diagonal) and emerge from the other
-  // two - the classic complementary shear-flow state of a rectangular panel.
-  //   axial = DOF3 (runs along x, the straight side edges)
-  //   tangential = DOF2 (runs along the arc, the curved end edges)
-  // Loop sense (CCW seen from +radial): y0 -> x=L -> y1 -> x=0 -> y0.
-  if (Math.abs(P.Nxy)>0){
-    const q=P.Nxy;
-    for (const nid of D(edgeY0)) force(nid,  q*P.length/D(edgeY0).length, [0,0, 1]); // +axial
-    for (const nid of D(edgeX1)) force(nid,  q*P.width /D(edgeX1).length, [0, 1,0]); // +tangential
-    for (const nid of D(edgeY1)) force(nid,  q*P.length/D(edgeY1).length, [0,0,-1]); // -axial
-    for (const nid of D(edgeX0)) force(nid,  q*P.width /D(edgeX0).length, [0,-1,0]); // -tangential
-  }
-  // Transverse compression Ny [N/mm] over length -> inward tangential on the
-  // two lateral (straight) edges, equal and opposite (self-equilibrated).
-  if (Math.abs(P.Ny)>0){
-    const tot=P.Ny*P.length;
-    for (const nid of D(edgeY1)) force(nid, tot/D(edgeY1).length, [0,-1,0]);
-    for (const nid of D(edgeY0)) force(nid, tot/D(edgeY0).length, [0, 1,0]);
-  }
-  // Never leave LOAD set 20 empty (the static preload subcase needs it). Keep the
-  // placeholder SYMMETRIC and self-equilibrated too: a tiny equal-and-opposite
-  // axial pinch on the two ends, so even the no-load case stays balanced.
-  if (Math.abs(P.Nx)+Math.abs(P.Nxy)+Math.abs(P.Ny) === 0){
-    force(D(edgeX0)[0], 1.0, [0,0, 1]);   // x=0 end, +axial (inward)
-    force(D(edgeX1)[0], 1.0, [0,0,-1]);   // x=L end, -axial (inward)
-  }
-}
-
+// Meshes, BDF cards, support DOFs and tractions come only from the local Julia model.
 function gatherParams(){
-  const P = {
-    R:num("R"), width:num("width"), length:num("length"),
-    bladeH:num("bladeH"), footW:num("footW"),
-    nx:int("nx"), ny:int("ny"), nz:int("nz"), nf:int("nf"),
-    nModes:int("nModes"),
-    Nx:num("Nx"), Nxy:num("Nxy"), Ny:num("Ny"),
-  };
-  if (matMode()==='iso'){
-    P.E=num("E"); P.nu=num("nu"); P.rho=num("rho");
-    P.tSkin=num("tSkin"); P.tWeb=num("tWeb"); P.tFoot=num("tFoot");
-  } else {
-    P.E1=num("E1"); P.E2=num("E2"); P.nu12=num("nu12"); P.G12=num("G12");
-    P.rho=num("rho")||1e-9; P.tply=num("tply");
-    P.lamSkin=$("lamSkin").value; P.lamWeb=$("lamWeb").value; P.lamFoot=$("lamFoot").value;
-  }
+  const P={R:num("R"),width:num("width"),length:num("length"),bladeH:num("bladeH"),footW:num("footW"),
+    nx:int("nx"),ny:int("ny"),nz:int("nz"),nf:int("nf"),nModes:int("nModes"),
+    Nx:num("Nx"),Nxy:num("Nxy"),Ny:num("Ny"),material_mode:matMode()==="comp"?"composite":"iso",
+    shell_offsets:$("shell_offsets").checked,boundary_mode:$("boundary_mode").value,
+    buckling_policy_factor:num("buckling_policy_factor"),rho:num("rho")};
+  if(P.material_mode==="iso")Object.assign(P,{E:num("E"),nu:num("nu"),tSkin:num("tSkin"),tWeb:num("tWeb"),tFoot:num("tFoot")});
+  else Object.assign(P,{E1:num("E1"),E2:num("E2"),nu12:num("nu12"),G12:num("G12"),tply:num("tply"),
+    lamSkin:$("lamSkin").value,lamWeb:$("lamWeb").value,lamFoot:$("lamFoot").value,
+    scaleSkin:num("scaleSkin"),scaleWeb:num("scaleWeb"),scaleFoot:num("scaleFoot")});
   return P;
 }
 
@@ -904,11 +516,18 @@ canvas.addEventListener("pointerup",(e)=>{
 function parseJFEM(buffer){ return JFEMBinary.parse(buffer); }
 
 let analysisFiles=[], analysisMetadata=null;
+function resultBytes(value){
+  if(value instanceof Uint8Array)return value;
+  if(value instanceof ArrayBuffer)return new Uint8Array(value);
+  if(ArrayBuffer.isView(value))return new Uint8Array(value.buffer,value.byteOffset,value.byteLength);
+  if(Array.isArray(value)&&value.every(v=>Number.isInteger(v)&&v>=0&&v<=255))return Uint8Array.from(value);
+  return null;
+}
 function loadAnalysisFile(index){
   const file=analysisFiles[index];
-  let bytes=file && file.bytes;
-  if(!bytes || !bytes.length) bytes=index===0?analysisMetadata.jfem_bytes:null;
-  if(!(bytes instanceof Uint8Array) || !bytes.length) throw new Error("No binary result for this subcase");
+  let bytes=resultBytes(file&&(file.bytes||file.jfem_bytes));
+  if(!bytes || !bytes.length) bytes=index===0?resultBytes(analysisMetadata.jfem_bytes):null;
+  if(!bytes || !bytes.length) throw new Error("No binary result for this subcase");
   loadResults(bytes,analysisMetadata);
 }
 $("binaryCaseSelect").addEventListener("change",e=>loadAnalysisFile(Number(e.target.value)));
@@ -938,66 +557,15 @@ function computeBounds(nodes,s){
 // =====================================================================
 //  TOTAL MODEL MASS
 //
-//  Mass = Σ_elements (shell area × thickness × density). We use the model's own
-//  node coordinates (mm) for the area, and per-PART (PID) thickness + density.
-//  This is well-defined for a FORM-BUILT panel, where we know each part's
-//  thickness and material (PID 1=skin, 2=web, 3=foot). For an arbitrary uploaded
-//  deck the .jfem carries no property data, so mass is reported as "n/a".
-//
-//  Units: coords mm, thickness mm -> volume mm³; density t/mm³ (the form's rho
-//  unit) -> mass in tonnes, which we convert to a friendly kg/g for display.
+//  The Julia model integrates actual shell properties, including the combined
+//  skin/flange stack. A displayed result retains the mass of its own model
+//  snapshot. File-mode results without material metadata show unavailable.
 // =====================================================================
-function _triArea(p,q,r){           // area of triangle (p,q,r), coords in mm
-  const ux=q.x-p.x, uy=q.y-p.y, uz=q.z-p.z;
-  const vx=r.x-p.x, vy=r.y-p.y, vz=r.z-p.z;
-  const cx=uy*vz-uz*vy, cy=uz*vx-ux*vz, cz=ux*vy-uy*vx;
-  return 0.5*Math.hypot(cx,cy,cz);
-}
-// Per-PID {thickness mm, density t/mm³} for the current FORM panel. Composite
-// part thickness = (#plies) × t_ply. Returns null if not a form panel.
-function panelPidProps(P){
-  if(srcMode()!=="panel") return null;
-  const props={};
-  if(matMode()==='iso'){
-    props[1]={t:P.tSkin, rho:P.rho};
-    props[2]={t:P.tWeb,  rho:P.rho};
-    props[3]={t:P.tFoot, rho:P.rho};
-  } else {
-    // composite: thickness from the ply count in each laminate spec.
-    const nply=(spec)=>{ try{ return parseLaminate(spec).length; }catch(_){ return 0; } };
-    props[1]={t:nply(P.lamSkin)*P.tply, rho:P.rho};
-    props[2]={t:nply(P.lamWeb )*P.tply, rho:P.rho};
-    props[3]={t:nply(P.lamFoot)*P.tply, rho:P.rho};
-  }
-  return props;
-}
-// Total mass in tonnes from femData geometry + per-PID props, or null if the
-// properties are unknown (uploaded deck) or the geometry is missing.
+// The authoritative generator counts each physical skin/flange layer once.
 function computeModelMassTonnes(){
-  if(!femData || !femData.nodes || !femData.nodes.length) return null;
-  let P; try{ P=gatherParams(); }catch(_){ return null; }
-  const props=panelPidProps(P);
-  if(!props) return null;            // unknown properties (file mode)
-  const idx=femData.nidToIdx, nodes=femData.nodes;
-  const nd=g=>{ const i=idx[g]; return (i==null)?null:nodes[i]; };
-  let massT=0;
-  const addShell=(g, pid)=>{
-    const pr=props[pid]; if(!pr || !(pr.t>0)) return;
-    let area=0;
-    if(g.length===4){
-      const a=nd(g[0]),b=nd(g[1]),c=nd(g[2]),d=nd(g[3]);
-      if(!a||!b||!c||!d) return;
-      area=_triArea(a,b,c)+_triArea(a,c,d);   // quad = two triangles
-    } else {
-      const a=nd(g[0]),b=nd(g[1]),c=nd(g[2]);
-      if(!a||!b||!c) return;
-      area=_triArea(a,b,c);
-    }
-    massT += area * pr.t * pr.rho;             // mm² · mm · (t/mm³) = tonnes
-  };
-  (femData.quads||[]).forEach(q=>addShell(q.nodes, q.pid));
-  (femData.trias||[]).forEach(t=>addShell(t.nodes, t.pid));
-  return massT;
+  const model=femData?._panelModel;
+  const value=model?.model_report?.mass_tonnes??model?.mass_tonnes??model?.geometry?.mass_tonnes;
+  return Number.isFinite(value)&&value>=0?value:null;
 }
 // Format a mass given in tonnes into a compact, readable string with a sensible
 // unit (t / kg / g / mg) so panels of very different scales all read cleanly.
@@ -1140,16 +708,17 @@ function loadResults(buffer, meta){
   // scale shows. (User can re-check "Color by part".)
   if($("chkRegion")) $("chkRegion").checked=false;
   const b=computeBounds(femData.nodes,femUnitScale);
-  frameCamera(b);
+  if(!meta.panel_model)frameCamera(b);
   drawColorbar();
   updateColorbarVis();
   // attach the load/BC model from the current form so the overlays can render.
   // Only meaningful for a form-built panel - an arbitrary uploaded deck does not
   // correspond to the sidebar's geometry/loads, so skip the overlay in file mode.
   if(srcMode()==="panel"){
-    try{ femData._loadbc = buildLoadBCModel(gatherParams()); }catch(e){ femData._loadbc=null; }
+    femData._panelModel=meta.panel_model||null;
+    femData._loadbc=meta.panel_model?.loadbc||null;
   } else {
-    femData._loadbc=null;
+    femData._panelModel=null;femData._loadbc=null;
   }
   // The model has run: show the total mass in the lower-right corner.
   showModelMass();
@@ -1261,101 +830,7 @@ function renderMode(idx){
 const PART_COLOR={1:[0.62,0.66,0.72], 2:[0.95,0.55,0.12], 3:[0.20,0.70,0.35]}; // skin grey, blade orange, flange green
 function partColor(pid){ return PART_COLOR[pid] || [0.6,0.6,0.65]; }
 
-// =====================================================================
-//  LOAD + BOUNDARY-CONDITION OVERLAY MODEL
-//
-//  Loads and BCs are defined in the CD=1 cylindrical frame [radial, tangential,
-//  axial]. This rebuilds the SAME node sets and force directions that
-//  emitEdgeFlow()/spc1() write to the .bdf, but as world-space (x,y,z) vectors,
-//  so we can draw little arrows for the flows and cone symbols for the BCs.
-//
-//  Cylindrical frame at a node (curvature center at (0,0,R), axis +x):
-//    axial   a = (1,0,0)
-//    radial  r = normalize( (0, y, z-R) )   (points outward from the axis)
-//    tangent t = a x r
-// =====================================================================
-function _cylBasis(n, R){
-  const ry=n.y, rz=n.z-R;
-  let rl=Math.hypot(ry,rz); if(rl<1e-9) rl=1;
-  const r=[0, ry/rl, rz/rl];
-  const a=[1,0,0];
-  const t=[a[1]*r[2]-a[2]*r[1], a[2]*r[0]-a[0]*r[2], a[0]*r[1]-a[1]*r[0]];
-  return {r,a,t};
-}
-function _cyl2world(n, R, c){      // [cr,ct,ca] -> world
-  const {r,a,t}=_cylBasis(n,R);
-  return [ r[0]*c[0]+t[0]*c[1]+a[0]*c[2],
-           r[1]*c[0]+t[1]*c[1]+a[1]*c[2],
-           r[2]*c[0]+t[2]*c[1]+a[2]*c[2] ];
-}
-
-// Build the overlay model (load arrows + BC markers) from the current params.
-function buildLoadBCModel(P, geo){
-  geo = geo || buildGeometry(P);
-  const nodeById={}; for(const nd of geo.nodes) nodeById[nd.id]=nd;
-  const D = a => [...new Set(a)];
-  const e=geo.edges, R=P.R;
-  const arrows=[];
-  const addEdge=(nids, cylDir, perNodeMag)=>{
-    for(const nid of D(nids)){
-      const n=nodeById[nid]; if(!n) continue;
-      const w=_cyl2world(n,R,cylDir);
-      const wl=Math.hypot(w[0],w[1],w[2])||1;
-      arrows.push({nid, pos:[n.x,n.y,n.z], dir:[w[0]/wl,w[1]/wl,w[2]/wl], mag:Math.abs(perNodeMag)});
-    }
-  };
-  // Mirror emitEdgeFlow() exactly so the overlay arrows match the solver loads.
-  // Axial compression: equal-and-opposite on the two ends, each pushing inward,
-  // on the WHOLE stiffened section (skin + stringer web + flange end nodes).
-  if(Math.abs(P.Nx)>0){
-    const endArr=(nids, devLen, sgn)=>{
-      const u=D(nids); if(!u.length) return;
-      addEdge(nids, [0,0,sgn], (P.Nx*devLen)/u.length);
-    };
-    endArr(e.edgeX0, P.width,  1); endArr(e.edgeX1, P.width,  -1);   // skin
-    endArr(e.webX0,  P.bladeH, 1); endArr(e.webX1,  P.bladeH, -1);   // stringer web
-    endArr(e.footX0, P.footW,  1); endArr(e.footX1, P.footW,  -1);   // stringer flange
-  }
-  if(Math.abs(P.Nxy)>0){                                  // circulating shear loop (y0 -> x=L -> y1 -> x=0)
-    const q=P.Nxy;
-    addEdge(e.edgeY0, [0,0, 1], q*P.length/D(e.edgeY0).length);   // +axial
-    addEdge(e.edgeX1, [0, 1,0], q*P.width /D(e.edgeX1).length);   // +tangential
-    addEdge(e.edgeY1, [0,0,-1], q*P.length/D(e.edgeY1).length);   // -axial
-    addEdge(e.edgeX0, [0,-1,0], q*P.width /D(e.edgeX0).length);   // -tangential
-  }
-  if(Math.abs(P.Ny)>0){
-    const tot=P.Ny*P.length;
-    addEdge(e.edgeY1, [0,-1,0], tot/D(e.edgeY1).length);
-    addEdge(e.edgeY0, [0, 1,0], tot/D(e.edgeY0).length);
-  }
-  const bcs=[];
-  // kind tells the overlay which marker to draw:
-  //   "radial"  -> cyan cone   (out-of-plane simple support, all edges, DOF 1)
-  //   "pin23"   -> magenta cube (corner: axial+hoop locked, DOF 2,3)
-  //   "hoop2"   -> green cone   (corner: hoop locked, DOF 2)
-  //   "axial3"  -> yellow cone  (corner: axial locked, DOF 3)
-  // dir = world-space vector of the (primary) locked DOF, for orienting symbols.
-  // dirs = list of cylindrical DOF directions this restraint locks (one cone per
-  // direction in the overlay). normal = surface normal (for lifting symbols off).
-  const _wn=(n,c)=>{ const w=_cyl2world(n,R,c); const l=Math.hypot(w[0],w[1],w[2])||1; return [w[0]/l,w[1]/l,w[2]/l]; };
-  const addBC=(nids, kind, cylDirs)=>{
-    for(const nid of D(nids)){
-      const n=nodeById[nid]; if(!n) continue;
-      const {r}=_cylBasis(n,R);
-      const dirs = (cylDirs && cylDirs.length) ? cylDirs.map(c=>_wn(n,c)) : [r];
-      bcs.push({nid, pos:[n.x,n.y,n.z], kind, normal:r, dirs});
-    }
-  };
-  // Mirror spc1() exactly (assembly BCs). Cyl dir [r,t,a]: [1,0,0]=radial(normal),
-  // [0,1,0]=tangential(hoop), [0,0,1]=axial(x).
-  //   all 4 edges -> radial + tangential (1,2) = two cones each;
-  //   ONE corner c00 -> axial (3) point lock = a single axial cone.
-  addBC([...e.edgeX0, ...e.edgeX1, ...e.edgeY0, ...e.edgeY1], "edge12", [[1,0,0],[0,1,0]]);
-  addBC([e.c00], "axial3", [[0,0,1]]);   // ONE corner (x=0,y0): axial point lock
-  const size=Math.hypot(P.length, P.width, P.bladeH);
-  return {arrows, bcs, size, R};
-}
-
+// Load and support overlays use the exact directions and nodal forces returned by Julia.
 // Orient a +Y-aligned mesh so its axis points along `dir`, centered at `center`.
 function _orient(mesh, dir, center){
   const d=dir.clone(); if(d.lengthSquared()<1e-12){ mesh.position=center; return; }
@@ -1439,10 +914,8 @@ function buildOverlays(lbc, deformAt){
   // ---- BC MARKERS: ALL cones, each oriented ALONG the DOF it restrains; apex
   //   points AT the node (the classic "support presses on this DOF" glyph). A
   //   node that locks two DOFs gets two cones (one per direction).
-  //   edge12  -> cyan cone (radial/normal) + green cone (tangential/hoop)  [edges]
-  //   axial3  -> yellow cone (axial/x)                                     [corners]
-  // The first dir of an edge12 node is radial (cyan), the second is tangential
-  // (green); colour each cone by its direction index so the two read distinctly.
+  // Canonical DOF1 is normal (cyan), DOF2 transverse (green), DOF3 axial
+  // (yellow). Web fork supports and minimal anchors are shown as provided.
   if($("chkBC") && $("chkBC").checked && lbc.bcs.length){
     const cyan  =_flatMat("bcRadial",0.20,0.95,1.0);
     const green =_flatMat("bcHoop",  0.25,0.95,0.35);
@@ -1456,16 +929,14 @@ function buildOverlays(lbc, deformAt){
       _orient(cone, ax.scale(-1), node.add(ax.scale(h/2)));  // apex points at the node
       bcMeshes.push(cone);
     };
-    // edge supports: sampled so we don't wall off the surface. dir[0]=radial(cyan),
-    // dir[1]=tangential(green). Cone apex sits exactly on the node.
-    for(const bc of _sample(lbc.bcs.filter(b=>b.kind==="edge12"), 30)){
-      const node=nodePos(bc);
-      bc.dirs.forEach((d,di)=> coneAlong(node, d, edgeH, di===0?cyan:green, 12));
-    }
-    // corner axial point locks (yellow, slightly bigger). Apex on the node.
-    for(const bc of lbc.bcs.filter(b=>b.kind==="axial3")){
-      const node=nodePos(bc);
-      for(const d of bc.dirs) coneAlong(node, d, cornH, yellow, 16);
+    // Use the canonical model's actual DOFs/directions. No support condition is
+    // inferred from a perimeter or regenerated from the parameter form.
+    const anchor=bc=>/anchor|axial|pin/.test(bc.kind||'')||bc.sources?.some(s=>/anchor/.test(String(s)));
+    const markers=_sample(lbc.bcs.filter(b=>!anchor(b)),40).concat(lbc.bcs.filter(anchor));
+    for(const bc of markers){
+      const node=nodePos(bc),dirs=bc.dirs||(bc.dir?[bc.dir]:[]);
+      const dofs=Array.isArray(bc.dofs)?bc.dofs:String(bc.dofs||bc.components||'').split('').map(Number);
+      dirs.forEach((d,i)=>{const dof=dofs[i];const mat=dof===3?yellow:dof===2?green:cyan;coneAlong(node,d,anchor(bc)?cornH:edgeH,mat,14);});
     }
   }
   updateOverlayLegend();
@@ -1479,11 +950,11 @@ function updateOverlayLegend(){
   if(!haveData || (!showLoads && !showBC)){ el.style.display="none"; return; }
   const row=(c,t)=>`<div class="ov-row"><span class="ov-sw" style="background:${c}"></span>${t}</div>`;
   let html="";
-  if(showLoads) html+=row("#ff8019","Applied load flow");
+  if(showLoads) html+=row("#ff8019","Balanced LIMIT tractions");
   if(showBC){
-    html+=row("#33f2ff","Edge radial support (out-of-plane)");
-    html+=row("#3df259","Edge tangential support (hoop)");
-    html+=row("#ffd926","Corner axial lock (x)");
+    html+=row("#33f2ff","Skin normal support");
+    html+=row("#3df259","Web fork / transverse anchor");
+    html+=row("#ffd926","Axial rigid-motion anchor");
   }
   el.innerHTML=html; el.style.display="";
 }
@@ -1513,7 +984,7 @@ function buildDeformedMesh(sc, amp, result){
   // or tangential. Signed components (x/r/t) use a diverging min..max scale.
   const isStaticDef = result && result.sc==="static" && !fieldKey;
   const comp = isStaticDef && $("compSelect") ? $("compSelect").value : "mag";
-  const Rc = (femData._loadbc && femData._loadbc.R) ? femData._loadbc.R : null;
+  const Rc = Number.isFinite(femData._loadbc?.R) ? femData._loadbc.R : null;
   // per-node deformed position + the chosen scalar for colour
   const N=femData.nNodes;
   const def=new Array(N), mag=new Array(N), cval=new Array(N);
@@ -1527,6 +998,7 @@ function buildDeformedMesh(sc, amp, result){
     let cv=m;
     if(comp!=="mag"){
       if(comp==="x"){ cv=dx; }
+      else if(Rc===0){ cv=comp==="r"?-dz:dy; } // flat outward normal / transverse
       else if(Rc!==null){                 // radial / tangential need the cyl basis
         const ry=n.y, rz=n.z-Rc; let rl=Math.hypot(ry,rz); if(rl<1e-9)rl=1;
         const rUy=ry/rl, rUz=rz/rl;       // radial unit (0,rUy,rUz)
@@ -1671,49 +1143,31 @@ $("chkShadows").addEventListener("change",_reRender);
 $("chkLoads").addEventListener("change",_reRender);
 $("chkBC").addEventListener("change",_reRender);
 
-// Preview undeformed mesh from current params (no solve)
-function previewMesh(){
-  const P=gatherParams(); const geo=buildGeometry(P);
-  femData={version:4,nNodes:geo.nodes.length,nodes:geo.nodes.map(n=>({nid:n.id,x:n.x,y:n.y,z:n.z})),
-    nidToIdx:Object.fromEntries(geo.nodes.map((n,i)=>[n.id,i])),
-    quads:geo.quads.map(q=>({nodes:q.n,pid:q.pid})),trias:[],   // keep pid for part coloring
-    subcases:[{sid:1,disp:new Float32Array(geo.nodes.length*6)}],eigenvalues:null,
-    _isPreview:true};
-  // attach the load/BC model so buildDeformedMesh's buildOverlays() can draw them
-  try{ femData._loadbc = buildLoadBCModel(P, geo); }catch(e){ femData._loadbc=null; }
-  const sel=$("modeSelect"); sel.innerHTML="<option>preview (undeformed)</option>";
-  $("eigLbl").textContent="";
-  const b=computeBounds(femData.nodes,femUnitScale);
-  frameCamera(b);
-  updateColorbarVis();
-  buildDeformedMesh(femData.subcases[0],0);
-  setStatus(`Preview: ${geo.counts.nNodes} nodes, ${geo.counts.nQuads} elements.`,"ok");
-  // A freshly-built/previewed model has no results yet -> it is ready to be
-  // analysed, so surface the floating Analyze button (stale state).
-  renderEigList(null);   // no eigenvalues for a preview
-  hideModelMass();       // mass is shown only after a run, not on a preview
-  markStale();
+function clearDisplayedPanelResults(){
+  analysisFiles=[];analysisMetadata={};
+  $("binaryCaseSelect").replaceChildren();$("binaryCaseSelect").hidden=true;$("binaryCaseLabel").hidden=true;
+  $("modeSelect").innerHTML="<option>(no results yet)</option>";$("eigLbl").textContent="";renderEigList(null);
+  $("compRow").style.display="none";
+  $("reportText").textContent="";$("reportDetails").style.display="none";
+  if(femData&&!femData._isPreview){femData=null;for(const mesh of [shellMesh,ghostMesh,wireMesh])try{mesh?.dispose();}catch(_){}shellMesh=ghostMesh=wireMesh=null;disposeOverlays();hideModelMass();updateColorbarVis();}
 }
-
-// =====================================================================
-//  PART 6 - actions: build bdf, download, analyze (msgpack)
-// =====================================================================
-function currentBDF(){
-  const P=gatherParams(); const geo=buildGeometry(P);
-  const bdf=buildBDF(P,geo);
-  $("bdfText").value=bdf;
-  return {P,geo,bdf};
+function applyCanonicalPanelModel(data,{fit=true}={}){
+  const geo=data.geometry;const nodes=geo.nodes.map(n=>({nid:n.id??n.nid,x:n.x,y:n.y,z:n.z}));
+  femData={version:4,nNodes:nodes.length,nodes,nidToIdx:Object.fromEntries(nodes.map((n,i)=>[n.nid,i])),
+    quads:(geo.quads||[]).map(q=>({nodes:q.n||q.nodes,pid:q.pid})),trias:(geo.trias||[]).map(q=>({nodes:q.n||q.nodes,pid:q.pid})),
+    subcases:[{sid:1,disp:new Float32Array(nodes.length*6)}],eigenvalues:null,_isPreview:true,_panelModel:data,_loadbc:data.loadbc||geo.loadbc||null};
+  $("bdfText").value=data.bdf||"";$("modeSelect").innerHTML="<option>preview (undeformed)</option>";$("eigLbl").textContent="";
+  $("compRow").style.display="none";
+  renderEigList(null);if(fit)frameCamera(computeBounds(nodes,femUnitScale));updateColorbarVis();buildDeformedMesh(femData.subcases[0],0);showModelMass();markStale();
 }
-$("bdfBtn").addEventListener("click",()=>{
-  try{
-    const {bdf}=currentBDF();
-    const blob=new Blob([bdf],{type:"text/plain"});
-    const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
-    a.download="stiffened_panel.bdf"; a.click();
-    setStatus("Wrote stiffened_panel.bdf","ok");
-  }catch(e){ setStatus("BDF error: "+e.message,"err"); }
-});
-$("previewBtn").addEventListener("click",()=>{ try{ currentBDF(); previewMesh(); }catch(e){ setStatus("Preview error: "+e.message,"err"); } });
+function setPanelBusy(busy){
+  for(const control of document.querySelectorAll('#panelInputs input,#panelInputs select,#srcToggle input,#fileInputs input,#bridge,#previewBtn,#bdfBtn'))control.disabled=!!busy;
+  $("analyzeBtn").disabled=!!busy;
+}
+function previewMesh(){return panelWorkflow?.preview();}
+async function currentBDF(){const data=await panelWorkflow?.preview();return data?{P:data.params||data.parameters,geo:data.geometry,bdf:data.bdf}:null;}
+$("bdfBtn").addEventListener("click",()=>panelWorkflow?.downloadBDF());
+$("previewBtn").addEventListener("click",()=>panelWorkflow?.preview());
 
 // Resolve the msgpack library robustly (UMD global may be MessagePack or msgpack).
 function getMsgpack(){
@@ -1735,7 +1189,8 @@ function applySrcMode(){
   const fi=$("fileInputs"); if(fi) fi.style.display = file ? "" : "none";
   // The button label: a form-built panel is always SOL 105; an uploaded deck's
   // SOL is unknown until the server reads it.
-  const btn=$("analyzeBtn"); if(btn) btn.textContent = file ? "Run analysis" : "Analyze (SOL 105)";
+  const btn=$("analyzeBtn"); if(btn) btn.textContent = file ? "Run analysis" : "Analyze (SOL 105 + analytical)";
+  panelWorkflow?.setSourceMode();
 }
 const _sp=$("srcPanel"), _sf=$("srcFile");
 if(_sp) _sp.addEventListener("change",applySrcMode);
@@ -1809,8 +1264,8 @@ let _suppressStale=false;
     if(_suppressStale) return;
     const t=e.target;
     if(!t || !t.matches || !t.matches("input,select,textarea")) return;
-    if(ignore.has(t.id)) return;
-    markStale();
+    if(ignore.has(t.id)||t.closest('#panel-study-controls')) return;
+    markStale();panelWorkflow?.invalidate();
   };
   side.addEventListener("input", onChange);
   side.addEventListener("change", onChange);
@@ -1818,6 +1273,8 @@ let _suppressStale=false;
 
 $("analyzeBtn").addEventListener("click",analyze);
 async function analyze(){
+  if(panelWorkflow?.busy)return;
+  if(srcMode()==="panel")return panelWorkflow?.run("analyze");
   let MP;
   try{ MP=getMsgpack(); }
   catch(e){ setStatus(e.message,"err"); return; }
@@ -1837,15 +1294,10 @@ async function analyze(){
       setStatus("Select a .bdf/.dat/.nas file, or enter a server-side path to one.","err");
       return;
     }
-  } else {
-    let bdf;
-    try{ ({bdf}=currentBDF()); }
-    catch(e){ setStatus("BDF generation failed: "+e.message,"err"); return; }
-    payload={bdf, n_modes:int("nModes")};
   }
 
   const url=serverBase()+"/analyze";
-  const btn=$("analyzeBtn"); btn.disabled=true;
+  const btn=$("analyzeBtn");setPanelBusy(true);clearDisplayedPanelResults();panelWorkflow?.clearResults();
   setStatus(fileMode
     ? "Running deck on JFEM... (first run compiles Julia; can take ~1 min)"
     : "Sending model to JFEM... (first run compiles Julia; can take ~1 min)");
@@ -1901,7 +1353,7 @@ async function analyze(){
       setStatus("Server request failed: "+e.message+"\nThe server is reachable, so "+
         "this may be a transient error - try again. (Server: "+serverBase()+")","err");
     }
-  }finally{ btn.disabled=false; hideSolveOverlay(); }
+  }finally{ setPanelBusy(false); hideSolveOverlay(); }
 }
 
 // Debug: ?loads=0 / ?bc=0 / ?region=0 / ?shadows=0 preset the toggles (headless).
@@ -1911,8 +1363,15 @@ try{
   setChk("chkLoads","loads"); setChk("chkBC","bc"); setChk("chkRegion","region"); setChk("chkShadows","shadows");
 }catch(_){}
 
-// initial preview so the canvas isn't empty
-try{ currentBDF(); previewMesh(); }catch(e){ /* defaults should always work */ }
+// All generated-model operations use the same Julia model as the solver.
+panelWorkflow=PandeatorWorkflow.install({document,host:$("side"),view:$("view"),getParams:gatherParams,getMode:srcMode,serverBase,protocol:getMsgpack,
+  applyModel:applyCanonicalPanelModel,applyAnalysis:(result,model)=>{
+    if(result.report){$("reportText").textContent=result.report;$("reportDetails").style.display="";}
+    const files=(result.jfem_files||[]).map((file,index)=>({...file,bytes:file.bytes?.length?file.bytes:file.jfem_bytes?.length?file.jfem_bytes:index===0&&result.jfem_bytes?.length?result.jfem_bytes:null})).filter(file=>file.bytes?.length);
+    if(result.jfem_bytes?.length||files.length)setAnalysisFiles({...result,jfem_files:files,panel_model:model});
+  },onStatus:setStatus,onBusy:setPanelBusy,onInvalidate:clearDisplayedPanelResults,onResize:()=>engine.resize(),onReady:markReady});
+for(const input of document.querySelectorAll('#panelInputs input,#panelInputs select'))if(!input.title){const parent=input.closest('div');const caption=parent?.querySelector('label')?.textContent||input.id;input.title=caption+' · dimensions are in mm unless another unit is shown.';}
+void previewMesh();
 
 // Debug: ?analyze=1 auto-runs Analyze on load (handy for headless testing).
 try{ if(new URLSearchParams(location.search).get("analyze")==="1"){ setTimeout(analyze, 300); } }catch(_){}

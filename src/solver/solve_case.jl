@@ -2565,6 +2565,27 @@ function _buckling_add_excluded_pair!(excluded_pairs, K, vector)
     return true
 end
 
+"""Target the admissible buckling factors nearest the unloaded state.
+
+An EIGRL interval bounds the permitted signed factors; a distant negative V1
+does not request the most negative factors first. Preserve the sign of every
+factor, and target zero when the interval crosses it. One-sided intervals use
+their endpoint nearest zero and the corresponding transformed spectral end.
+"""
+function _buckling_eigrl_target(lower::Float64, upper::Float64, has_range::Bool)
+    from_upper = has_range && isfinite(upper) && upper <= 0.0
+    from_lower = has_range && isfinite(lower) && lower >= 0.0
+    base = from_upper ? upper : from_lower ? lower : 0.0
+    selector = from_upper ? :SR : from_lower ? :LR : :LM
+    sigma = if iszero(base)
+        0.0
+    else
+        delta = max(abs(base)*1e-12, 16eps(max(abs(base),1.0)))
+        base + (from_upper ? delta : -delta)
+    end
+    (;from_upper,from_lower,base,selector,sigma)
+end
+
 function _buckling_independence_metric(K, elastic_backend, shifted_state)
     elastic_backend == "cholesky" && return K, true
     # A Cholesky factor of K-sigma*B certifies that matrix, not K. It is
@@ -3529,26 +3550,20 @@ end
         return unique_sigmas
     end
 
-    # ND-limited extraction starts with one exact-count solve.  Ranged requests
-    # target the lower bound; unbounded requests retain the smallest-magnitude
-    # convention.  A tiny outward shift preserves inclusion when V1 itself is
-    # an eigenvalue and avoids a singular pencil.
+    # ND-limited extraction starts with one exact-count solve nearest zero
+    # inside the allowed signed interval. An outward endpoint shift preserves
+    # inclusion and avoids a singular pencil for a one-sided interval.
     strict_range_target_failed = false
     if strict_requested_count && !will_use_dense
-        target_from_upper = has_range && !positive_range &&
-                            !isfinite(range_lower) && isfinite(range_upper)
-        target_base = target_from_upper ? range_upper :
-            (has_range ?
-                (positive_range ? max(range_lower, 0.0) : range_lower) : 0.0)
-        target_selector = target_from_upper ? :SR :
-            (has_range && isfinite(target_base) ? :LR : :LM)
-        target_sigma = if isfinite(target_base) && target_base != 0.0
-            delta = max(abs(target_base) * 1e-12,
-                        16 * eps(max(abs(target_base), 1.0)))
-            target_base + (target_from_upper ? delta : -delta)
-        else
-            0.0
-        end
+        target = _buckling_eigrl_target(range_lower,range_upper,has_range)
+        target_from_upper = target.from_upper
+        target_from_lower = target.from_lower
+        target_selector = target.selector
+        target_sigma = target.sigma
+        diagnostics["signed_interval_target"] = Dict(
+            "policy"=>"nearest_zero_in_admissible_interval",
+            "sigma"=>target_sigma,"selector"=>string(target_selector),
+            "signed_eigenvalues_preserved"=>true)
         targeted = nothing
         best_partial_target = nothing
         excluded_pairs = Tuple{Vector{Float64},Vector{Float64}}[]
@@ -3575,12 +3590,78 @@ end
                 in_range = findall(lam -> !has_range ||
                     (v1_eff <= lam <= v2_eff && (!positive_range || lam > positive_tol)),
                     candidate_vals)
-                # Only a rejected root on the targeted side can mask the next
-                # in-range root. Do not chase roots beyond the far boundary.
+                if has_range && !target_from_upper && !target_from_lower &&
+                   length(in_range) < num_modes_request
+                    # A highly asymmetric interval can exclude arbitrarily
+                    # many near-zero roots of one sign. Repeated LM deflation
+                    # then does expensive work outside the requested interval.
+                    # At sigma=0, LR gives the nearest positive factors and SR
+                    # the nearest negative factors. ND independent pairs from
+                    # each end suffice for the nearest admissible ND overall.
+                    # Use the original pencil and fresh exclusions for each;
+                    # retain the same per-invocation ND and residual contract.
+                    log_msg("[BUCKLING] Resolving the two signed branches of the bounded interval (up to $num_modes_request modes per branch)")
+                    branch_vals = candidate_vals[in_range]
+                    branch_vecs = candidate_vecs[:,in_range]
+                    branch_counts = Dict{String,Any}()
+                    branches_complete = true
+                    for selector in (:LR,:SR)
+                        branch_name = "krylov_eigrl_signed_branch_$(selector)" *
+                            (accuracy_attempt == 1 ? "" : "_retry")
+                        branch = attempt_shifted_buckling_search(0.0,
+                            branch_name;
+                            modes_request_override=num_modes_request,
+                            spectrum_selector=selector)
+                        if branch === nothing
+                            branches_complete = false
+                            branch_counts[string(selector)] = Dict("independent_pairs"=>0,"complete"=>false)
+                            continue
+                        end
+                        bvals,bvecs,_ = merge_independent_eigenpairs(
+                            Float64[],zeros(Float64,n_free,0),branch[1],branch[2])
+                        complete = length(bvals) >= num_modes_request
+                        branches_complete &= complete
+                        admitted = findall(lam -> v1_eff <= lam <= v2_eff,bvals)
+                        branch_counts[string(selector)] = Dict(
+                            "independent_pairs"=>length(bvals),"admissible_pairs"=>length(admitted),
+                            "complete"=>complete)
+                        branch_vals,branch_vecs,_ = merge_independent_eigenpairs(
+                            branch_vals,branch_vecs,bvals[admitted],bvecs[:,admitted])
+                    end
+                    diagnostics["signed_branch_targeting"] = Dict(
+                        "sigma"=>0.0,"per_branch_requested_nd"=>num_modes_request,
+                        "branches"=>branch_counts,"complete"=>branches_complete,
+                        "original_pencil"=>true)
+                    if branches_complete
+                        order = sortperm(abs.(branch_vals))
+                        keep = order[1:min(num_modes_request,length(order))]
+                        targeted = (branch_vals[keep],branch_vecs[:,keep])
+                        if length(keep) < num_modes_request
+                            diagnostics["nd_interval_certificate"] = Dict(
+                                "basis"=>"both_signed_spectral_ends",
+                                "status"=>"all_interval_modes_returned",
+                                "interval_count"=>length(keep),"requested_nd"=>num_modes_request)
+                        end
+                        break
+                    end
+                    # A partial branch cannot establish the requested root
+                    # selection. Preserve only the original incomplete LM set
+                    # and retry accuracy; do not turn its union into a pass.
+                    if best_partial_target === nothing || length(in_range) > length(best_partial_target[1])
+                        best_partial_target = (candidate_vals[in_range],candidate_vecs[:,in_range])
+                    end
+                    accuracy_attempt += 1
+                    continue
+                end
+                # On a one-sided interval only its near boundary can mask the
+                # next admissible root. Across zero, either excluded side may
+                # consume an ND slot; deflate those directions, not their signs.
                 if has_range && boundary_retries < boundary_retry_limit
                     for j in eachindex(candidate_vals)
                         lam = candidate_vals[j]
-                        masked = target_from_upper ? lam > v2_eff : lam < v1_eff
+                        masked = target_from_upper ? lam > v2_eff :
+                            target_from_lower ? lam < v1_eff :
+                            (lam < v1_eff || lam > v2_eff)
                         if masked && _buckling_add_excluded_pair!(
                             excluded_pairs, K_ff, view(candidate_vecs, :, j))
                             added_exclusions += 1
@@ -4263,11 +4344,11 @@ end
             positive_tol=positive_tol)
         diagnostics["raw_eigen_csv"] = raw_eigen_csv_path
     end
-    # 2026-07-27 (strip Stage 1): ALL signed-magnitude output conventions are disabled.
-    # Both of them reported |lambda| for negative roots and ordered the spectrum by |lambda|,
-    # which silently changes which eigenvalue is reported as mode 1. Reference does neither: its
-    # Lanczos returns the roots found in the EIGRL range, ordered by lambda ascending, sign
-    # intact. The bounded variant was armed by `_sol105_signedmag_auto_high_pm45_selector`, a
+    # Legacy sign-folding output conventions remain disabled. They replaced
+    # negative factors with |lambda| and used whole-model fingerprints. This is
+    # distinct from selecting the requested roots nearest zero while retaining
+    # their actual signs. Blank-ND all-range extraction retains algebraic order.
+    # The bounded variant was armed by `_sol105_signedmag_auto_high_pm45_selector`, a
     # whole-model deck fingerprint (aspect 5.0-6.6 AND h/Lmax 0.0130-0.0145 AND pm45 0.40-0.48
     # AND pm90 0.20-0.25 AND ply_count == 9 exactly AND >= 250 matching quads).
     # The selector and its 14 threshold accessors are removed in the follow-up pass.
@@ -4302,12 +4383,9 @@ end
         ),
         signedmag_auto_info,
     )
-    # 2026-07-27 (strip Stage 1): signed-magnitude output is DISABLED unconditionally.
-    # It reported |lambda| for negative roots and sorted by |lambda|, which changes WHICH
-    # eigenvalue is called mode 1. Reference's Lanczos reports the roots it finds in the EIGRL
-    # range, ordered by lambda ascending — so that is what we do. The two auto-selectors that
-    # used to switch this on were whole-model deck fingerprints (aspect/ply-count/h-L windows
-    # with a >=250 matching-quad count); they are removed with the rest of the machinery.
+    # Sign folding is disabled unconditionally. The old auto-selectors used
+    # whole-model fingerprints; the current interval selection depends only
+    # on the requested bounds, count and the original generalized pencil.
     signed_magnitude_output = false
     valid_idx = if has_range && positive_range
         findall(x -> isfinite(x) && x > positive_tol, eigenvalues)
@@ -4851,9 +4929,11 @@ end
         buckling_timings["sturm_completeness"] = (time_ns() - t_sturm) * 1e-9
     end
 
-    # Every explicitly bounded or half-bounded range is ordered algebraically;
-    # only a completely unbounded request uses increasing magnitude.
-    sort_by_magnitude = !has_range
+    # ND requests retain the admissible factors nearest zero with signs intact.
+    # Their extraction order is by magnitude even when bounds straddle zero;
+    # sorting a larger candidate set algebraically before the ND cap would
+    # silently replace critical roots by distant load-reversal roots.
+    sort_by_magnitude = strict_requested_count || !has_range
     sorted_idx = sort_by_magnitude ?
         valid_idx[sortperm(abs.(eigenvalues[valid_idx]))] :
         valid_idx[sortperm(eigenvalues[valid_idx])]
@@ -5012,6 +5092,85 @@ end
         return default
     end
     return Bool(raw)
+end
+
+function _beam_system_cell(model, number::Int, default::Int=0)
+    cc = get(model, "CASE_CONTROL", Dict())
+    systems = get(cc, "SYSTEMS", Dict())
+    value = get(systems, string(number), get(systems, number, default))
+    # Models saved before executive SYSTEM parsing retain the original
+    # name and parenthesized number through generic Case Control parsing.
+    if !haskey(systems, string(number)) && !haskey(systems, number) &&
+       get(cc, "NASTRAN SYSTEM_MODIFIER", "") == string(number)
+        value = get(cc, "NASTRAN SYSTEM", default)
+    end
+    value isa AbstractString && (value = tryparse(Int, strip(value)))
+    value isa Real && isfinite(value) && isinteger(value) ||
+        throw(ArgumentError("SYSTEM($number) requires a finite integer value."))
+    return Int(value)
+end
+
+"""PBEAM NSM line mass and intrinsic polar inertia in the local beam frame."""
+function _pbeam_nsm_mass(L::Float64, prop, coupled::Bool)
+    nsm = Float64(get(prop, "NSM", 0.0))
+    stations = sort(collect(get(prop, "STATIONS", [])); by=s -> Float64(s["X"]))
+    variable = any(s -> Float64(get(s, "NSM", nsm)) != nsm, stations)
+    mass = if coupled
+        nsm .* FEM.consistent_mass_frame3d(L, 1.0, 1.0, 0.0, 0.0)
+    else
+        nsm .* FEM.reference_lumped_mass_frame3d(L, 1.0, 1.0, 0.0, 0.0, 0.0)
+    end
+    if variable
+        # Four-point Gauss integration is exact for a linear density times
+        # the degree-six Hermite products, on every station interval.
+        profile = [(Float64(s["X"]), Float64(get(s, "NSM", nsm))) for s in stations]
+        first(profile)[1] > 0.0 && pushfirst!(profile, (0.0, first(profile)[2]))
+        last(profile)[1] < 1.0 && push!(profile, (1.0, last(profile)[2]))
+        abscissae = (-0.8611363115940526, -0.3399810435848563,
+                      0.3399810435848563, 0.8611363115940526)
+        weights = (0.3478548451374538, 0.6521451548625461,
+                   0.6521451548625461, 0.3478548451374538)
+        fill!(mass, 0.0)
+        for interval in 1:length(profile)-1
+            left, right = profile[interval], profile[interval+1]
+            width = right[1]-left[1]
+            width > 0.0 || continue
+            for (point, weight) in zip(abscissae, weights)
+                fraction = (1+point)/2
+                x = left[1]+fraction*width
+                density = left[2]+fraction*(right[2]-left[2])
+                scale = L*width*weight*density/2
+                if coupled
+                    interpolation = zeros(3,12)
+                    interpolation[1,1] = 1-x
+                    interpolation[1,7] = x
+                    h1, h2 = 1-3x^2+2x^3, L*(x-2x^2+x^3)
+                    h3, h4 = 3x^2-2x^3, L*(-x^2+x^3)
+                    interpolation[2,[2,6,8,12]] = [h1,h2,h3,h4]
+                    interpolation[3,[3,5,9,11]] = [h1,-h2,h3,-h4]
+                    mass .+= scale .* (interpolation' * interpolation)
+                else
+                    for (base, shape) in ((0,1-x), (6,x)), component in 1:3
+                        mass[base+component,base+component] += scale*shape
+                    end
+                end
+            end
+        end
+    end
+    # NSIA/NSIB are inertia per length about the NSM line itself. They
+    # remain meaningful when the scalar NSM is zero and add independently.
+    first_inertia = Float64(get(prop, "NSIA", 0.0))
+    second_inertia = Float64(get(prop, "NSIB", first_inertia))
+    if coupled
+        mass[4,4] += L*(3first_inertia+second_inertia)/12
+        mass[10,10] += L*(first_inertia+3second_inertia)/12
+        mass[4,10] += L*(first_inertia+second_inertia)/12
+        mass[10,4] += L*(first_inertia+second_inertia)/12
+    else
+        mass[4,4] += L*(2first_inertia+second_inertia)/6
+        mass[10,10] += L*(first_inertia+2second_inertia)/6
+    end
+    return mass
 end
 
 @inline function sol103_shell_mass_formulation(model)
@@ -5264,6 +5423,7 @@ assemble_modal_mass(model,id_map,node_coords,node_R,ndof;kwargs...) =
     # shell-only environment override. Cardless/negative values retain the
     # established Reference lumped CBAR convention.
     cbar_coupled_mass = _sol103_param_enabled(get(model, "PARAM_COUPMASS", false), false)
+    translational_beam_mass = !cbar_coupled_mass && _beam_system_cell(model, 414) > 0
     # --- CBAR elements ---
     for (eid, bar) in cbars
         if cbar_coupled_mass && (get(bar, "PA", 0) != 0 || get(bar, "PB", 0) != 0)
@@ -5285,7 +5445,7 @@ assemble_modal_mass(model,id_map,node_coords,node_R,ndof;kwargs...) =
         # Both interpolation choices describe inertia on the offset bar axis.
         # Lumping removes inter-node coupling, not the rigid-arm congruence
         # from the section endpoints to the GRID translations and rotations.
-        wa, wb, has_offset, p1_mass, p2_mass = bar_offsets_and_endpoints(bar, p1, p2)
+        wa, wb, has_offset, p1_mass, p2_mass = bar_offsets_and_endpoints(bar, p1, p2; model=model, id_map=id_map, node_coords=node_coords)
         L = norm(p2_mass - p1_mass)
         L < 1e-12 && continue
 
@@ -5332,6 +5492,12 @@ assemble_modal_mass(model,id_map,node_coords,node_R,ndof;kwargs...) =
             idx = k==1 ? i1 : i2
             b = (idx-1)*6
             for d in 1:6; dofs12[(k-1)*6+d] = b+d; end
+        end
+        if translational_beam_mass
+            Me12[4:6,:] .= 0.0
+            Me12[10:12,:] .= 0.0
+            Me12[:,4:6] .= 0.0
+            Me12[:,10:12] .= 0.0
         end
         for c in 1:12, r in 1:12
             _push_nonzero_triplet!(
@@ -5475,10 +5641,13 @@ assemble_modal_mass(model,id_map,node_coords,node_R,ndof;kwargs...) =
         mat = _effective_mat1_for_nodes(model, mid, [ga, gb])
         rho = Float64(get(mat, "RHO", 0.0))
         nsm_beam = Float64(get(prop, "NSM", 0.0))
-        (rho < 1e-30 && nsm_beam < 1e-30) && continue
+        nsm_active = !iszero(nsm_beam) || !iszero(get(prop,"NSIA",0.0)) ||
+            !iszero(get(prop,"NSIB",0.0)) ||
+            any(s -> !iszero(get(s,"NSM",nsm_beam)), get(prop,"STATIONS",[]))
+        (rho < 1e-30 && !nsm_active) && continue
 
         p1 = SVector{3}(node_coords[i1,:]); p2 = SVector{3}(node_coords[i2,:])
-        wa, wb, has_offset, p1_mass, p2_mass = bar_offsets_and_endpoints(beam, p1, p2)
+        wa, wb, has_offset, p1_mass, p2_mass = bar_offsets_and_endpoints(beam, p1, p2; model=model, id_map=id_map, node_coords=node_coords)
         L = norm(p2_mass - p1_mass)
         L < 1e-12 && continue
 
@@ -5488,15 +5657,16 @@ assemble_modal_mass(model,id_map,node_coords,node_R,ndof;kwargs...) =
         J = Float64(get(prop, "J", 0.0))
 
         # Interpolation choice is independent of the structural centroid and
-        # the nonstructural mass line. NSM has no intrinsic section inertia.
+        # the nonstructural mass line. NSIA/NSIB supply its independent
+        # intrinsic polar inertia through the nonstructural mass operator.
         axis_mass(density,area,iy,iz) = cbar_coupled_mass ?
             FEM.consistent_mass_frame3d(L,density,area,iy,iz) :
             FEM.reference_lumped_mass_frame3d(L,density,area,0.,iy,iz;
                                              torsion_inertia=true)
-        Me_loc = axis_mass(rho,A_beam,Iy,Iz) +
-            nsm_beam .* axis_mass(1.,1.,0.,0.)
+        nsm_mass = _pbeam_nsm_mass(L, prop, cbar_coupled_mass)
+        Me_loc = axis_mass(rho,A_beam,Iy,Iz) + nsm_mass
         centroid_mass_axis_active = _pbeam_neutral_axis_transform(prop)!==nothing
-        independent_nsm_axis = !iszero(nsm_beam) &&
+        independent_nsm_axis = nsm_active &&
             any(k->!iszero(get(prop,k,0.)),("M1A","M2A","M1B","M2B"))
         if centroid_mass_axis_active || independent_nsm_axis
             # Structural inertia follows the centroid, while an independent
@@ -5515,10 +5685,10 @@ assemble_modal_mass(model,id_map,node_coords,node_R,ndof;kwargs...) =
             n2b=centroid_mass_axis_active ? get(prop,"N2B",n2) : 0.
             C=mass_axis_map(n1,n2,n1b,n2b)
             Me_loc=C'*axis_mass(rho,A_beam,Iy,Iz)*C
-            if !iszero(nsm_beam)
+            if nsm_active
                 m1=get(prop,"M1A",0.);m2=get(prop,"M2A",0.)
                 Cm=mass_axis_map(m1,m2,get(prop,"M1B",m1),get(prop,"M2B",m2))
-                Me_loc+=nsm_beam .* (Cm'*axis_mass(1.,1.,0.,0.)*Cm)
+                Me_loc += Cm' * nsm_mass * Cm
             end
         end
 
@@ -5552,6 +5722,12 @@ assemble_modal_mass(model,id_map,node_coords,node_R,ndof;kwargs...) =
             idx = k==1 ? i1 : i2
             b = (idx-1)*6
             for d in 1:6; dofs12[(k-1)*6+d] = b+d; end
+        end
+        if translational_beam_mass
+            Me12[4:6,:] .= 0.0
+            Me12[10:12,:] .= 0.0
+            Me12[:,4:6] .= 0.0
+            Me12[:,10:12] .= 0.0
         end
         for c in 1:12, r in 1:12
             _push_nonzero_triplet!(

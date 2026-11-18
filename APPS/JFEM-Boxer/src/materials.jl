@@ -343,8 +343,8 @@ function validate_materials(p)
         haskey(row,field)&&shell_material_definition(p,family*COMPONENT_PID_STRIDE+row["bay"])
     end
     for row in get(p,"properties.components",Any[])
-        part,indextext=split(row["key"],':');pid=component_table_family(part)*COMPONENT_PID_STRIDE+parse(Int,indextext)
-        if component_table_iscap(part)||part=="rib_stiffener"
+        part,indextext=split(row["key"],':');pid=part=="stringer_runout" ? PID_STRINGER_RUNOUT : component_table_family(part)*COMPONENT_PID_STRIDE+parse(Int,indextext)
+        if component_table_iscap(part)||part in ("rib_stiffener","stringer_runout")
             bar_material_definition(p,pid);section_definition(p,pid)
         else;shell_material_definition(p,pid);end
     end

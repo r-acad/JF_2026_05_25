@@ -1,9 +1,9 @@
-> **Before first launch:** run `setup.cmd` (Windows), `bash setup.sh` (Linux), or `bash setup.command` (macOS) at the repository root. This installs shared packages and creates the shared image under the root `sysimage/` directory. Wait until setup completes.
+> **Before first launch:** run `setup.cmd` (Windows), `bash setup.sh` (Linux), or `bash setup.command` (macOS) at the repository root. This installs shared packages and automatically reuses/builds an image when resources permit. Low memory or an image-build failure selects ordinary Julia loading with the same app features.
 
 # Standalone JFEM solver launchers
 
 This folder contains launchers for the shared solver in `../../src/`.
-It uses the root Julia project and sysimage; it is not a second solver copy.
+It uses the root Julia project and an optional sysimage; it is not a second solver copy.
 Install first using the [setup guide](<../../__Start here!__/README.md>).
 
 | Operating system | Choose or drop a deck | Command-line runner |

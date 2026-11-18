@@ -57,7 +57,51 @@ function rectangular_section_torsion(w, h)
     return a*b^3/3*(1-0.63ratio+0.0525ratio^5)
 end
 
-function extract_pbarl(cards)
+"""Read MDLPRM name/value pairs without treating them as PARAM entries."""
+function extract_mdlprm(cards)
+    values=Dict{String,Any}()
+    for card in cards
+        fields=Any[x for x in card if !(x isa AbstractString && _is_continuation_marker(x))]
+        for k in 3:2:length(fields)
+            name=uppercase(strip(string(safe_get(fields,k,""))))
+            raw=strip(string(safe_get(fields,k+1,"")))
+            isempty(name) && isempty(raw) && continue
+            isempty(name) && throw(ArgumentError("MDLPRM has a value without a parameter name"))
+            isempty(raw) && throw(ArgumentError("MDLPRM $name requires a value"))
+            value=parse_reference_number(raw,nothing)
+            value===nothing && (value=uppercase(raw))
+            haskey(values,name) && throw(ArgumentError("MDLPRM $name is specified more than once"))
+            values[name]=value
+        end
+    end
+    return values
+end
+
+function normalize_mdlprm(raw)
+    if !(raw isa AbstractDict)
+        raw isa AbstractVector || throw(ArgumentError("MDLPRM must be a name/value object or a list of cards"))
+        return extract_mdlprm(raw)
+    end
+    values=Dict{String,Any}()
+    for (name,value) in raw
+        key=uppercase(strip(string(name)))
+        isempty(key) && throw(ArgumentError("MDLPRM requires a parameter name"))
+        haskey(values,key) && throw(ArgumentError("MDLPRM $key is specified more than once"))
+        value isa AbstractString && (value=something(parse_reference_number(value,nothing),uppercase(strip(value))))
+        values[key]=value
+    end
+    return values
+end
+
+function mdlprm_twbrbml(values::AbstractDict)
+    value=get(values,"TWBRBML",0)
+    value isa Real && isfinite(value) && isinteger(value) && value in (0,1) ||
+        throw(ArgumentError("MDLPRM TWBRBML must be 0 (finite-thickness section formulation) or 1 (legacy beam-library equations)"))
+    return Int(value)
+end
+
+function extract_pbarl(cards;twbrbml=0)
+    twbrbml=mdlprm_twbrbml(Dict("TWBRBML"=>twbrbml))
     d = Dict()
     for c in cards
         pid = to_id(parse_reference_number(safe_get(c, 3)))
@@ -74,6 +118,11 @@ function extract_pbarl(cards)
         # The actual section formulation is selected by TYPE, not that prefix.
         (isempty(group) || occursin(r"^[A-Z]{3}BML[01]$", group)) || throw(ArgumentError("PBARL $pid: unsupported section GROUP $group"))
         isempty(type) && throw(ArgumentError("PBARL $pid requires a section TYPE"))
+        # CHAN2 and T normally use the converged 2D section problem. Only
+        # CHAN2's legacy alternative is verified here. The other existing
+        # closed-form section routes are unchanged by this new selector.
+        twbrbml==1 && type=="T" && throw(ArgumentError(
+            "MDLPRM TWBRBML=1 legacy T-section conversion is not implemented; use explicit verified PBAR/PBEAM properties"))
         numeric_values = Float64[]
         for k in dim_start_idx:length(c)
             val = parse_reference_number(safe_get(c, k), nothing)
@@ -172,7 +221,7 @@ function extract_pbarl(cards)
             J = (2*bf*tf^3 + hw*tw^3) / 3
         elseif type == "CHAN2"
             geometry=chan2_section_geometry(dims...)
-            section=chan2_section_warping(dims...)
+            section=twbrbml==1 ? chan2_section_legacy(dims...) : chan2_section_warping(dims...)
             A,I1,I2,J=geometry.A,geometry.I1,geometry.I2,section.J
             K1,K2=section.K1,section.K2
         elseif type == "HAT" && length(dims) >= 4
@@ -248,7 +297,8 @@ function extract_pbarl(cards)
         if type=="CHAN2"
             d[string(pid)]["I12"]=0.0
             d[string(pid)]["SECTION_CENTROID_Y"]=chan2_section_geometry(dims...).yc
-            d[string(pid)]["TORSION_FORMULATION"]="saint_venant_2d"
+            d[string(pid)]["TORSION_FORMULATION"]=twbrbml==1 ? "legacy_thin_wall" : "saint_venant_2d"
+            twbrbml==1 && (d[string(pid)]["TWBRBML"]=1)
             d[string(pid)]["SECTION_RELATIVE_CHANGE"]=section.relative_change
         end
     end
@@ -304,6 +354,7 @@ function extract_pbeam(cards)
         I2_a  = Float64(parse_reference_number(safe_get(c, 7), 0.0))
         I12_a = Float64(parse_reference_number(safe_get(c, 8), 0.0))
         J_a   = Float64(parse_reference_number(safe_get(c, 9), 0.0))
+        NSM_a = Float64(parse_reference_number(safe_get(c, 10), 0.0))
 
         # Station A stress recovery (fields 11-18)
         C1_a = Float64(parse_reference_number(safe_get(c, 11), 0.0))
@@ -318,7 +369,7 @@ function extract_pbeam(cards)
         stations = Dict{String,Any}[
             Dict{String,Any}(
                 "X"=>0.0, "A"=>A_a, "I1"=>I1_a, "I2"=>I2_a,
-                "I12"=>I12_a, "J"=>J_a,
+                "I12"=>I12_a, "J"=>J_a, "NSM"=>NSM_a,
                 "C1"=>C1_a, "C2"=>C2_a, "D1"=>D1_a, "D2"=>D2_a,
                 "E1"=>E1_a, "E2"=>E2_a, "F1"=>F1_a, "F2"=>F2_a
             )
@@ -332,6 +383,7 @@ function extract_pbeam(cards)
         # Scan for intermediate/end stations (16-field blocks starting at field 19)
         # Format: SO X/XB A I1 I2 I12 J NSM | C1 C2 D1 D2 E1 E2 F1 F2
         k = 19
+        nsm_missing = Bool[false]
         while k + 7 <= length(c)
             so_raw = uppercase(strip(string(safe_get(c, k, ""))))
             if so_raw == "YES" || so_raw == "YESA" || so_raw == "NO"
@@ -341,6 +393,7 @@ function extract_pbeam(cards)
                 I2_b  = Float64(parse_reference_number(safe_get(c, k+4), I2_a))
                 I12_b = Float64(parse_reference_number(safe_get(c, k+5), I12_a))
                 J_b   = Float64(parse_reference_number(safe_get(c, k+6), J_a))
+                nsm_raw = parse_reference_number(safe_get(c, k+7), nothing)
                 # Stress recovery for this station (8 more fields)
                 if k + 15 <= length(c)
                     C1_b = Float64(parse_reference_number(safe_get(c, k+8),  0.0))
@@ -354,10 +407,11 @@ function extract_pbeam(cards)
                 end
                 push!(stations, Dict{String,Any}(
                     "X"=>x_b, "A"=>A_b, "I1"=>I1_b, "I2"=>I2_b,
-                    "I12"=>I12_b, "J"=>J_b,
+                    "I12"=>I12_b, "J"=>J_b, "NSM"=>isnothing(nsm_raw) ? NSM_a : Float64(nsm_raw),
                     "C1"=>C1_b, "C2"=>C2_b, "D1"=>D1_b, "D2"=>D2_b,
                     "E1"=>E1_b, "E2"=>E2_b, "F1"=>F1_b, "F2"=>F2_b
                 ))
+                push!(nsm_missing,isnothing(nsm_raw))
                 k += 16
             else
                 break  # Reached K1/K2 or end of card
@@ -373,13 +427,13 @@ function extract_pbeam(cards)
         S1 = Float64(parse_reference_number(safe_get(c, k+2), 0.0))
         S2 = Float64(parse_reference_number(safe_get(c, k+3), 0.0))
         NSIA = Float64(parse_reference_number(safe_get(c, k+4), 0.0))
-        NSIB = Float64(parse_reference_number(safe_get(c, k+5), 0.0))
+        NSIB = Float64(parse_reference_number(safe_get(c, k+5), NSIA))
         CWA = Float64(parse_reference_number(safe_get(c, k+6), 0.0))
-        CWB = Float64(parse_reference_number(safe_get(c, k+7), 0.0))
+        CWB = Float64(parse_reference_number(safe_get(c, k+7), CWA))
         M1A = Float64(parse_reference_number(safe_get(c, k+8), 0.0))
         M2A = Float64(parse_reference_number(safe_get(c, k+9), 0.0))
-        M1B = Float64(parse_reference_number(safe_get(c, k+10), 0.0))
-        M2B = Float64(parse_reference_number(safe_get(c, k+11), 0.0))
+        M1B = Float64(parse_reference_number(safe_get(c, k+10), M1A))
+        M2B = Float64(parse_reference_number(safe_get(c, k+11), M2A))
         N1A = Float64(parse_reference_number(safe_get(c, k+12), 0.0))
         N2A = Float64(parse_reference_number(safe_get(c, k+13), 0.0))
         N1B = Float64(parse_reference_number(safe_get(c, k+14), N1A))
@@ -392,11 +446,28 @@ function extract_pbeam(cards)
         I12_avg = (I12_a + I12_b) / 2.0
         J_avg   = (J_a + J_b) / 2.0
 
+        # PBEAM NSM is a line density, independent of material density. The
+        # 2013 QRG (PBEAM remark 7) defaults blank end-B NSM to A and blank
+        # intermediate stations to linear A/B interpolation. Preserve the
+        # resolved station values and their exact piecewise-linear integral.
+        end_b=findfirst(s->s["X"]==1.0,stations)
+        NSM_b=end_b===nothing ? NSM_a : Float64(stations[end_b]["NSM"])
+        for i in eachindex(stations)
+            nsm_missing[i] || continue
+            x=Float64(stations[i]["X"])
+            stations[i]["NSM"]=(1-x)*NSM_a+x*NSM_b
+        end
+        mass_stations=sort([(Float64(s["X"]),Float64(s["NSM"])) for s in stations];by=first)
+        last(mass_stations)[1]<1.0 && push!(mass_stations,(1.0,NSM_b))
+        NSM_avg=sum((mass_stations[i+1][1]-mass_stations[i][1])*
+                    (mass_stations[i][2]+mass_stations[i+1][2])/2
+                    for i in 1:length(mass_stations)-1;init=0.0)
+
         if pid > 0
             d[string(pid)] = Dict{String,Any}(
                 "PID"=>pid, "MID"=>mid, "A"=>A_avg,
                 "I1"=>I1_avg, "I2"=>I2_avg, "I12"=>I12_avg, "J"=>J_avg,
-                "I"=>I1_avg,
+                "I"=>I1_avg, "NSM"=>NSM_avg,
                 "TYPE"=>"PBEAM", "K1"=>K1, "K2"=>K2,
                 "STATIONS"=>stations,
                 "S1"=>S1, "S2"=>S2, "NSIA"=>NSIA, "NSIB"=>NSIB,
@@ -413,7 +484,7 @@ function extract_pbeam(cards)
     return d
 end
 
-function extract_pbeaml(cards)
+function extract_pbeaml(cards;twbrbml=0)
     # A single section has the PBARL dimension layout. Multiple PBEAML
     # stations require varying-section integration and cannot be flattened.
     cards = [Any[x for x in raw if !(x isa AbstractString && _is_continuation_marker(x))] for raw in cards]
@@ -429,7 +500,7 @@ function extract_pbeaml(cards)
                 throw(ArgumentError("PBEAML $pid: nonstandard parent fields/ND extension are unsupported"))
         end
     end
-    properties = extract_pbarl(cards)
+    properties = extract_pbarl(cards;twbrbml)
     for prop in values(properties)
         prop["LIBRARY_CARD"]="PBEAML"
         if prop["TYPE"] == "T"
@@ -437,7 +508,7 @@ function extract_pbeaml(cards)
             prop["N1A"]=prop["N1B"]=section.N1
             prop["N2A"]=prop["N2B"]=0.0
         elseif prop["TYPE"] == "CHAN2"
-            section=chan2_section_warping(prop["DIMS"]...)
+            section=twbrbml==1 ? chan2_section_legacy(prop["DIMS"]...) : chan2_section_warping(prop["DIMS"]...)
             prop["N1A"]=prop["N1B"]=section.N1
             prop["N2A"]=prop["N2B"]=0.0
         end

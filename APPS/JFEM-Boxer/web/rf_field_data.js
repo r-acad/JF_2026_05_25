@@ -1,6 +1,6 @@
 /* Project assessed reserve factors onto actual FE element IDs. Property checks
  * retain their whole-property scope; physical checks retain their exact members. */
-(function(root,factory){const api=factory(typeof module==='object'&&module.exports?require('./stress_report_data.js'):root.WingStressReportData,typeof module==='object'&&module.exports?require('./minimum_rf_data.js'):root.WingMinimumRFData,typeof module==='object'&&module.exports?require('./reserve_factor_table_data.js'):root.WingReserveFactorTableData,typeof module==='object'&&module.exports?require('./component_buckling_data.js'):root.WingComponentBucklingData,typeof module==='object'&&module.exports?require('./rf_sizing_estimate.js'):root.WingRFSizingEstimate,typeof module==='object'&&module.exports?require('./color_scales.js'):root.WingColorScales);if(typeof module==='object'&&module.exports)module.exports=api;else root.WingRFFieldData=api;})(globalThis,function(stress,minimum,tables,component,sizing,colors){
+(function(root,factory){const api=factory(typeof module==='object'&&module.exports?require('./stress_report_data.js'):root.WingStressReportData,typeof module==='object'&&module.exports?require('./minimum_rf_data.js'):root.WingMinimumRFData,typeof module==='object'&&module.exports?require('./reserve_factor_table_data.js'):root.WingReserveFactorTableData,typeof module==='object'&&module.exports?require('./component_buckling_data.js'):root.WingComponentBucklingData,typeof module==='object'&&module.exports?require('./rf_sizing_estimate.js'):root.WingRFSizingEstimate,typeof module==='object'&&module.exports?require('./color_scales.js'):root.WingColorScales,typeof module==='object'&&module.exports?require('./rf_panel_scope.js'):root.WingRFPanelScope);if(typeof module==='object'&&module.exports)module.exports=api;else root.WingRFFieldData=api;})(globalThis,function(stress,minimum,tables,component,sizing,colors,panelScope){
  'use strict';
  const finite=n=>typeof n==='number'&&Number.isFinite(n);
  const FAILURE_MODES=Object.freeze({...minimum.MODES});
@@ -97,6 +97,8 @@
  function project(input={},report,request={}){
   const opt=options(input,request),index=minimum.modelIndex(input),categorical=opt.kind==='critical_case'||opt.kind==='critical_failure';
   if(!report||report.failureMode!==opt.failureMode)throw Error('The requested field requires a '+opt.failureMode+' report.');
+  const physical=panelScope?.index(input);
+  if(input.generated!==false&&physical?.physical)return projectPhysical(input,report,opt,index,physical);
   const estimated=sizing?.isEstimateContext(input)===true,title=(estimated?'Estimated ':'')+(opt.kind==='failure_rf'?(FAILURE_MODES[opt.failureMode]+' reserve factor'):FIELD_KINDS[opt.kind]),byId=new Map(),colorById=new Map(),detailsById=new Map(),unavailableById=new Map(),buckets=new Map(),issues=[],stale=freshness(input,report);
   for(const eid of index.elements.keys())unavailableById.set(eid,stale||'No applicable complete assessment is associated with this element.');
   if(!stale)for(const source of sources(input,report,index)){
@@ -127,6 +129,49 @@
   for(const [eid,detail]of detailsById)if(byId.has(eid)&&detail.available&&tables.isBelowOne(detail.reserveFactor))failingElementIds.add(eid);
   const available=byId.size,total=index.elements.size,note=(estimated?ESTIMATE_NOTE+' ':'')+NOTE+(report.assessmentNote?' '+report.assessmentNote:'')+(stale?' '+stale:'')+(issues.length?' '+issues.length+' physical-region membership/assessment issue(s) remain; see element details.':'');
   return{kind:'reserve_factor_field',fieldKind:opt.kind,failureMode:opt.failureMode,palette:opt.palette,name:title,title,unit:categorical?'category':'RF',location:'element',domain:'all',byId,colorById,detailsById,unavailableById,failingElementIds,categorical,categories,gradient:categorical?[]:tables.colorStops({min:0,max:2},opt.palette),min:categorical?(categories.length?1:0):0,max:categorical?categories.length:2,actualMin,actualMax,available,total,coverage:{available,total,unavailable:total-available},complete:available===total&&total>0,issues,estimated,stale:!!stale,message:stale||(estimated?'Fixed-load estimate · ':'')+available+' / '+total+' structural elements assessed; gray = unassessed or inapplicable.',note,report};
+ }
+ function projectPhysical(input,report,opt,index,layout){
+  const categorical=opt.kind==='critical_case'||opt.kind==='critical_failure',estimated=sizing?.isEstimateContext(input)===true,stale=freshness(input,report),
+   title=(estimated?'Estimated ':'')+(opt.kind==='failure_rf'?FAILURE_MODES[opt.failureMode]+' reserve factor':FIELD_KINDS[opt.kind]),
+   detailsByPart=new Map(),colorByPart=new Map(),byPart=new Map(),failingPartKeys=new Set(),scopedShellElementIds=new Set(),
+   byId=new Map(),colorById=new Map(),detailsById=new Map(),unavailableById=new Map(),failingElementIds=new Set(),categoryMap=new Map();
+  let actualMin=null,actualMax=null,availableParts=0;
+  for(const part of layout.parts){
+   for(const eid of part.skinElementIds)scopedShellElementIds.add(eid);
+   const assessed=panelScope.summary(input,report,part),detail={...assessed,reserveFactor:assessed.value,modeLabel:assessed.mode,estimated,propertyScope:'',physicalScope:part};
+   if(stale){detail.available=false;detail.reserveFactor=null;detail.reason=stale;detail.stale=true;}
+   if(detail.available){
+    let value=detail.reserveFactor,color;
+    if(categorical){const item=category(detail,report,opt.kind);if(item.reason){detail.available=false;detail.reason=item.reason;}else{categoryMap.set(item.key,item);detail.categoryKey=item.key;color=item.color;}}
+    else color=rgb(tables.valueColor(value,{min:0,max:2},opt.palette,{complete:true,minimumGauge:detail.minimumGauge}));
+    if(detail.available){
+     byPart.set(part.key,value);colorByPart.set(part.key,color);availableParts++;
+     actualMin=actualMin===null?value:Math.min(actualMin,value);actualMax=actualMax===null?value:Math.max(actualMax,value);
+     if(tables.isBelowOne(value)){failingPartKeys.add(part.key);for(const eid of part.elementIds)failingElementIds.add(eid);}
+    }
+   }
+   detailsByPart.set(part.key,detail);
+  }
+  const categories=[...categoryMap.values()].sort((a,b)=>a.key.localeCompare(b.key)),labels=new Map();
+  for(const item of categories)labels.set(item.label,(labels.get(item.label)||0)+1);
+  categories.forEach((item,i)=>{item.value=i+1;if(labels.get(item.label)>1)item.label+=' ['+item.caseKey+']';});
+  if(categorical){const ids=new Map(categories.map(c=>[c.key,c.value]));for(const[key,detail]of detailsByPart)if(detail.available)byPart.set(key,ids.get(detail.categoryKey));}
+  let available=0;
+  for(const[eid,parts]of layout.byElement){
+   const chosen=panelScope.resolve(input,{eid}),detail=detailsByPart.get(chosen?.key);if(detail)detailsById.set(eid,detail);
+   const missing=parts.map(part=>detailsByPart.get(part.key)).filter(d=>!d?.available);
+   if(!missing.length)available++;else unavailableById.set(eid,[...new Set(missing.map(d=>d?.reason||'No physical assessment is available.'))].join(' '));
+   // Shared cover EIDs are rendered by their fractional polygons. A single
+   // color on the original whole element would leak an adjacent panel's RF.
+   if(scopedShellElementIds.has(eid)||!detail?.available)continue;
+   byId.set(eid,byPart.get(chosen.key));colorById.set(eid,colorByPart.get(chosen.key));
+  }
+  const total=index.elements.size,note='Each displayed region is one stringer segment with its associated half skins, a plain spar-side skin region with its own cap, or one elementary component. Skin polygons partition the existing FE faces for display only. Material checks use only that physical region’s recovered element samples. Its own column/blade and intersecting physical plate checks govern; neighboring stringer checks are excluded. '+(estimated?ESTIMATE_NOTE+' ':'')+(stale||'');
+  return{kind:'reserve_factor_field',fieldKind:opt.kind,failureMode:opt.failureMode,palette:opt.palette,name:title,title,unit:categorical?'category':'RF',location:'element',domain:'all',
+   byId,colorById,detailsById,unavailableById,failingElementIds,categorical,categories,gradient:categorical?[]:tables.colorStops({min:0,max:2},opt.palette),min:categorical?(categories.length?1:0):0,max:categorical?categories.length:2,
+   actualMin,actualMax,available,total,coverage:{available,total,unavailable:Math.max(0,total-available)},complete:availableParts===layout.parts.length&&layout.parts.length>0,
+   panelScopeIndex:layout,detailsByPart,colorByPart,byPart,failingPartKeys,scopedShellElementIds,availableParts,totalParts:layout.parts.length,issues:layout.issues,estimated,stale:!!stale,
+   message:stale||(estimated?'Fixed-load estimate · ':'')+availableParts+' / '+layout.parts.length+' physical parts assessed; gray = unassessed or inapplicable.',note,report};
  }
  function build(input={},request={}){
   const opt=options(input,request),context={...input,...request,failureMode:opt.failureMode},cached=input.report;

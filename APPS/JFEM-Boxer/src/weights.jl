@@ -217,8 +217,84 @@ function weight_component(m::Model,id,label,names)
     return row
 end
 
+function weight_add_moments!(accumulator, moments)
+    accumulator.mass[] += moments.mass
+    accumulator.first .+= moments.first
+    accumulator.second .+= moments.second
+    accumulator
+end
+
+weight_moment_accumulator() = (mass=Ref(0.), first=zeros(3), second=zeros(3,3))
+
+function weight_mass_property_row(id, label, accumulator, origin)
+    mass=accumulator.mass[]
+    offset=mass>0 ? accumulator.first/mass : zeros(3)
+    central=accumulator.second-mass*(offset*offset')
+    central=(central+central')/2
+    inertia=tr(central)*Matrix{Float64}(I,3,3)-central
+    Dict{String,Any}("id"=>id,"label"=>label,"mass_kg"=>mass,
+        "weight_N"=>mass*WEIGHT_GRAVITY,
+        "center_of_gravity_m"=>mass>0 ? origin+offset : nothing,
+        "inertia_kg_m2"=>[collect(inertia[i,:]) for i in 1:3])
+end
+
+function weight_concentrated_moments(row, origin)
+    mass=Float64(row["mass_kg"])
+    offset=Float64.(row["center_of_gravity_m"])-origin
+    inertia=reduce(vcat,permutedims.(row["inertia_kg_m2"]))
+    central=tr(inertia)/2*Matrix{Float64}(I,3,3)-inertia
+    (mass=mass,first=mass*offset,second=central+mass*(offset*offset'))
+end
+
+"""Complete FE component and loaded-model CG/inertia, including the nose and controls."""
+function weight_mass_properties(m::Model, components, fuel_state, engines)
+    origin=copy(m.xyz[1:3])
+    accumulators=Dict{String,Any}()
+    labels=Dict{String,String}()
+    owners=Dict{String,String}()
+    for row in components
+        row["in_structure"]||continue
+        id=row["id"]
+        accumulators[id]=weight_moment_accumulator()
+        labels[id]=row["label"]
+        for name in row["groups"]
+            haskey(owners,name)&&throw(ArgumentError("Structural group $name has duplicate mass ownership"))
+            owners[name]=id
+        end
+    end
+    accumulators["structure"]=weight_moment_accumulator()
+    accumulators["leading_edge_structure"]=weight_moment_accumulator()
+    labels["structure"]="Dry structure"
+    labels["leading_edge_structure"]="Leading-edge structure"
+    for group in m.groups
+        owner=owners[group.name]
+        for element in 1:n_elements(group)
+            moments=structural_element_mass_moments(m,group,element;origin)
+            weight_add_moments!(accumulators[owner],moments)
+            weight_add_moments!(accumulators["structure"],moments)
+            if owner in ("leading_edge_skins","leading_edge_ribs")
+                weight_add_moments!(accumulators["leading_edge_structure"],moments)
+            end
+        end
+    end
+    # Controls and leading-edge groups are already included once in structure.
+    # Add the separate engine/fuel masses only when forming the loaded total.
+    loaded=weight_moment_accumulator()
+    structure=accumulators["structure"]
+    weight_add_moments!(loaded,(mass=structure.mass[],first=structure.first,second=structure.second))
+    for row in Iterators.flatten((engines,fuel_state["bays"]))
+        weight_add_moments!(loaded,weight_concentrated_moments(row,origin))
+    end
+    accumulators["loaded"]=loaded
+    labels["loaded"]="Structure + engines + fuel"
+    order=vcat(["structure","leading_edge_structure"],
+        [row["id"] for row in components if row["in_structure"]], ["loaded"])
+    [weight_mass_property_row(id,labels[id],accumulators[id],origin) for id in order
+        if accumulators[id].mass[]>0 || id in ("structure","loaded")]
+end
+
 """Dry structure, separate engine inertia, exported aero shells and fuel mass."""
-function weights_payload(m::Model)
+function weights_payload(m::Model;include_mass_properties=true)
     p=m.params
     register_shell_stringer_mass_geometry!(p,m.groups,m.xyz,m.grid)
     rows=Any[weight_component(m,id,label,names) for (id,label,names) in WEIGHT_COMPONENTS]
@@ -240,6 +316,8 @@ function weights_payload(m::Model)
     all(gr->weight_base_group(gr.name) in recognized,m.groups) || throw(ArgumentError("unclassified structural element group in mass accounting"))
     structure=sum(row["mass_kg"] for row in rows)
     nonstructural=sum(row["nonstructural_mass_kg"] for row in rows)
+    leading_edge=sum((row["mass_kg"] for row in rows if row["id"] in ("leading_edge_skins","leading_edge_ribs"));init=0.)
+    controls=sum((row["mass_kg"] for row in rows if row["id"]=="movable_surfaces");init=0.)
     engines=engine_structure_data(m)["engines"]
     engine_mass=sum((Float64(engine["mass_kg"]) for engine in engines);init=0.)
     for (index,engine) in enumerate(engines)
@@ -287,14 +365,17 @@ function weights_payload(m::Model)
     fuel["bays"]=bays
     fuel["bay_note"]="Fuel status is a percentage of usable capacity. Each bay fills upward to its own horizontal global-Z level at that percentage of gross geometry; uniform fill efficiency scales volume, mass and inertia without changing the level or CG. CONM2 carries the resulting mass, center of gravity and inertia; acceleration loads act through its separate fuel RBE3."
     totals=Dict{String,Any}("structure_mass_kg"=>structure,"engine_mass_kg"=>engine_mass,"exported_aero_mass_kg"=>aero_mass,
+        "leading_edge_mass_kg"=>leading_edge,"control_surface_mass_kg"=>controls,
         "nonstructural_mass_kg"=>nonstructural,"material_mass_kg"=>structure-nonstructural,
         "deck_mass_kg"=>structure+engine_mass+aero_mass+fuel_mass,"fuel_mass_kg"=>fuel_mass,"fuel_capacity_mass_kg"=>capacity,
         "loaded_mass_kg"=>structure+engine_mass+fuel_mass)
-    for name in ("structure","engine","nonstructural","material","exported_aero","deck","fuel","fuel_capacity","loaded")
+    for name in ("structure","engine","leading_edge","control_surface","nonstructural","material","exported_aero","deck","fuel","fuel_capacity","loaded")
         totals[name*"_weight_N"]=totals[name*"_mass_kg"]*WEIGHT_GRAVITY
     end
     all(value->isfinite(value)&&value>=0,values(totals)) || throw(ArgumentError("mass calculation overflowed or produced an invalid total"))
     return Dict{String,Any}("components"=>rows,"totals"=>totals,"fuel"=>fuel,
+        "mass_properties"=>include_mass_properties ? weight_mass_properties(m,rows,fuel_state,engines) : Any[],
+        "mass_properties_basis"=>"BASIC coordinates in metres. Inertia tensors are about each listed centre of gravity in kg m2, including shell-layer and beam-section inertia. Off-diagonal entries use the inertia-tensor sign convention. Structural totals include the leading edge, controls and their generated hinge fittings once. Loaded totals add engine CG masses and fuel at the selected case fill.",
         "gravity_m_s2"=>WEIGHT_GRAVITY,"material_density_kg_m3"=>p["material.rho"],
         "materials"=>[material_payload(material) for material in model_material_definitions(m)],
         "scope"=>"Modeled half lifting surface and its defined engines",
@@ -302,11 +383,13 @@ function weights_payload(m::Model)
         "note"=>"Fuel usable capacity equals gross wet-bay volume times the uniform fill efficiency factor; no separate structure, equipment or wall-thickness deductions are made. Per-bay CONM2 masses and fuel inertia use the selected case's percentage of usable capacity. Include structural inertia applies the same signed case acceleration to dry shell/bar mass and each engine CG. Engine forces retain their own mount load path. RBE3 constraints and display meshes have no material mass.")
 end
 
-function weights_info(m::Model)
-    data=weights_payload(m);total=data["totals"]
+function weights_info(m::Model;data=weights_payload(m;include_mass_properties=false))
+    total=data["totals"]
     rows=Tuple{String,String}[("Dry half lifting surface mass",@sprintf("%.9g kg (including %.9g kg non-structural)",total["structure_mass_kg"],total["nonstructural_mass_kg"])),
-        ("Fuel FE mass",@sprintf("%.9g kg in per-bay CONM2 elements",total["fuel_mass_kg"])),
         ("Loaded half lifting surface mass",@sprintf("%.9g kg (structure + engines + fuel)",total["loaded_mass_kg"]))]
+    m.params["fuel.enabled"]&&insert!(rows,2,("Fuel FE mass",@sprintf("%.9g kg in per-bay CONM2 elements",total["fuel_mass_kg"])))
+    total["control_surface_mass_kg"]>0&&insert!(rows,2,("Included control-surface structure",@sprintf("%.9g kg",total["control_surface_mass_kg"])))
+    total["leading_edge_mass_kg"]>0&&insert!(rows,2,("Included leading-edge structure",@sprintf("%.9g kg",total["leading_edge_mass_kg"])))
     total["engine_mass_kg"]>0&&insert!(rows,2,("Engine FE mass",@sprintf("%.9g kg in engine CG CONM2 elements",total["engine_mass_kg"])))
     m.params["output.include_aero_shells"] && push!(rows,("Exported deck mass",@sprintf("%.9g kg, including separate unconnected aero shells",total["deck_mass_kg"])))
     rows

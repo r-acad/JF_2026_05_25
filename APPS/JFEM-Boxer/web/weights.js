@@ -10,6 +10,10 @@
     if(data.components?.some(row=>row.id==="exported_aero_shells"))rows.push({id:"deck",label:"Exported FE deck",mass:t.deck_mass_kg,weight:t.deck_weight_N});
     if(t.nonstructural_mass_kg>0){rows[0].label="Dry mass (structure + non-structural)";rows[2].label="Dry mass + fuel";rows.splice(1,0,{id:"nonstructural",label:"Of which non-structural mass",mass:t.nonstructural_mass_kg,weight:t.nonstructural_weight_N,note:"Already included in dry mass above; do not add this subtotal again."});}
     if(t.engine_mass_kg>0){rows.splice(rows.findIndex(row=>row.id==="fuel"),0,{id:"engine",label:"Engines",mass:t.engine_mass_kg,weight:t.engine_weight_N,note:"Separate CG masses; not included in the dry structural subtotal."});rows.find(row=>row.id==="loaded").label="Structure + engines + fuel";}
+    const included=[];
+    if(t.leading_edge_mass_kg>0)included.push({id:"leading_edge",label:"Of which leading-edge structure",mass:t.leading_edge_mass_kg,weight:t.leading_edge_weight_N,note:"Leading-edge skins and ribs are included in dry structural mass."});
+    if(t.control_surface_mass_kg>0)included.push({id:"control_surfaces",label:"Of which control-surface structures",mass:t.control_surface_mass_kg,weight:t.control_surface_weight_N,note:"Generated control skins, webs, ribs and hinge fittings are included in dry structural mass."});
+    rows.splice(1,0,...included);
     return rows;
   }
   function create(host,onCase){
@@ -26,6 +30,24 @@
         mass.dataset.value=String(row.mass);weight.dataset.value=String(row.weight);tr.append(name,mass,weight);body.append(tr);
       }
       table.append(body);return table;
+    }
+    function propertyTable(records,headings,values,className){
+      const wrapper=el("div","weights-property-scroll");
+      const table=el("table","weights-table "+className),head=el("thead"),heading=el("tr");
+      for(const title of headings){const cell=el("th","",title);cell.scope="col";heading.append(cell);}
+      head.append(heading);table.append(head);
+      const body=el("tbody");
+      for(const record of records){
+        const row=el("tr");row.dataset.component=record.id;
+        const name=el("th","",record.label);name.scope="row";row.append(name);
+        for(const value of values(record)){
+          const cell=el("td","",Number.isFinite(value)?format(value):"—");
+          if(Number.isFinite(value))cell.dataset.value=String(value);
+          row.append(cell);
+        }
+        body.append(row);
+      }
+      table.append(body);wrapper.append(table);return wrapper;
     }
     function update(data,dirty=false,cases=[],activeCase=1){
       host.replaceChildren();
@@ -58,6 +80,17 @@
       }
       host.append(el("h3","","Component breakdown"));
       host.append(massTable(data.components.map(row=>({id:row.id,label:row.label,mass:row.mass_kg,weight:row.weight_N,note:row.note})),"weights-table weights-components"));
+      if(data.mass_properties?.length){
+        host.append(el("h3","","Centers of gravity"));
+        host.append(propertyTable(data.mass_properties,["Component","Mass (kg)","CG X (m)","CG Y (m)","CG Z (m)"],
+          record=>[record.mass_kg,...(record.center_of_gravity_m||[null,null,null])],"weights-centers"));
+        const inertia=el("details","weights-details");inertia.append(el("summary","","Inertia about each center of gravity (kg m²)"));
+        inertia.append(propertyTable(data.mass_properties,["Component","Ixx","Iyy","Izz","Ixy","Ixz","Iyz"],record=>{
+          const tensor=record.inertia_kg_m2;
+          return[tensor[0][0],tensor[1][1],tensor[2][2],tensor[0][1],tensor[0][2],tensor[1][2]];
+        },"weights-inertia"));
+        inertia.append(el("p","pick-note",data.mass_properties_basis));host.append(inertia);
+      }
       const movable=data.components.find(row=>row.id==="movable_surfaces");
       if(movable){const note=el("p","pick-note",movable.label+": "+format(movable.mass_kg)+" kg. "+(movable.note||"Already included in dry structural mass."));note.id="weights-movable-summary";host.append(note);}
       const details=el("details","weights-details");details.append(el("summary","","Calculation basis and element counts"));

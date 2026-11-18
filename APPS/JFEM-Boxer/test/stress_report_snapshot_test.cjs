@@ -44,9 +44,9 @@ check('Nested SOL106 variants, convergence and validation metadata are independe
  const selected=controller.select(raw),saved=selected.context.cases.get(1).variants.get('sol106');assert.equal(saved.convergence.full_load,true);assert.deepEqual(saved.validationIssues,[]);
  assert.equal(Data.caseList(selected.context).included.length,2);assert.equal(rf(selected),3);assert.match(selected.message,/unfinished property edit/);
 });
-check('Running retains old tables, but a failed current case remains an honest coverage gap',()=>{
+check('A new analysis releases old assessments and a failed current case keeps its coverage gap',()=>{
  const controller=Snapshot.create(),raw=context();controller.select(raw);raw.running=true;raw.cases.get(1).status='running';
- let selected=controller.select(raw);assert(selected.stale);assert.match(selected.message,/analysis is running/);assert.equal(Data.caseList(raw).included.length,0);assert.equal(rf(selected),3);
+ let selected=controller.select(raw);assert.equal(selected.stale,false);assert.equal(selected.source,null);assert.equal(Data.caseList(raw).included.length,0);assert.equal(rf(selected),null);
  raw.running=false;raw.cases.get(1).status='failed';selected=controller.select(raw);assert.equal(selected.stale,false);assert.equal(selected.context,raw);assert.equal(rf(selected),null);assert.equal(Data.build(selected.context).excludedCases.length,1);
 });
 check('Removing every same-model case cannot silently revive older results',()=>{

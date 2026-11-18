@@ -5,6 +5,264 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Buckling differential work and signed extraction
+
+- Complete the projected geometric-stiffness operator for ordinary warped
+  anisotropic PSHELLs, pairing compatible membrane prestress with assumed
+  transverse gradients and the existing physical displacement maps.
+- Select ND-limited buckling roots nearest zero within the requested signed
+  interval. Preserve negative load-reversal factors, repeated eigenspaces,
+  original-pencil residual checks and the per-solve requested-mode limit.
+- Add independent energy, frame-invariance and signed-interval regression tests.
+
+### SolidCraft curved spar-web export
+
+- Detect open polygon members even when native stitching returns success with a
+  warning. Restore and verify an atomic component checkpoint, then retry capping
+  over the unchanged original sections.
+- Verify each retried member and retain complete-model closure, positive-volume
+  and save/reopen checks. Stop safely if rollback or recovery cannot be confirmed.
+- Add regression coverage for rotating rib planes and curved spar-web profiles.
+
+### Google Gemini and voice in Boxer
+
+- Add native Google Gemini tool conversations through the shared Chat/MCP action
+  registry, including model discovery, API-key setup and multi-turn tool context.
+- Add microphone dictation with transcript review and optional Google-generated
+  spoken replies, with explicit recording/playback controls and cancellation.
+- Add an in-app Help guide for Google AI Studio setup, free-tier eligibility,
+  quotas, voice permissions and troubleshooting, with links to current Google docs.
+
+### Boxer chat and MCP control
+
+- Remove the redundant Windows MCP batch launcher; the copyable client
+  configuration runs `BoxerMCP.jl` directly. Chat and MCP remain available.
+- Add **Chat** to the application header, with local menu-command search and
+  optional conversations through Ollama or an OpenAI-compatible AI endpoint.
+- Share the live browser's action/input registry between chat and MCP. Preserve
+  units, validation, disabled states, unsaved-change prompts and result invalidation.
+- Expose authenticated local MCP tools, Study/interface resources and a workflow
+  prompt. Support native stdio clients through `APPS/JFEM-Boxer/BoxerMCP.jl` and
+  platform launchers, with copyable connection configuration in Chat settings.
+- Track queued commands separately from solver jobs, prevent duplicate delivery,
+  and identify the selected browser when multiple Studies are open.
+- Preserve FIFO order for queued edits, bind them to the intended Study and reject
+  stale conversational edits. Read cached report/log text without recalculating.
+- Keep model writes serialized while worker threads handle model requests.
+  Make the native bridge's compilation wait configurable and report requested
+  MCP progress without automatically repeating timed-out actions.
+- Keep command mode available without an AI service. AI credentials remain in
+  session memory or server environment variables. Use the shared Julia packages
+  and Random standard library for connection tokens.
+
+### Native SolidCraft wing export
+
+- Add **Create in SolidCraft** under Geometry export. Construct named native
+  wing lofts and structural solids from the current Study, with optional symmetry
+  mirroring and movable-surface deflections.
+- Open a separate SolidCraft window through its MCP bridge, report component
+  progress and elapsed time, and support cancellation.
+- Check closed bodies and positive volumes before saving the native CAD document.
+  Show its full path and retain construction receipts and source metadata.
+- Fix thin, oblique spar-web caps that could stop a wing export partway through
+  the box. Preserve the original sections using explicit planar caps and stitching.
+- Retry a rejected polygon-member cap through the alternate native solid-loft
+  operation only after the first construction is fully rolled back. Keep every
+  source sketch and record both attempts for native-kernel diagnostics.
+- Construct and validate the entire model before opening its saved document in
+  SolidCraft. Verify body coverage, volumes and bounds after reopening. Retain
+  the complete file path if opening its window fails or is cancelled.
+
+### Visible RF calculation progress
+
+- Show an animated glyph and elapsed clock while estimating draft reserve
+  factors, preparing edited sections and refreshing the Stress Report.
+- Reuse the shared nonblocking activity panel for native RF work. Show elapsed
+  time alongside RF catalog and optimization phases, with cleanup on completion,
+  errors, cancellation and Study replacement.
+- Respect reduced-motion preferences and preserve one progress indicator for
+  each property-edit operation.
+
+### Readable Boxer geometry status
+
+- Place geometry and mesh notices on a full-width wrapping header row. Keep
+  long filenames and error details readable at narrow window sizes.
+- Resize the render buffer when the header height changes, preserving the
+  current camera position and model display.
+
+### Channel torsion and shell recovery
+
+- Use wall-midline lengths in the explicit legacy CHAN2 torsion formula,
+  including sections with unequal wall thicknesses.
+- Recognize mechanically equivalent MAT1 IDs during physical shell recovery,
+  while retaining independent-material guards for property derivatives.
+- Recover homogeneous MAT2/MAT8 quadrilateral membrane forces, bending moments
+  and fiber fields using physical material directions, offsets and warp maps.
+- Include condensed internal bending in quadrilateral corner moments and retain
+  anisotropic laminate twisting variation. Honor the incompatible-bending
+  selection and identify area-mean transverse-shear output explicitly.
+
+### Boxer FEM actions and reserve-factor tables
+
+- Hide Create FEM when the physical mesh matches the Study, including the
+  secondary action in Engines. Keep generation and analysis retry actions
+  available after relevant edits or unsuccessful runs.
+- Retain the RF field selection, palette, RF filter, camera and visible layers
+  through reanalysis. Clear previous values at run start and restore the field
+  from the current results. Honor explicit field changes, cancellation and
+  Study replacement, and display applicable modal/buckling results.
+- Reuse one detached RF table per Boxer window across controller and Study
+  rebuilds. Refresh existing tables in the background and keep Inspect property
+  editing in the main window.
+- Separate table Layout from Components filtering. Preserve verified rib/bay
+  ownership, distinguish upper and lower rows, and use a property list for
+  imported or unlocated selections. Clarify Cell content choices for RF values,
+  critical cases and failure modes.
+
+### Beam and shell formulation compatibility
+
+- Resolve CBAR and CBEAM end offsets in their specified BASIC, GRID
+  displacement or original beam orientation frames. Use the same physical
+  offsets in stiffness, mass, geometric stiffness, thermal loads, recovery,
+  adjoint derivatives and element-volume calculations.
+- Reuse beam orientation resolution in the TACS formulation backend, including
+  GRID-reference orientations and displacement-coordinate vectors.
+- Read MDLPRM controls from decks and JSON models. Support explicit
+  TWBRBML=1 thin-wall CHAN2 section equations while retaining the converged
+  finite-section formulation for the default selection.
+- Rotate uncoupled PSHELL constitutive tensors from their physical material direction
+  into the quadrilateral element frame for warped geometry and specified
+  shell normals. Apply the shared frame convention in stiffness and preload
+  recovery.
+- Keep quadrilateral drilling stabilization on the GRID reference plane for
+  ordinary flat-shell offsets, including consistent analytic property
+  derivatives and physical stress recovery.
+- Preserve PBEAM station nonstructural mass, end-default mass offsets and
+  independent polar inertia. Integrate nonuniform NSM distributions and honor
+  SYSTEM(414) when translational-only lumped beam mass is requested.
+
+### Boxer saved FEM results and dimensional inputs
+
+- Assess and edit one physical sizing panel at a time: one stringer segment
+  with its half skins, or plain spar-side skin with its cap. Use one consolidated
+  RF table and only the relevant property inputs. Local native strength samples,
+  field colors, picking and RF < 1 filtering use the same physical domain;
+  display-only face partitions let passing and failing neighboring regions
+  remain distinct even when they use the same FE element/property. Remove the
+  adjacent-panel editing sections and redundant per-property RF tables. Pulse
+  the Inspect label yellow while an RF field is displayed.
+- Outline physical sizing panels in 3D RF fields with thick
+  dark-blue antialiased lines. Boundaries follow RF filtering, entity visibility,
+  shell thickness and panel/property explosion, and clear with the RF field.
+- Hide the redundant RF-values presentation control in RF-only assessments,
+  including Minimum RF, buckling and principal strain. Von Mises retains its
+  stress/RF presentation choice.
+- Save synchronized FEM geometry, result cases, analysis variants and full
+  element recovery in a compressed Study checkpoint. Restore the editable
+  model and results for visualization, RF assessment and property resizing.
+- Use millimetres for component minimum gauges, shell thicknesses and linear
+  section dimensions, preserving SI values in existing Studies and solver data.
+- Show a red Analyze FEM action beside Create FEM after property edits. It
+  regenerates and launches the selected analysis, then hides both actions until
+  another edit. Failed generation or analysis restores the retry controls.
+
+### Boxer FEM preparation and property editing
+
+- Update active 3D RF colors and the RF < 1 visibility mask from completed
+  resizing drafts. Restore accepted values on Cancel and retain the preview
+  through Apply, including inspection highlights and current display choices.
+- Make the shared P13 runout section editable with square-side and material
+  inputs, a minimum gauge and consistent fixed-load RF recovery and derivatives.
+- Resolve a skin pick to one governing compression panel, showing exactly one
+  stringer and its participating skin properties in the sizing dialog.
+- Open a selected plain skin plate beside a spar without adding its bookkeeping
+  owner's stringer. Identify the physical plate in the editor; retain the single
+  stringer when an Euler-column or blade assessment is selected.
+- Open New Study through lightweight definition restoration, deferring physical
+  mesh validation until generation or analysis is requested.
+- Reuse unchanged RF checks during draft property editing, send only affected
+  physical criteria and recovery records, and show a graphical progress status.
+  Keep automatic Inspect/report redraws from starting duplicate full assessments
+  while compatible modal property drafts are being estimated.
+- Handle unresolved plate roots without a negative-utilization exception. Retain
+  their recovery and use a conservative bound to certify a non-governing case
+  only when another converged case of the same panel demonstrably governs.
+- Skip inactive fuel stages and duplicate mass-report work during FEM creation.
+  Build beam solids, local axes and mass ellipsoids only when displayed.
+- Show analysis-specific eigenvalue, nonlinear, output and RF policy controls,
+  retaining saved settings when switching solution types.
+- Recover nominal T-section equivalent stresses for finite flange/web thickness,
+  with consistent native RF derivatives and fixed-load property estimates.
+  Retain explicit limits for junction concentrations and restrained warping.
+- Keep property editing scoped to the picked panel and its actual shared-column
+  members. Update draft RF estimates while typing, preserve the Study on Cancel,
+  reject stale replies and keep assessment tables within their property cards.
+
+### Installation on computers with limited memory
+
+- Automatically reuse or build the shared sysimage during setup. Check available
+  memory before compilation and supervise the build's memory headroom.
+- Complete setup successfully with normal Julia loading when memory is low or
+  the image stage fails. Keep `--no-sysimage` as an explicit option.
+- Stage candidate images and receipts before replacing the installed pair.
+- Bound ordinary package precompilation concurrency and defer numerical training
+  workloads to explicitly requested image builds.
+- Run apps through normal Julia package loading when an image is absent,
+  disabled or unusable, retaining optional verified-image acceleration.
+- Check candidate image libraries in a standard Julia child with Windows
+  loader-error dialogs suppressed before loading the candidate. Reject corrupt
+  libraries and continue application startup through ordinary package loading.
+
+### PANDEATOR panel buckling and adjoints
+
+- Generate one conforming skin/flange/web model for preview, BDF and analysis;
+  combine covered skin and added flange without coincident independent shells.
+- Correct simply supported membrane freedoms, rigid-mode anchors, tributary
+  loading and shear traction balance. Report actual supports and mass.
+- Add native SOL105 and analytical skin, blade and flexural-column RFs with
+  buckling-policy factors, exact discrete adjoints and independent central FD
+  validation, mode matching, residuals and explicit nonsmooth-case statuses.
+- Add background analysis jobs, progress/cancel, response/gradient/validation
+  tables and CSV/JSON exports, using the shared JFEM/Boxer environment.
+- Prepare only the preview at startup; defer numerical solves and exports until
+  the user requests a calculation.
+- Preserve directional laminate coupling in shell-recovery derivatives when
+  baseline extension/bending coupling is zero.
+
+### Reserve-factor derivatives and sizing
+
+- Add native physical RF assessment and local constitutive/eigenpair derivatives
+  shared by ordinary reports and the equilibrium sensitivity service.
+- Compute selected RF or utilization Jacobians, sparse directional and weighted
+  products, and declared subgradients/directional results at eigenmode clusters.
+  Include explicit recovery, section offsets and structural body-load effects.
+- Add bounded minimum-mass sizing with full-equilibrium trials, minimum gauges,
+  explicit tied dimensions and independent final assessment. Use certified
+  conservative plate constraints when an unconverged finite basis is insufficient.
+- Add RF sensitivity controls, a detached derivative table, progress/cancel,
+  source compatibility checks and streamed CSV/numeric-matrix exports.
+- Extend analytic shell replay to coupled isotropic/orthotropic laminates,
+  material axes and reference offsets. Unsupported physics remains explicit.
+- Include laminate mass-centroid moment changes in structural inertia
+  derivatives, even when a property change preserves total mass.
+- Scale projected sizing steps by their relative move limits so local
+  dimensions can reach minimum gauges efficiently in a large model.
+- Require constraint feasibility, scaled Lagrangian stationarity and
+  complementary slackness before declaring sizing convergence.
+- Apply completed, independently assessed sizing dimensions to the Study,
+  regenerate the mesh with the camera preserved and display updated property
+  colors. Add initial/optimized dimension and bound comparisons.
+- Log sizing phases, individual load-case solves, mass/RF changes, governing
+  checks, accepted steps and final verification through a retained progress log.
+- Enforce all selected load-case constraints on one shared sizing design.
+- Reassess the accepted design and restart optimizer state when a newly
+  unconverged plate requires a certified sizing constraint. Preserve physical
+  RFs separately and stop exhausted assessment-only trial searches clearly.
+- Start Assessment at Minimum RF and clear previous result displays when a new
+  FE, aerodynamic, sensitivity or sizing analysis starts.
+- Show leading-edge/control-surface mass and weight explicitly, with component
+  and loaded-model CG/inertia tables in the mass summaries and exports.
+
 ### Wing modelling and structural sizing
 
 - Double-click a structural property in Inspect to open its RF table and local

@@ -10,7 +10,7 @@ if(!out)throw Error('Expected output folder');fs.mkdirSync(out,{recursive:true})
   await page.setContent('<html><body><div id="canonical" hidden></div><main id="structure"></main><div id="app" class="drawing-maximized"><section id="group-movable-surfaces" class="parameter-section"></section></div></body></html>');
   for(const file of ['style.css','movable_surfaces.css','svg_viewport.css'])await page.addStyleTag({path:path.join(web,file)});
   await page.addStyleTag({content:'body{display:block;overflow:auto;background:#14202c;color:#dceafa;font:14px system-ui;margin:12px}#structure{width:390px;padding:14px;border:1px solid #426078}#app{display:block;height:950px}#group-movable-surfaces{height:950px}'});
-  for(const file of ['svg_viewport.js','planform_view.js','spar_view.js','movable_surfaces.js','movable_structure.js'])await page.addScriptTag({path:path.join(web,file)});
+  for(const file of ['numeric_inputs.js','parameter_units.js','svg_viewport.js','planform_view.js','spar_view.js','movable_surfaces.js','movable_structure.js'])await page.addScriptTag({path:path.join(web,file)});
   await page.evaluate(()=>{
    window.edits=[];window.locked=false;
    window.geometry=[{name:'Flap',kind:'flap',edge:'trailing',eta_start:.1,eta_end:.5,hinge_start:.7,hinge_end:.7,front_spar_start:.75,front_spar_end:.75,deflection:0,color:'#29b6d1'},{name:'Aileron',kind:'aileron',edge:'trailing',eta_start:.6,eta_end:.95,hinge_start:.7,hinge_end:.75,front_spar_start:.8,front_spar_end:.8,deflection:0,color:'#f5a742'}];
@@ -28,15 +28,16 @@ if(!out)throw Error('Expected output folder');fs.mkdirSync(out,{recursive:true})
   assert.deepEqual(await page.evaluate(()=>editor.readDrafts()),await page.evaluate(()=>initial));assert.equal(await page.evaluate(()=>edits.length),0);
   await page.evaluate(()=>{window.savedRibs=ribs;ribs=[];editor.refresh();});assert.equal(await visible().locator('.movable-rib-select').textContent(),'Pending FEM');assert.deepEqual(await page.evaluate(()=>editor.readDrafts()),await page.evaluate(()=>initial));await page.evaluate(()=>{ribs=savedRibs;editor.refresh();});
   checks.push('Only the selected structure is visible; switching preserves all legacy values without dirtying the Study');
-  await visible().locator('[data-movable-structure-field=upper_thickness]').fill('.004');
-  await picker.selectOption('0');await visible().locator('[data-movable-structure-field=lower_thickness]').fill('.003');
+  assert.equal(await visible().locator('[data-movable-structure-field=upper_thickness]').inputValue(),'1.5');
+  await visible().locator('[data-movable-structure-field=upper_thickness]').fill('4');
+  await picker.selectOption('0');await visible().locator('[data-movable-structure-field=lower_thickness]').fill('3');
   let d=await page.evaluate(()=>editor.readDrafts());assert.equal(d['movable_structure.surfaces'][0].lower_thickness,.003);assert.equal(d['movable_structure.surfaces'][1].upper_thickness,.004);
   const eta=visible().locator('[data-movable-structure-field=eta]');await visible().locator('.movable-rib-select').selectOption('4');assert.equal(await eta.inputValue(),'0.5');await eta.fill('.4');await eta.dispatchEvent('change');
   assert.equal(await eta.inputValue(),'0.3');assert.equal(await visible().locator('.movable-rib-select').inputValue(),'3');
   assert.match(await visible().locator('.movable-snap-note').textContent(),/line of flight/);
   d=await page.evaluate(()=>editor.readDrafts());assert.equal(d['movable_structure.attachments'].find(a=>a.surface==='Flap').eta,.3);assert.equal(d['movable_structure.attachments'].find(a=>a.surface==='Flap').rib,3);
   const bearing=visible().locator('.movable-bearing').first();await bearing.locator('[data-movable-structure-field=fitting]').selectOption('shell_lugs');await bearing.locator('[data-movable-structure-field=actuator]').check();
-  assert(await bearing.locator('[data-movable-structure-field=hinge_stiffness]').isHidden());assert(await bearing.locator('[data-movable-structure-field=actuator_stiffness]').isVisible());assert.equal(await bearing.locator('[data-movable-structure-field=actuator_stiffness]').inputValue(),'10000000');
+  assert(await bearing.locator('[data-movable-structure-field=hinge_stiffness]').isHidden());assert(await bearing.locator('[data-movable-structure-field=actuator_stiffness]').isVisible());assert.equal(Number(await bearing.locator('[data-movable-structure-field=actuator_stiffness]').inputValue()),10000000);
   await bearing.locator('[data-movable-structure-field=actuator_stiffness]').fill('25000000');await visible().locator('[data-movable-structure-field=max_rib_pitch_ratio]').fill('1.25');await bearing.locator('[data-movable-structure-field=actuator]').uncheck();assert(await bearing.locator('[data-movable-structure-field=actuator_stiffness]').isHidden());await bearing.locator('[data-movable-structure-field=actuator]').check();
   d=await page.evaluate(()=>editor.readDrafts());assert.equal(d['movable_structure.attachments'].find(a=>a.surface==='Flap').actuator_stiffness,25000000);assert.equal(d['movable_structure.surfaces'][0].max_rib_pitch_ratio,1.25);checks.push('Physical actuator shows axial N/m stiffness separately from legacy hinge torsion; pitch ratio and stiffness persist across toggle changes');
   await visible().getByRole('button',{name:'+ Add attachment',exact:true}).click();

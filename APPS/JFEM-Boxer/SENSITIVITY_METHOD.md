@@ -1,4 +1,4 @@
-# Analytic adjoint sensitivities in WingFEGen
+# Analytic adjoint sensitivities in JFEM-Boxer
 
 The default method is an **analytic discrete adjoint**. Property derivatives
 use exact chain rules: explicit section/material/load formulas and forward-mode
@@ -170,6 +170,199 @@ operators. Package loading, deck parsing, analysis, compilation and export have
 separate recorded timings. First use after source/package changes can still
 require cache rebuilding and compilation.
 
+## Reserve-factor derivatives and structural sizing
+
+Open **Results / Stress Report / RF sensitivities and structural sizing**.
+This section computes derivatives of physical failure checks, including the
+effect of changes in structural stiffness and internal-load redistribution.
+It is separate from the immediate fixed-force RF estimates shown while
+manually editing a property.
+
+The RF service uses generated models and fixed nodal geometry/topology, with
+supported structural inertia-load derivatives. RF derivatives currently require
+fixed-direction loads for both SOL101 and SOL106; follower-force definitions
+are rejected before a derivative or sizing solve. SOL101 uses its verified linear
+equilibrium. For eligible elastic SOL106 cases choose **Geometric stiffness ·
+consistent residual** in **Analysis / FE Analysis / Nonlinear formulation**;
+the RF derivative uses the accepted full-load residual and its consistent
+Jacobian. Automatic selection is preserved and unsupported formal shell,
+history/contact, follower-load or recovery branches are rejected explicitly,
+not replaced by a linear analysis. SOL106 RFs remain proportional assessments
+of the full-load recovered demands, not nonlinear collapse-load predictions.
+A capability gap is never filled with zero sensitivity. Imported engineering
+regions, shape changes and coupled aerodynamic/inertia-relief derivatives need
+their own verified adapters. The ordinary scalar sensitivity capabilities
+described earlier are a separate service.
+
+### Compute an RF sensitivity matrix
+
+1. Define the materials, allowables, load cases and minimum gauges. Create the
+   current FEM. Finish outstanding property-edit drafts before starting.
+2. Open **RF sensitivities and structural sizing** and choose **Read RFs and
+   design variables**. This reads a catalog; it does not start differentiation.
+   Catalog RFs can be marked as not yet analysed. The native run performs the
+   required forward analyses before evaluating their derivatives.
+3. Select physical RF checks on the left and independent dimensions on the
+   right. Filter either list and use **Select matching RFs** or **Select
+   matching variables**. Selection includes all matches, including entries
+   beyond the displayed page. An unavailable check remains visible with its
+   reason.
+4. Choose **RF-by-dimension matrix**. Select either **Reserve factor** or
+   **Utilization**, where utilization is the inverse of RF.
+5. Choose the explicit **Strength envelope** used for this calculation:
+   maximum element stress, equal-element average, or average below the
+   specified percentile. This setting is recorded with the derivative run;
+   it is independent of the Stress Report's table display controls.
+6. Choose **Run RF sensitivities**. Progress identifies the current numerical
+   phase. **Cancel run** requests a cooperative stop; the current numerical
+   block may need to finish first.
+7. Inspect the matrix below or choose **Open RF sensitivity table ↗**. The
+   detached table has row filtering, row/column pages and CSV export. A full
+   matrix can be much larger than its displayed page.
+
+One row identifies a physical criterion and load case. One column identifies
+a continuous dimension, such as shell thickness or stringer web thickness.
+A T-section can have several columns despite having one property ID. A shared
+skin/stringer Euler-column check is one physical response even though its RF
+appears against several properties in the normal RF table.
+
+Negative derivatives are red, positive derivatives blue and zero neutral.
+Each column uses its own symmetric color range. Grey means unavailable,
+not zero. With utilization selected, a negative derivative means increasing
+the dimension reduces the assessed utilization on the current smooth branch.
+RF derivatives have the opposite sign where RF is finite and nonzero.
+
+Dimensional derivatives use the column's physical unit. For example, an RF
+derivative per metre must be multiplied by 0.001 to obtain the derivative per
+millimetre. **Relative elasticity** displays
+`dimension / response × derivative` where both baseline quantities permit it.
+The numerical service retains full floating-point precision; display rounding
+does not quantize derivative calculations.
+
+Large Jacobians are retained as native files. The table then explicitly shows
+a preview. **Export full CSV** downloads all computed entries;
+**Download numeric matrix** and **Download matrix metadata** provide Float64
+data and the response/variable mapping. Metadata records matrix shape,
+column-major storage order, endianness and quantity. Nonfinite/missing entries
+are identified rather than converted to zero. **Export result JSON** retains
+the recorded descriptors, numerical results or preview, signatures and statuses.
+
+Matrix metadata is self-contained: it includes physical response scopes,
+failure modes, load cases, variable units and source signatures. Its
+`export_complete` flag means the requested file was written completely.
+`derivative_complete` separately states whether every requested derivative was
+available. A completely written matrix can still contain unavailable entries;
+review their status and reason before using it for sizing.
+
+### Directional and weighted-response products
+
+A complete matrix is useful for investigation, but it is often unnecessary
+inside an optimizer:
+
+- **Jacobian product · Jv** applies the recorded Jacobian or selected
+  subgradient along one design direction. Enter one value per selected
+  dimension, in catalog order.
+- **Directional derivative · mode-cluster aware** resolves supported
+  tied/clustered plate modes for the supplied direction. At a mode crossing,
+  this true directional result need not be a linear function of the direction;
+  a single Jacobian or selected subgradient cannot represent every direction.
+- **Weighted response gradient · Jᵀw** computes the design gradient of a
+  weighted sum of selected responses. Enter one weight per selected RF.
+
+J, Jv and Jᵀw use the same selected gradient or generalized gradient. At
+nonsmooth ties, these linear products need not equal the true directional
+derivative; use the mode-cluster-aware operation for supported directional
+assessments.
+
+Vectors accept numeric lists, for example `[1, 0, -1]`, or JSON objects keyed
+by the displayed catalog IDs. Omitted IDs in an object have zero weight;
+unknown IDs and nonfinite values are rejected. Values are in the displayed
+variable units, not automatically relative percentages.
+
+Adjoints share forward/factorization work across responses where compatible.
+One independent scalar response generally needs its own adjoint right-hand
+side; it does not supply every RF row. Weighted products can require far fewer
+right-hand sides than exporting the entire matrix.
+
+### Run bounded minimum-mass sizing
+
+1. Select all physical checks that the proposed sizing must satisfy. Checks
+   omitted from the request are not optimization constraints.
+2. Select the dimensions allowed to change. Review their **Minimum** and
+   **Maximum** bounds in the column unit. A lower bound cannot be below the
+   model's minimum gauge. These bounds define the permitted sizing range.
+3. Choose **Minimum-mass sizing**. Utilization is selected automatically:
+   each selected constraint requires utilization ≤ 1, equivalent to RF ≥ 1.
+4. Set the iteration budget, relative move limit and sizing tolerance. A
+   smaller move limit limits each trial dimension change and can help when
+   governing failure modes change. Feasibility uses utilization ≤ 1 plus the
+   selected numerical tolerance; inspect RFs close to 1 before accepting the
+   final engineering design.
+5. Choose **Run minimum-mass sizing**. The history reports mass, maximum
+   utilization and feasibility. Sizing uses full-equilibrium derivatives,
+   not the fixed-force manual preview.
+6. Read the termination reason and independent final-verification status.
+   Reaching the iteration limit is not proof of convergence or feasibility.
+   An incomplete or uncertified approximate constraint cannot silently pass.
+   Convergence checks feasibility, scaled projected Lagrangian stationarity
+   and complementary slackness together. This prevents accepting a slack
+   augmented-subproblem stationary point as a minimum-mass design.
+7. After the final independent assessment completes, Boxer applies the final
+   dimensions, regenerates the FEM while preserving the camera, and enables
+   the updated property color field. The Study is marked unsaved. Review the
+   **Optimized structural dimensions** table for the initial value, optimized
+   value, percentage change and bounds of each physical dimension.
+8. A stopped run can provide a final assessed design. Its termination and
+   feasibility status remain visible alongside the applied properties.
+   Cancelled or failed runs require another run before automatic application.
+   If model regeneration fails, **Apply optimized dimensions** retries the
+   assessed design while the Study and assessment still match.
+
+All selected load cases share one structural design vector. Every trial
+solves those cases and applies every selected case-specific RF constraint,
+so sizing solves
+
+\[
+\min_x m_{\mathrm{structure}}(x),\qquad
+U_{i,c}(x)\leq1\quad\text{for every selected check }i\text{ and case }c,
+\qquad x_{\min}\leq x\leq x_{\max}.
+\]
+
+Each case can govern different regions or failure modes. The displayed maximum
+utilization is the maximum over the selected checks and cases. The minimum RF
+is its inverse. Case loads retain their individual aerodynamic definitions,
+while structural inertia loads follow the updated structural mass. The log
+records case solves, RF assessment, adjoint work, iteration mass and RF,
+governing case/mode/property, accepted steps and final independent verification.
+
+If a plate's numerical basis cannot establish convergence, sizing can use a
+certified conservative all-mode constraint for that physical check. The exported
+physical plate RF and sizing bound are recorded separately. If a new check needs
+this certificate during a trial, the optimizer reassesses the accepted design
+and resets its multipliers, penalty and curvature history before continuing.
+The log and checkpoint record the constraint-policy revision. Other converged
+plate checks retain their physical criteria. Exhausting trial assessments stops
+with an explicit assessment-limited reason. A changed criterion at final
+verification requires renewed sizing before claiming convergence.
+
+Starting a new analysis clears displayed results from previous runs, including
+the detached derivative table. Current-run results appear as they arrive.
+
+Strength uses the configured ULTIMATE safety factor applied to recovered
+LIMIT demands. Buckling uses the separate buckling-policy factor. The factors
+are not applied a second time to the FE load case. RF99/no-demand and the
+RF999 display cap are presentation conventions, not constants to differentiate.
+
+The governing case, stress face, percentile membership or buckling mode can
+switch. Exact minima/maxima are piecewise differentiable; near-ties and
+unavailable derivatives require attention. Plate eigenpair derivatives refer
+to their recorded basis. A truncated Ritz basis is not automatically a
+conservative sizing constraint.
+
+Changing the Study, material allowables, sizing policy or relevant assessment
+definition marks retained derivatives as stale. Read a current catalog and run
+again before applying dimensions to the changed design.
+
 ## Source map
 
 - [sensitivity_compute.jl](src/sensitivity_compute.jl): method selection and progress.
@@ -183,3 +376,9 @@ require cache rebuilding and compilation.
 - [sensitivity_nonlinear.jl](src/sensitivity_nonlinear.jl): exact final-state nonlinear residual and adjoint.
 - [reference_import_sensitivity.jl](src/reference_import_sensitivity.jl): native-source catalog, coverage checks and solution dispatch.
 - [native_solver_loader.jl](src/native_solver_loader.jl): verified package-cache loading.
+- [rf_native_assessment.jl](src/rf_native_assessment.jl): physical RF responses and local recovery/capacity partials.
+- [rf_kernels.jl](src/rf_kernels.jl): material, column, blade and plate calculations.
+- [rf_recovery.jl](src/rf_recovery.jl): native recovered-feature pullbacks.
+- [rf_adjoint.jl](src/rf_adjoint.jl): response matrices and directional/weighted products.
+- [rf_sensitivity.jl](src/rf_sensitivity.jl): design maps, analysis orchestration and exports.
+- [rf_optimization.jl](src/rf_optimization.jl): bounded minimum-mass sizing.

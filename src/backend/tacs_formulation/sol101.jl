@@ -983,22 +983,6 @@ function _tacs_beam_property_material(model::Dict, beam::AbstractDict)
     )
 end
 
-function _tacs_beam_reference_vector(beam::AbstractDict, ga::Integer, id_map, X)
-    i1 = id_map[ga]
-    g0 = Int(get(beam, "G0", 0))
-    if g0 > 0 && haskey(id_map, g0)
-        ig0 = id_map[g0]
-        return SVector{3,Float64}(
-            X[ig0, 1] - X[i1, 1],
-            X[ig0, 2] - X[i1, 2],
-            X[ig0, 3] - X[i1, 3],
-        )
-    end
-    v_raw = get(beam, "V", [0.0, 0.0, 1.0])
-    length(v_raw) >= 3 || error("TACS-formulation beam element requires a 3-component V orientation vector.")
-    return SVector{3,Float64}(Float64(v_raw[1]), Float64(v_raw[2]), Float64(v_raw[3]))
-end
-
 function _tacs_beam_frame_and_transform(beam::AbstractDict, id_map, X, node_R)
     ga = Int(get(beam, "GA", 0))
     gb = Int(get(beam, "GB", 0))
@@ -1007,12 +991,12 @@ function _tacs_beam_frame_and_transform(beam::AbstractDict, id_map, X, node_R)
     i1, i2 = id_map[ga], id_map[gb]
     p1 = SVector{3,Float64}(X[i1, 1], X[i1, 2], X[i1, 3])
     p2 = SVector{3,Float64}(X[i2, 1], X[i2, 2], X[i2, 3])
-    wa, wb, has_offset, p1_eff, p2_eff = Solver.bar_offsets_and_endpoints(beam, p1, p2)
+    wa, wb, has_offset, p1_eff, p2_eff = Solver.bar_offsets_and_endpoints(beam, p1, p2; id_map=id_map, node_coords=X, node_R=node_R)
     axis = p2_eff - p1_eff
     L = norm(axis)
     L > 1e-9 || error("TACS-formulation beam element between grids $ga and $gb has near-zero length.")
     vx = axis / L
-    v_ref = _tacs_beam_reference_vector(beam, ga, id_map, X)
+    v_ref = Solver.resolve_bar_vref(beam, p1, id_map, X, node_R)
     if norm(v_ref) < 1e-8 || abs(dot(vx, v_ref) / max(norm(v_ref), 1e-30)) > 0.999
         v_ref = abs(vx[3]) < 0.9 ? SVector{3,Float64}(0.0, 0.0, 1.0) : SVector{3,Float64}(0.0, 1.0, 0.0)
     end

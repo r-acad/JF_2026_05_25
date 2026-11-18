@@ -6,6 +6,7 @@ using Pkg
 using Libdl
 using SHA
 include("sysimage_provenance.jl")
+include("sysimage_build_guard.jl")
 
 repo_root()=normpath(joinpath(@__DIR__,"..",".."))
 function usage(io=stdout)
@@ -35,10 +36,14 @@ function usage(io=stdout)
     Setup may download packages/artifacts and take several minutes.
     --no-precompile alone does not prevent verification from compiling;
     combine it with --no-verify for download-only setup.
-    A requested sysimage is still built with --no-precompile or --no-verify.
-    Normal setup builds one machine-specific image for JFEM and all applications.
-    The current image is reused only when its source/runtime receipt matches.
-    Download-only setup also requires --no-sysimage.
+    Setup reuses a current shared image or creates one when memory allows.
+    Low memory or an image-build error automatically keeps normal Julia package
+    loading available and setup completes successfully. Its first numerical
+    operation may compile code. Package precompilation uses one task/image thread
+    and skips solver training workloads by default; explicit settings are kept.
+    --no-sysimage explicitly skips image creation. Combine it with --no-precompile
+    and --no-verify for download-only setup.
+    A current image is reused only when its source/runtime receipt matches.
     """)
 end
 
@@ -46,7 +51,7 @@ function parse_options(args)
     options=Dict{Symbol,Any}(:precompile=>true,:verify=>true,:offline=>false,
         :update_registry=>false,:selection=>:all,:dry_run=>false,:wingfegen=>nothing,
         :sysimage=>"",:sysimage_threads=>"2",:workload=>String[])
-    i=1
+    i=1; image_options=false
     while i<=length(args)
         arg=args[i]
         if arg in ("--help","-h","help");return nothing
@@ -61,10 +66,12 @@ function parse_options(args)
             value=chopprefix(arg,"--sysimage=");isempty(value)&&error("Sysimage path is empty")
             options[:sysimage]=abspath(value)
         elseif startswith(arg,"--sysimage-threads=")
+            image_options=true
             value=chopprefix(arg,"--sysimage-threads=")
             (value=="auto" || (tryparse(Int,value)!==nothing && parse(Int,value)>0)) || error("Sysimage threads must be auto or a positive integer")
             options[:sysimage_threads]=value
         elseif arg in ("--deck","--manifest","--flags") || any(prefix->startswith(arg,prefix), ("--deck=","--manifest=","--flags="))
+            image_options=true
             parts=split(arg,'=';limit=2)
             key=parts[1]
             if length(parts)==1
@@ -88,7 +95,7 @@ function parse_options(args)
         end
         i+=1
     end
-    options[:sysimage]===nothing && (!isempty(options[:workload]) || options[:sysimage_threads]!="2") && error("Workload/build options require --sysimage")
+    options[:sysimage]===nothing && image_options && error("Workload/build options cannot be combined with --no-sysimage")
     options[:wingfegen]!==nothing &&
         normpath(options[:wingfegen])!=normpath(joinpath(repo_root(),"APPS","JFEM-Boxer")) &&
         error("All applications use the repository environment and bundled APPS/JFEM-Boxer package")
@@ -117,7 +124,11 @@ function verification_command(name,project)
         error("Unknown application: $name")
     end
     executable=joinpath(Sys.BINDIR,Sys.iswindows() ? "julia.exe" : "julia")
-    `$executable --startup-file=no --history-file=no --project=$project -e $script`
+    JFEMEnvironmentSetup.configure_compilation_defaults!()
+    addenv(`$executable --startup-file=no --history-file=no --project=$project -e $script`,
+        "JULIA_NUM_PRECOMPILE_TASKS"=>ENV["JULIA_NUM_PRECOMPILE_TASKS"],
+        "JULIA_IMAGE_THREADS"=>ENV["JULIA_IMAGE_THREADS"],
+        "JFEM_SOL105_PRECOMPILE_WORKLOAD"=>ENV["JFEM_SOL105_PRECOMPILE_WORKLOAD"])
 end
 
 function browser_asset_groups(selection=:all)
@@ -210,13 +221,16 @@ function sysimage_command(repo,options)
     executable=joinpath(Sys.BINDIR,Sys.iswindows() ? "julia.exe" : "julia")
     command=`$executable --startup-file=no --history-file=no --project=$repo --threads=$(options[:sysimage_threads]) $script --sysimage=$image $(options[:workload])`
     command=addenv(command,"JFEM_PRECOMPILE_BOXER"=>"1",
-        "JULIA_NUM_PRECOMPILE_TASKS"=>get(ENV,"JULIA_NUM_PRECOMPILE_TASKS","2"),
+        "JFEM_SOL105_PRECOMPILE_WORKLOAD"=>"true",
+        "JULIA_NUM_THREADS"=>options[:sysimage_threads],
+        "JULIA_NUM_PRECOMPILE_TASKS"=>get(ENV,"JULIA_NUM_PRECOMPILE_TASKS","1"),
         "JULIA_IMAGE_THREADS"=>get(ENV,"JULIA_IMAGE_THREADS",options[:sysimage_threads]=="auto" ? string(max(1,Sys.CPU_THREADS÷2)) : options[:sysimage_threads]))
     return options[:offline] ? addenv(command,"JULIA_PKG_OFFLINE"=>"true") : command
 end
 
 function build_sysimage(repo,options;runner=run,checker=JFEMSysimageProvenance.check_sysimage)
     image=sysimage_path(repo,options)
+    image===nothing && return nothing
     valid,reason=checker(repo,image)
     if valid&&isempty(options[:workload])
         println("Reusing current shared image: ",image);return image
@@ -232,20 +246,44 @@ end
 boxer_sysimage_command(repo,options)=sysimage_command(repo,options)
 build_boxer_sysimage(repo,options;runner=run)=build_sysimage(repo,options;runner)
 
-function main(args=ARGS)
+"""Complete the optional startup acceleration stage after dependencies are ready."""
+function prepare_shared_image(repo, options;
+        runner=command->JFEMSysimageBuildGuard.run_build(command;log_root=joinpath(repo,"sysimage","builds")),
+        checker=JFEMSysimageProvenance.check_sysimage, io=stdout)
+    options[:sysimage] === nothing && return :disabled
+    try
+        build_sysimage(repo, options; runner, checker)
+        println(io, "Startup acceleration is ready.")
+        return :ready
+    catch failure
+        failure isa InterruptException && rethrow()
+        println(io, "Setup is ready using normal Julia package loading.")
+        println(io, "Shared image creation was skipped: ", sprint(showerror, failure))
+        if failure isa JFEMSysimageBuildGuard.BuildUnavailable && !isempty(failure.directory)
+            println(io, "Image-build diagnostics: ", failure.directory)
+        end
+        return :source
+    end
+end
+
+function main(args=ARGS; image_preparer=prepare_shared_image)
     options=parse_options(args);options===nothing && (usage();return 0)
+    JFEMEnvironmentSetup.configure_compilation_defaults!()
     repo=repo_root();projects=setup_projects(repo,options)
     println("JFEM application setup with Julia ",VERSION)
     for (name,path) in projects;println("  ",name,": ",path);end
     options[:selection]!=:wingfegen && println("  Applications: JFEM CLI, PANDEATOR, static results viewer")
     options[:selection]!=:solver && println("  Application: JFEM-Boxer")
     println("  Package precompile: ",options[:precompile],"; application verification: ",options[:verify])
+    println("  Package precompile tasks: ",ENV["JULIA_NUM_PRECOMPILE_TASKS"],
+        "; image threads: ",ENV["JULIA_IMAGE_THREADS"],
+        "; solver training workload: ",ENV["JFEM_SOL105_PRECOMPILE_WORKLOAD"])
     if options[:sysimage]!==nothing
         # Print arguments only: Cmd's full display also exposes its inherited environment.
-        println("  Shared image build/reuse: ",Cmd(sysimage_command(repo,options).exec))
+        println("  Shared image build/reuse with automatic memory fallback: ",Cmd(sysimage_command(repo,options).exec))
         isempty(options[:workload]) && println("  Workload: tiny SOL101/103/105/106, sensitivity, generation and application handlers")
     else
-        println("  Sysimage: not requested (use --sysimage to build one)")
+        println("  Sysimage: skipped by --no-sysimage")
     end
     options[:dry_run] && return 0
     println("[Browser assets] Checking bundled app files before package installation...");flush(stdout)
@@ -261,8 +299,9 @@ function main(args=ARGS)
         println("[Browser assets] Local scripts, styles and pinned bundle checksums verified; no CDN downloads are needed.")
         if options[:precompile]
             println("[$name] Precompiling packages (may take several minutes)...");flush(stdout)
-            withenv("JULIA_NUM_PRECOMPILE_TASKS"=>get(ENV,"JULIA_NUM_PRECOMPILE_TASKS","2"),
-                    "JULIA_IMAGE_THREADS"=>get(ENV,"JULIA_IMAGE_THREADS","2")) do
+            withenv("JULIA_NUM_PRECOMPILE_TASKS"=>ENV["JULIA_NUM_PRECOMPILE_TASKS"],
+                    "JULIA_IMAGE_THREADS"=>ENV["JULIA_IMAGE_THREADS"],
+                    "JFEM_SOL105_PRECOMPILE_WORKLOAD"=>ENV["JFEM_SOL105_PRECOMPILE_WORKLOAD"]) do
                 Pkg.precompile()
             end
         end
@@ -279,14 +318,8 @@ function main(args=ARGS)
     end
     println("\nApplication dependency setup complete.")
     if options[:sysimage]!==nothing
-        println("[Shared image] Reusing the current image or rebuilding it; builds can take several minutes...");flush(stdout)
-        try
-            build_sysimage(repo,options)
-        catch failure
-            println(stderr,"Local image build failed: ",sprint(showerror,failure))
-            println(stderr,"Dependencies are installed and normal package loading remains available. Rerun setup to retry, or use --no-sysimage to skip local image builds.")
-            return 2
-        end
+        println("[Shared image] Checking startup acceleration; image creation uses available memory...");flush(stdout)
+        image_preparer(repo, options)
     end
     println("Start JFEM-Boxer: choose the launcher in APPS/JFEM-Boxer/Windows, Linux or Mac.")
     println("Solve a deck: APPS/JFEM-solver/Windows/jfem.cmd model.bdf, or bash APPS/JFEM-solver/Linux/jfem model.bdf (Mac: use Mac/jfem).")

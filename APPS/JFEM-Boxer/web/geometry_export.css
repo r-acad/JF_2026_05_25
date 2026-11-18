@@ -2,4 +2,16 @@
 #panel-geometry-export .display-control select,
 #panel-geometry-export .display-control input { width:100%; min-width:0; }
 #panel-geometry-export .hud-row { margin-top:12px; }
+#panel-geometry-export > fieldset.ui-form-section {
+  border:1px solid var(--line);
+  border-radius:8px;
+  margin:14px 0;
+  padding:12px;
+  min-width:0;
+}
+#panel-geometry-export > fieldset.ui-form-section > legend {
+  padding:0 6px;
+  font-weight:600;
+}
 #export-status { overflow-wrap:anywhere; }
+#solidcraft-status { overflow-wrap:anywhere; }

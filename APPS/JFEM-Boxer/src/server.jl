@@ -56,6 +56,20 @@ function AppState(root::AbstractString, input_path::AbstractString;
     return st
 end
 
+const BOXER_MODEL_DISPATCH_LOCK = ReentrantLock()
+const BOXER_MODEL_DISPATCHES = WeakKeyDict{Any,ReentrantLock}()
+
+"""Keep control/status requests responsive while a model request uses a worker."""
+function dispatch_model_request(handler,st,req)
+    model_lock=lock(BOXER_MODEL_DISPATCH_LOCK) do
+        get!(ReentrantLock,BOXER_MODEL_DISPATCHES,st)
+    end
+    work=()->lock(model_lock) do
+        handler(st,req)
+    end
+    Threads.nthreads(:default)>1 ? fetch(Threads.@spawn :default work()) : work()
+end
+
 """
     get_job(st, req) -> JfemJob
 
@@ -114,6 +128,7 @@ function mesh_quality_error_response(error::MeshQualityError)
 end
 
 include("study_save_server.jl")
+include("study_checkpoint.jl")
 
 """
     describe_error(e) -> String
@@ -173,7 +188,9 @@ of dotted keys; an empty body means use the parameters already loaded.
 function params_from_request(st::AppState, req)
     body = String(req.body)
     isempty(strip(body)) && return copy(st.params)
-    raw = JSON.parse(body)
+    # Use the startup/study dictionary representation, avoiding another large
+    # normalization specialization for the first Create FEM JSON.Object.
+    raw = JSON.parse(body;dicttype=Dict{String,Any})
     raw isa AbstractDict || throw(ArgumentError("expected a JSON object of parameters"))
     flat = raw
     # Accept either a flat dotted object or the nested section form.
@@ -203,10 +220,11 @@ const ACTIVITY_STAGES = Dict(
     "leading_edge" => "Meshing the selected leading-edge rib range…",
     "stiffened_panels" => "Assigning stiffened skin panels and inherited shell/stringer properties…",
     "aero" => "Building aerodynamic geometry…", "fuel" => "Calculating exact fuel capacity…",
-    "weights" => "Calculating component and fuel weights…", "checks" => "Checking mesh connectivity…",
+    "weights" => "Calculating model mass properties…", "checks" => "Checking mesh connectivity…",
     "element_axes" => "Preparing element frames…", "aerodynamic_loads" => "Calculating aerodynamic load cases…",
     "fuel_display" => "Building fuel tank display…", "annotations" => "Preparing entity labels…",
     "fuel_masses" => "Integrating fuel-bay volume, centre of gravity and inertia…",
+    "mass_references" => "Preparing structural inertia references…",
     "case_preparation" => "Preparing independent load-case masses and loads…",
     "payload" => "Packing mesh data…", "deck" => "Writing REFERENCE deck…",
     "done" => "Sending results to the viewer…")
@@ -409,12 +427,15 @@ function handle_generate(st::AppState, req)
         params = params_from_request(st, req)
         migrate_legacy_panel_overrides!(params,st.model)
         t0 = time()
-        model = build_model(params; progress)
-        dt = time() - t0
+        model = build_model(params; progress,summaries=false)
+        build_dt = time() - t0
         payload = mesh_payload(model; progress)
+        dt = time() - t0
         st.params = params
         st.model = model
         payload["generate_seconds"] = round(dt; digits = 4)
+        payload["build_seconds"] = round(build_dt; digits = 4)
+        payload["prepare_view_seconds"] = round(dt-build_dt; digits = 4)
         @info "mesh generated" nodes = length(model.node_ids) seconds = round(dt; digits = 3)
         progress("done")
         return msgpack_response(payload)
@@ -429,24 +450,41 @@ end
 # Portable workspace preparation is read-only: malformed imports, aerodynamic
 # failures and cancelled browser operations cannot replace the active model,
 # solver snapshot, input file or reference metadata on the server.
+function workspace_request_params(req)
+    # Share the dictionary representation normalized during TOML startup.
+    raw = JSON.parse(String(req.body);dicttype=Dict{String,Any})
+    raw isa AbstractDict || throw(ArgumentError("workspace parameters must be a JSON object"))
+    params, unknown = normalize_params(raw)
+    isempty(unknown) || throw(ArgumentError("unsupported workspace parameters: " * join(sort!(unknown), ", ")))
+    return params
+end
+
 function handle_workspace(st::AppState, req; generate::Bool = false)
-    progress = request_progress(st, req)
+    # Retain the internal keyword API, but do not infer the FEM construction
+    # graph when only checking inputs. The HTTP preparation route calls the
+    # dedicated generation handler directly.
+    generate && return Base.invokelatest(handle_prepare_workspace,st,req)
     try
-        # Study files have hundreds of keys. Materialize the same dictionary
-        # representation normalized during TOML startup instead of compiling a
-        # second JSON.Object normalization path on the first file open.
-        raw = JSON.parse(String(req.body);dicttype=Dict{String,Any})
-        raw isa AbstractDict || throw(ArgumentError("workspace parameters must be a JSON object"))
-        params, unknown = normalize_params(raw)
-        isempty(unknown) || throw(ArgumentError("unsupported workspace parameters: " * join(sort!(unknown), ", ")))
-        if generate
-            model = build_model(params; progress)
-            payload = mesh_payload(model; progress)
-            st.model=model;st.params=params
-            progress("done")
-            return msgpack_response(payload)
-        end
+        params = workspace_request_params(req)
         return json_response(Dict("ok" => true, "parameters" => params))
+    catch e
+        e isa PanelOverrideConflict&&return panel_override_error_response(e)
+        e isa MeshQualityError&&return mesh_quality_error_response(e)
+        return error_response(describe_error(e))
+    end
+end
+
+function handle_prepare_workspace(st::AppState, req)
+    progress = request_progress(st,req)
+    try
+        params = workspace_request_params(req)
+        model = build_model(params;progress,summaries=false)
+        payload = mesh_payload(model;progress)
+        # Publish only a complete model and payload. A failed preparation keeps
+        # the previous Study's server model and parameters intact.
+        st.model=model;st.params=params
+        progress("done")
+        return msgpack_response(payload)
     catch e
         e isa PanelOverrideConflict&&return panel_override_error_response(e)
         e isa MeshQualityError&&return mesh_quality_error_response(e)
@@ -883,6 +921,8 @@ function handle_jfem_probe(st::AppState, req)
 end
 
 function handle_shutdown(st::AppState, req)
+    stop_boxer_control!(st)
+    stop_solidcraft_exports!(st)
     stop_aerodynamic_jobs!(st)
     st.running = false
     @info "shutdown requested by the web app"
@@ -896,6 +936,19 @@ Wire the endpoints and the static file handler.
 """
 function make_router(st::AppState)
     router = HTTP.Router()
+    for method in ("POST","GET","DELETE")
+        HTTP.register!(router,method,"/api/mcp",req->handle_boxer_mcp(st,req))
+    end
+    for action in ("connect","poll","result","disconnect")
+        HTTP.register!(router,"POST","/api/control/"*action,req->handle_boxer_control(st,req;action))
+    end
+    for action in ("config","status")
+        HTTP.register!(router,"GET","/api/control/"*action,req->handle_boxer_control(st,req;action))
+    end
+    HTTP.register!(router,"GET","/api/chat/config",req->handle_boxer_chat(st,req;action="config"))
+    for action in ("message","test","models","transcribe","speech","validate","open_study")
+        HTTP.register!(router,"POST","/api/chat/"*action,req->handle_boxer_chat(st,req;action))
+    end
     HTTP.register!(router,"POST","/api/aerodynamics/mesh",req->handle_aerodynamic_study(st,req;action="mesh"))
     HTTP.register!(router,"POST","/api/aerodynamics/run",req->handle_aerodynamic_study(st,req;action="run"))
     HTTP.register!(router,"GET","/api/aerodynamics/status",req->handle_aerodynamic_study(st,req;action="status"))
@@ -908,16 +961,25 @@ function make_router(st::AppState)
     HTTP.register!(router, "GET", "/shared/jfem_graphics.js", req ->
         HTTP.Response(200, ["Content-Type" => "application/javascript; charset=utf-8"],
             read(joinpath(dirname(st.root),"jfem_graphics.js"))))
-    HTTP.register!(router, "POST", "/api/import_reference", req -> handle_import_reference(st,req))
-    HTTP.register!(router, "POST", "/api/fe_edit", req -> handle_fe_edit(st,req))
+    HTTP.register!(router, "POST", "/api/import_reference", req -> dispatch_model_request(handle_import_reference,st,req))
+    HTTP.register!(router, "POST", "/api/fe_edit", req -> dispatch_model_request(handle_fe_edit,st,req))
     HTTP.register!(router, "POST", "/api/import_reference/folder/scan", req -> handle_import_reference_folder_scan(st,req))
     HTTP.register!(router, "GET", "/api/import_reference/browse", req -> handle_import_reference_browse(st,req))
     HTTP.register!(router, "POST", "/api/import_reference/pick", req -> handle_import_reference_pick(st,req))
     HTTP.register!(router, "POST", "/api/import_reference/prepare", req -> handle_import_reference_prepare(st,req))
     HTTP.register!(router, "GET", "/api/import_reference/prepare", req -> handle_import_reference_prepare(st,req))
-    HTTP.register!(router, "GET", "/api/input", req -> handle_input(st, req))
+    HTTP.register!(router, "GET", "/api/input", req -> dispatch_model_request(handle_input,st,req))
     HTTP.register!(router, "GET", "/api/input_text", req -> handle_input_text(st, req))
     HTTP.register!(router, "POST", "/api/sensitivity/catalog", req -> handle_sensitivity_catalog(st, req))
+    HTTP.register!(router, "POST", "/api/rf_sensitivity/catalog", req -> handle_rf_catalog(st,req))
+    HTTP.register!(router, "POST", "/api/rf_assessment", req -> handle_rf_assessment(st,req))
+    HTTP.register!(router, "POST", "/api/rf_assessment/cancel", req -> handle_rf_assessment_cancel(st,req))
+    HTTP.register!(router, "POST", "/api/rf_sensitivity/start", req -> handle_rf_start(st,req))
+    HTTP.register!(router, "GET", "/api/rf_sensitivity/status", req -> handle_rf_status(st,req))
+    HTTP.register!(router, "POST", "/api/rf_sensitivity/cancel", req -> handle_rf_cancel(st,req))
+    HTTP.register!(router, "GET", "/api/rf_sensitivity/result", req -> handle_rf_result(st,req))
+    HTTP.register!(router, "GET", "/api/rf_sensitivity/download", req -> handle_rf_download(st,req))
+    HTTP.register!(router, "HEAD", "/api/rf_sensitivity/download", req -> handle_rf_download(st,req))
     HTTP.register!(router, "POST", "/api/sensitivity/run", req -> handle_sensitivity_run(st, req))
     HTTP.register!(router, "GET", "/api/sensitivity/status", req -> handle_sensitivity_status(st, req))
     HTTP.register!(router, "POST", "/api/sensitivity/stop", req -> handle_sensitivity_stop(st, req))
@@ -928,27 +990,34 @@ function make_router(st::AppState)
     HTTP.register!(router, "GET", "/api/activity", req -> handle_activity(st, req))
     HTTP.register!(router, "GET", "/api/airfoils", req -> handle_airfoils(st, req))
     HTTP.register!(router, "GET", "/api/airfoils/profile", req -> handle_airfoils(st, req;profile=true))
-    HTTP.register!(router, "POST", "/api/generate", req -> handle_generate(st, req))
-    HTTP.register!(router, "POST", "/api/geometry_preview", req -> handle_geometry_preview(st, req))
+    HTTP.register!(router, "POST", "/api/generate", req -> dispatch_model_request(handle_generate,st,req))
+    HTTP.register!(router, "POST", "/api/geometry_preview", req -> dispatch_model_request(handle_geometry_preview,st,req))
     HTTP.register!(router, "POST", "/api/movable_surfaces", req -> handle_movable_surfaces(st, req))
-    HTTP.register!(router, "POST", "/api/validate_workspace", req -> handle_workspace(st, req))
-    HTTP.register!(router, "POST", "/api/restore_workspace", req -> handle_restore_workspace(st, req))
+    HTTP.register!(router, "POST", "/api/validate_workspace", req -> dispatch_model_request(handle_workspace,st,req))
+    HTTP.register!(router, "POST", "/api/restore_workspace", req -> dispatch_model_request(handle_restore_workspace,st,req))
+    HTTP.register!(router, "POST", "/api/study_checkpoint/create", req -> handle_study_checkpoint_create(st,req))
+    HTTP.register!(router, "POST", "/api/study_checkpoint/restore", req -> handle_study_checkpoint_restore(st,req))
+    HTTP.register!(router, "POST", "/api/study_checkpoint/commit", req -> dispatch_model_request(handle_study_checkpoint_commit,st,req))
+    HTTP.register!(router, "POST", "/api/study_checkpoint/discard", req -> handle_study_checkpoint_discard(st,req))
     HTTP.register!(router, "POST", "/api/study/pick", req -> handle_study_pick(st, req))
     HTTP.register!(router, "POST", "/api/study/write", req -> handle_study_file(st, req))
     HTTP.register!(router, "POST", "/api/study/read", req -> handle_study_file(st, req;read_only=true))
-    HTTP.register!(router, "POST", "/api/prepare_workspace", req -> handle_workspace(st, req; generate = true))
+    HTTP.register!(router, "POST", "/api/prepare_workspace", req -> dispatch_model_request(handle_prepare_workspace,st,req))
     HTTP.register!(router, "POST", "/api/rf_sections", req -> handle_rf_sections(st, req))
-    HTTP.register!(router, "POST", "/api/import_toml", req -> handle_import_toml(st, req))
+    HTTP.register!(router, "POST", "/api/import_toml", req -> dispatch_model_request(handle_import_toml,st,req))
     HTTP.register!(router, "POST", "/api/export_toml", req -> handle_export_toml(st, req))
-    HTTP.register!(router, "POST", "/api/reference", req -> handle_reference(st, req))
+    HTTP.register!(router, "POST", "/api/solidcraft/start", req -> handle_solidcraft_export(st,req))
+    HTTP.register!(router, "GET", "/api/solidcraft/status", req -> handle_solidcraft_export(st,req;action="status"))
+    HTTP.register!(router, "POST", "/api/solidcraft/cancel", req -> handle_solidcraft_export(st,req;action="cancel"))
+    HTTP.register!(router, "POST", "/api/reference", req -> dispatch_model_request(handle_reference,st,req))
     HTTP.register!(router, "GET", "/api/last_deck", req -> handle_last_deck(st, req))
     HTTP.register!(router, "GET", "/api/last_deck/download", req -> handle_last_deck(st, req; download=true))
-    HTTP.register!(router, "POST", "/api/save_input", req -> handle_save_input(st, req))
+    HTTP.register!(router, "POST", "/api/save_input", req -> dispatch_model_request(handle_save_input,st,req))
     HTTP.register!(router, "POST", "/api/reference_upload", req -> handle_upload_reference(st, req))
     HTTP.register!(router, "GET", "/api/reference_asset", req -> handle_reference_asset(st, req))
     HTTP.register!(router, "POST", "/api/save_references", req -> handle_save_references(st, req))
     HTTP.register!(router, "GET", "/api/jfem_probe", req -> handle_jfem_probe(st, req))
-    HTTP.register!(router, "POST", "/api/run_jfem", req -> handle_run_jfem(st, req))
+    HTTP.register!(router, "POST", "/api/run_jfem", req -> dispatch_model_request(handle_run_jfem,st,req))
     HTTP.register!(router, "GET", "/api/jfem_status", req -> handle_jfem_status(st, req))
     HTTP.register!(router, "GET", "/api/jfem_log", req -> handle_jfem_log(st, req))
     HTTP.register!(router, "GET", "/api/jfem_results", req -> handle_jfem_results(st, req))
@@ -1020,12 +1089,14 @@ function run_app(input_path::AbstractString;
     actual = HTTP.port(server)
 
     url = "http://127.0.0.1:$actual/"
+    configure_boxer_mcp!(st,url)
     _startup_stage("HTTP listener ready at $url; choose a study or import a Reference deck in the browser")
     on_ready()
     println()
     println("  JFEM-Boxer is running")
     println("  input file : ", st.input_path)
     println("  web app    : ", url)
+    println("  MCP bridge : ", url, "api/mcp (connection settings in Chat)")
     println("  press Ctrl-C in this window to stop")
     println()
     flush(stdout)
@@ -1039,6 +1110,7 @@ function run_app(input_path::AbstractString;
         e isa InterruptException || rethrow()
         println("\ninterrupted")
     finally
+        stop_boxer_control!(st)
         try
             shutdown_solver_worker!(closing=true)
         finally

@@ -45,7 +45,7 @@ const PID_STRINGER = 11
 const PID_SPAR_CAP = 12
 const PID_STRINGER_RUNOUT = 13
 const PID_RIB_STIFFENER = 14
-const STRINGER_RUNOUT_AREA = 5.0e-6  # m^2 = 5 mm^2, fixed square connector
+const STRINGER_RUNOUT_AREA = 5.0e-6  # m^2 = 5 mm^2 legacy/default square connector
 
 """
     BoxGrid
@@ -640,7 +640,7 @@ end
 
 Generate the whole finite element model from the flat parameter dictionary.
 """
-function build_model(p::AbstractDict; progress = stage -> nothing)
+function build_model(p::AbstractDict; progress = stage -> nothing, summaries::Bool = true)
     progress("geometry")
     validate_params(p)
     w = make_wing(p)
@@ -933,14 +933,20 @@ function build_model(p::AbstractDict; progress = stage -> nothing)
 
     p["leading_edge.enabled"] && validate_oriented_le_elements(model)
 
-    progress("fuel_masses")
-    add_fuel_references!(model)
+    if needs_bay_mass_references(p)
+        progress(get(p,"fuel.enabled",false) ? "fuel_masses" : "mass_references")
+        add_fuel_references!(model)
+    end
 
     append!(model.info, model_info(model, n_str_bays, n_rib_bays))
-    progress("fuel")
-    append!(model.info, fuel_info(model))
-    progress("weights")
-    append!(model.info, weights_info(model))
+    if summaries
+        if get(p,"fuel.enabled",false)
+            progress("fuel")
+            append!(model.info, fuel_info(model))
+        end
+        progress("weights")
+        append!(model.info, weights_info(model))
+    end
     progress("checks")
     append!(model.checks, mesh_checks(model))
     return model
@@ -1188,7 +1194,7 @@ function model_info(m::Model, n_str_bays::Int, n_rib_bays::Int)
         ("Stringer direction", isempty(get(p,"box.rear_spar_points",Any[])) ?
             fmt(p["box.stringer_angle"]) * " deg to the base rear spar (straight paths)" :
             "Piecewise rear-spar directions with endpoint angle offsets; continuous paths"),
-        ("Runout connector area", string(STRINGER_RUNOUT_AREA) * " m2"),
+        ("Shared P13 runout connector area", string(section_definition(p,PID_STRINGER_RUNOUT)["area_m2"]) * " m2"),
         ("Box height at root", fmt(box_height(g.wing, 0.0, 0.5 * (fs + rs))) * " m"),
         ("Box height at final rib", fmt(box_height(g.wing, last(g.etas),
             0.5 * (g.lower_xcs[1,end] + g.lower_xcs[end,end]))) * " m"),

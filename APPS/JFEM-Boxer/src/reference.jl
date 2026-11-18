@@ -389,7 +389,7 @@ function write_deck(io::IO, m::Model; frozen_load_cases=nothing, comparison=fals
                 ("NLRESTOL","nonlinear.residual_tolerance"),("NLCUTMAX","nonlinear.max_cutbacks"))
             println(io,"PARAM,",name,",",p[key])
         end
-        println(io,"PARAM,NLMETHOD,AUTO")
+        println(io,"PARAM,NLMETHOD,",uppercase(String(get(p,"nonlinear.method","auto"))))
     end
 
     # Skins follow local stringer segments; rib x stays horizontal in its plane.

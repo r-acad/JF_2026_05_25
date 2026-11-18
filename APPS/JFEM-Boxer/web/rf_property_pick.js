@@ -1,5 +1,5 @@
 /* Direct property sizing from a 3D Inspect double click. Reads existing RFs;
- * opening the quick table never starts a new structural/RF calculation. */
+ * opening a local editor never starts a structural/RF calculation or tab. */
 (function(root,factory){
  const api=factory(root);
  if(typeof module==='object'&&module.exports)module.exports=api;else root.WingRFPropertyPick=api;
@@ -23,11 +23,18 @@
   return{failureMode:'minimum_rf',rows,complete:false,coverage:{total:rows.length,recovered:0},includedCases:[],excludedCases:[],missingCases:[],
    method:'maximum',stressUnit:'MPa',stressFactor:1e-6,forceUnit:'N',lengthUnit:'m',note:reason};
  }
+ function physicalPick(hit){
+  if(!hit)return{};const result={};
+  if(typeof hit.scopeKey==='string'&&hit.scopeKey.trim())result.scopeKey=hit.scopeKey;
+  const point=hit.point?.asArray?.()||hit.point;
+  if((Array.isArray(point)||ArrayBuffer.isView(point))&&point.length===3&&Array.from(point).every(Number.isFinite))result.point=Array.from(point);
+  return result;
+ }
  function target({event,canvas,state,pick}={}){
   if(event?.button!==0||!state?.hasModel||state.activeTab!=='inspect'||state.busy||state.exclusivePick||typeof pick!=='function')return null;
   const box=canvas.getBoundingClientRect(),hit=pick(event.clientX-box.left,event.clientY-box.top);
   if(!hit||!positive(hit.pid)||!positive(hit.eid)||!kinds.has(hit.kind)||hit.name==='aero'||hit.helper)return null;
-  return{pid:Number(hit.pid),eid:Number(hit.eid),kind:hit.kind};
+  return{pid:Number(hit.pid),eid:Number(hit.eid),kind:hit.kind,...physicalPick(hit)};
  }
  function create(options={}){
   const tables=options.tables||root.WingReserveFactorTables,editor=options.editor||root.WingRFPropertyEditor;
@@ -43,16 +50,41 @@
    onEditProperty:(pid,doc,hooks)=>{
     const current=context(),saved=read(),descriptor=editor.resolve(current,pid);
     if(!descriptor.editable)return editor.open({document:doc,descriptor:{...descriptor,label:'P'+pid,assessment:editor.assessmentSummary(saved.report,pid)}});
-    return options.onEditProperty(pid,doc,{...hooks,skipAssessment:true,assessmentReport:saved.report||null,sourceContext:saved.sourceContext});
+    const picked=Number(lastTarget?.pid)===Number(pid)?lastTarget:null;
+    return options.onEditProperty(pid,doc,{...hooks,skipAssessment:true,assessmentReport:saved.report||null,sourceContext:saved.sourceContext,
+     pickedElementId:picked?.eid,...physicalPick(picked)});
    },
    onError:message=>options.onError?.(message)
   });
   function open(hit){
    if(destroyed||!hit||!positive(hit.pid))return false;
-   lastTarget=hit;
-   const opened=table.openProperty(Number(hit.pid));
-   if(opened)options.onInspect?.(hit);
-   return opened;
+   const{scopeKey,point,...entity}=hit;lastTarget={...entity,...physicalPick(hit)};
+   const scopeApi=options.scope||root.WingRFPanelScope;
+   if(scopeApi){
+    try{
+     const current=context(),scope=scopeApi.resolve(current,{...lastTarget,pid:Number(hit.pid),eid:Number(hit.eid)});
+     if(['compression_panel','plain_skin'].includes(scope?.kind)){
+      if(typeof options.onEditProperty!=='function')throw Error('The physical panel editor is unavailable. Refresh JFEM-Boxer.');
+      const saved=read();options.onInspect?.(lastTarget);
+      options.onEditProperty(Number(hit.pid),options.canvas?.ownerDocument||root.document,{
+       skipAssessment:true,assessmentReport:saved.report||null,sourceContext:saved.sourceContext,
+       pickedElementId:Number(hit.eid),...physicalPick(lastTarget),scopeKey:scope.key});
+      return true;
+     }
+    }catch(error){options.onError?.(error?.message||String(error));return false;}
+   }
+   // Inspect edits stay in the Study. A scene rebuild can reinstall this
+   // controller, so it must never create a detached browser tab implicitly.
+   try{
+    const current=context(),saved=read(),pid=Number(hit.pid),doc=options.canvas?.ownerDocument||root.document,descriptor=editor.resolve(current,pid);
+    options.onInspect?.(lastTarget);
+    if(!descriptor.editable)editor.open({document:doc,descriptor:{...descriptor,label:'P'+pid,assessment:editor.assessmentSummary(saved.report,pid)}});
+    else{
+     if(typeof options.onEditProperty!=='function')throw Error('Property editing is unavailable. Refresh JFEM-Boxer.');
+     options.onEditProperty(pid,doc,{skipAssessment:true,assessmentReport:saved.report||null,sourceContext:saved.sourceContext,pickedElementId:Number(hit.eid),...physicalPick(lastTarget)});
+    }
+    return true;
+   }catch(error){options.onError?.(error?.message||String(error));return false;}
   }
   function handleDoubleClick(event){
    if(destroyed)return false;
@@ -60,7 +92,7 @@
    if(!hit)return false;
    event.preventDefault();event.stopImmediatePropagation?.();open(hit);return true;
   }
-  return{open,handleDoubleClick,refresh:force=>table.refresh(force),get target(){return lastTarget;},destroy(){if(destroyed)return;destroyed=true;table.destroy();}};
+  return{open,handleDoubleClick,refresh:force=>table.refresh(force),clearResults:options=>table.clearResults(options),get target(){return lastTarget;},destroy(){if(destroyed)return;destroyed=true;table.destroy();}};
  }
  return{unassessedReport,target,create};
 });

@@ -363,7 +363,7 @@ const SCHEMA = ParamSpec[
     ParamSpec("materials.shells", "Shell materials and construction", :shellmaterials, default_shell_materials(), "Materials";
               help = "Per-component monolithic MAT1 or symmetric face/core/face PCOMP. Face thickness is per face. Rib and spar-bay overrides are total thickness and change the core only, requiring total > twice face thickness"),
     ParamSpec("materials.bars", "Beam materials", :barmaterials, default_bar_materials(), "Materials";
-              help = "Select an isotropic material for stringers, spar caps, rib stiffeners and fixed-area runout connectors"),
+              help = "Select an isotropic material for stringers, spar caps, rib stiffeners and shared P13 runout connectors"),
 
     # --- properties --------------------------------------------------------
     ParamSpec("properties.t_skin_upper", "Minimum upper skin thickness", :float, 0.0015,
@@ -405,6 +405,8 @@ const SCHEMA = ParamSpec[
     ParamSpec("properties.spar_cap_side", "Minimum square spar cap side", :float, 0.020,
               "Spar properties"; unit = "m",
               help = "PBARL BAR with equal DIM1 and DIM2. One face lies against the skin; the square extends into the box"),
+    ParamSpec("properties.runout_side", "Minimum stringer runout square side", :float, sqrt(5.0e-6),
+              "Beam sections"; unit="m", help="Minimum square side for the shared P13 bars joining stringer runouts to the spar. The default preserves the former 5 mm2 area. RF or Inspect property editing can increase the shared P13 section without changing normal stringers; all actual P13 elements use the same side and material."),
 
     # --- output ------------------------------------------------------------
     ParamSpec("output.title", "Model title", :string, "Lifting surface torsion box", "Analysis";
@@ -429,6 +431,9 @@ const SCHEMA = ParamSpec[
               "Analysis"; help = "Add the displayed full-chord aerodynamic loft to the exported deck as separate GRID/CQUAD4/PSHELL entries. These shells are disconnected from the structural box and form a free body; connect or remove them before solving that exported deck. Their resolution follows Aero chord points, not the VLM lattice"),
     ParamSpec("output.t_aero_shell", "Aero shell thickness", :float, 0.0015,
               "Analysis"; unit = "m", help = "PSHELL thickness in metres for the optional exported aerodynamic-loft shells. Used only when Export aero shells is enabled. It does not set structural skin thickness, VLM panel properties or displayed loft sampling"),
+    ParamSpec("nonlinear.method", "Nonlinear formulation", :choice, "auto", "Analysis";
+              choices=["auto","legacy_geometric","formal_shell_green_lagrange","formal_shell_von_karman"],
+              help="Auto preserves the solver's normal selection. Legacy geometric uses the accepted geometric-stiffness equilibrium and its full consistent residual Jacobian for RF sensitivities. Formal Green-Lagrange and von Karman are separate energy formulations with additional response/element restrictions; they are not silently replaced by a linear analysis."),
     ParamSpec("nonlinear.load_steps", "Nonlinear load increments", :int, 8, "Analysis";
               help = "SOL106 nominal increments to the full selected load; native JFEM can cut back failed increments"),
     ParamSpec("nonlinear.max_iterations", "Iterations per increment", :int, 25, "Analysis";
@@ -925,9 +930,9 @@ function canonical_study_parameters(flat::AbstractDict)
     (haskey(flat,"jfem.path")||any(key->haskey(flat,key),LEGACY_SECTION_KEYS))&&return false
     for spec in SCHEMA
         if !haskey(flat,spec.key)
-            # These scalar display-independent defaults preserve the physical
-            # behavior of complete snapshots saved before rib reference planes.
-            spec.key in ("ribs.plane","ribs.chords_plane_angle")&&continue
+            # These defaults preserve the physical behavior of snapshots saved
+            # before rib reference planes and editable runout sizing.
+            spec.key in ("ribs.plane","ribs.chords_plane_angle","properties.runout_side")&&continue
             return false
         end
         value=flat[spec.key]
@@ -1003,7 +1008,7 @@ function validate_params(p::AbstractDict; check_cases::Bool = true)
               "box.stringer_pitch", "mesh.stringer_runout_ratio", "material.E", "material.rho",
               "properties.t_skin_upper", "properties.t_skin_lower",
               "properties.t_spar_web", "properties.t_rib_web",
-              "properties.spar_cap_side", "fuel.density", "leading_edge.t_skin", "leading_edge.t_rib", ASSESSMENT_FACTOR_KEYS...)
+              "properties.spar_cap_side", "properties.runout_side", "fuel.density", "leading_edge.t_skin", "leading_edge.t_rib", ASSESSMENT_FACTOR_KEYS...)
         pos(k)
     end
     for k in ("output.t_aero_shell",)
@@ -1106,6 +1111,8 @@ function validate_params(p::AbstractDict; check_cases::Bool = true)
     sol = String(p["output.solution"])
     sol in ("101", "103", "105", "106") ||
         throw(ArgumentError("output.solution must be 101, 103, 105 or 106"))
+    String(get(p,"nonlinear.method","auto")) in SCHEMA_BY_KEY["nonlinear.method"].choices||
+        throw(ArgumentError("Choose Auto, Legacy geometric, Green-Lagrange or von Karman for the nonlinear formulation"))
     for (key,lo,hi) in (("nonlinear.load_steps",1,1000),
             ("nonlinear.max_iterations",1,1000),("nonlinear.max_cutbacks",0,50))
         lo <= p[key] <= hi || throw(ArgumentError("$key must be between $lo and $hi"))

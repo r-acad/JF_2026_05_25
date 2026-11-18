@@ -8,7 +8,7 @@ const{chromium}=require(modulePath),schema=JSON.parse(fs.readFileSync(path.join(
  fs.mkdirSync(out,{recursive:true});const errors=[],requests=[],checks=[],browser=await chromium.launch({channel:'chrome',headless:true,args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']}),context=await browser.newContext({viewport:{width:1600,height:1100}}),page=await context.newPage();page.setDefaultTimeout(60000);page.on('pageerror',e=>errors.push(e.stack));
  const origin='http://127.0.0.1:43971';await context.route(origin+'/**',route=>{const p=new URL(route.request().url()).pathname;
   if(p==='/api/input')return route.fulfill({json:{...schema,ok:true}});
-  if(p==='/api/validate_workspace')return route.fulfill({json:{ok:true,parameters:route.request().postDataJSON()}});
+  if(['/api/validate_workspace','/api/restore_workspace'].includes(p))return route.fulfill({json:{ok:true,parameters:route.request().postDataJSON()}});
   if(['/api/prepare_workspace','/api/generate'].includes(p)){requests.push(p);return route.fulfill({body:fs.readFileSync(path.join(fixture,'payload.msgpack')),contentType:'application/msgpack'});}
   if(p==='/api/rf_sections'){
    const parameters=route.request().postDataJSON().parameters,stage=stages.find(s=>stages.every(t=>parameters[t.key]===s.parameters[t.key]));
@@ -36,7 +36,7 @@ const{chromium}=require(modulePath),schema=JSON.parse(fs.readFileSync(path.join(
   assert(baseline.rows.some(r=>r.value<1));checks.push('Begin with genuine complete application RF assessments from synthetic recovered internal forces on the native generated model.');
   for(const stage of stages){
    await page.evaluate(key=>{const tab=key.startsWith('leading_edge.')?'leproperties':key.includes('stringer_')?'sections':key.includes('rib_')?'ribproperties':key.includes('spar_')?'sparproperties':'shells';activateWorkspaceTab(tab);document.getElementById('p-'+key).scrollIntoView();},stage.key);
-   const input=page.locator('[id="p-'+stage.key+'"]');await input.fill(String(stage.value));await input.dispatchEvent('change');
+   const input=page.locator('[id="p-'+stage.key+'"]');await input.fill(String(stage.value*1000));await input.dispatchEvent('change');
    await page.waitForFunction(key=>!state.rfSizingPending&&state.rfSectionUpdate?.signature===formSignature()&&state.rfSectionUpdate?.panels&&state.stressReport.report?.estimated===true,stage.key);
    const current=await page.evaluate(()=>({parameters:collectParams(),meshIdentity:state.meshIdentity,estimated:state.stressReport.report.estimated,rows:state.stressReport.report.rows.map(r=>({pid:r.pid,value:r.reserveFactor})),sameModel:state.data===__blanketBaseline.model,sameCases:state.resultCases===__blanketBaseline.cases,sectionProps:state.rfSectionUpdate.groups.map(g=>({pid:g.pid,properties:g.properties}))}));
    for(const key of ['properties.panels','properties.ribs','properties.spar_bays','properties.components'])assert.deepEqual(current.parameters[key],stage.parameters[key],stage.key+' / '+key);

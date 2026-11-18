@@ -78,10 +78,14 @@ function run_checks()
                 @test (captured[eid].B === nothing) == (eid == 3)
             end
         end
-        # The numerical correction must not silently broaden the supported
-        # analytic derivative domain to offset or anisotropic laminates.
-        @test_throws ArgumentError S.analytic_shell_constitutive(model, 1)
-        @test_throws ArgumentError S.analytic_shell_constitutive(model, 2)
+        # The native derivative law now retains complete orthotropic and
+        # reference-offset laminate A/B/D, including membrane-bending coupling.
+        for pid in (1,2)
+            state=S.analytic_shell_constitutive(model,pid)
+            @test isapprox(state.Cm,model["PSHELLs"][string(pid)]["Cm"];rtol=2e-12)
+            @test isapprox(state.Bmb,model["PSHELLs"][string(pid)]["Bmb"];rtol=2e-12)
+            @test isapprox(state.Cb,model["PSHELLs"][string(pid)]["Cb"];rtol=2e-12)
+        end
         @test S.analytic_shell_constitutive(model, 3).Bmb == zeros(3, 3)
     end
 end

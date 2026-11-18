@@ -1,7 +1,19 @@
 /* Reuse unaffected physical checks during certified fixed-load sizing. */
 (function(root,factory){const api=factory(typeof module==='object'&&module.exports?require('./assessment_load_policy.js'):root.WingAssessmentLoadPolicy,typeof module==='object'&&module.exports?require('./stress_report_data.js'):root.WingStressReportData,typeof module==='object'&&module.exports?require('./minimum_rf_data.js'):root.WingMinimumRFData);if(typeof module==='object'&&module.exports)module.exports=api;else root.WingRFIncremental=api;})(globalThis,function(policy,data,minimum){
  'use strict';
- const entries=value=>value instanceof Map?[...value]:Object.entries(value||{}),json=value=>JSON.stringify(value);
+ const entries=value=>value instanceof Map?[...value]:Object.entries(value||{}),canonical=value=>Array.isArray(value)?value.map(canonical):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(k=>[k,canonical(value[k])])):value,json=value=>JSON.stringify(canonical(value));
+ // Derived section constants can differ in the last arithmetic bits when
+ // regenerated. This tolerance is far below admitted UI precision. Integer
+ // identifiers, types, object membership and ordered arrays remain exact.
+ function equivalent(a,b,key=''){
+  if(Object.is(a,b)||a===b)return true;
+  if(/(^|_)(id|ids|count|index|number)$|^(pid|eid|nodes|connectivity|rib_bay|stringer|segment|version|basisM|basisN|basisSize|modeLimit)$/.test(key)&&typeof a==='number'&&typeof b==='number')return false;
+  if(typeof a==='number'&&typeof b==='number'&&Number.isFinite(a)&&Number.isFinite(b))return!(Number.isSafeInteger(a)&&Number.isSafeInteger(b))&&Math.abs(a-b)<=1e-10*Math.max(Math.abs(a),Math.abs(b),Number.MIN_VALUE);
+  if(!a||!b||typeof a!=='object'||typeof b!=='object'||Array.isArray(a)!==Array.isArray(b))return false;
+  if(Array.isArray(a)&&a.length!==b.length)return false;
+  const ak=Object.keys(a),bk=Object.keys(b);return ak.length===bk.length&&ak.every(k=>Object.hasOwn(b,k)&&equivalent(a[k],b[k],Array.isArray(a)?key:k));
+ }
+ function propertyDefinitions(value){const props=new Map();for(const[,e]of entries(value?.elements)){const pid=Number(e.group?.pid);if(!Number.isSafeInteger(pid)||pid<=0||!['quad','tria','shell','solid','bar'].includes(e.group?.kind)||e.group?.name==='aero')continue;if(!props.has(pid))props.set(pid,[]);if(!props.get(pid).some(p=>equivalent(p,e.group?.properties)))props.get(pid).push(e.group?.properties);}return props;}
  const COMPONENTS={spar_web_buckling:['web_panels','spar_web'],rib_web_buckling:['web_panels','rib_web'],spar_cap_buckling:['columns','spar_cap'],rib_stiffener_buckling:['columns','rib_stiffener'],rib_stiffener_blade:['blades','rib_stiffener']};
  function metadata(input,mode){if(COMPONENTS[mode]){const[key,kind]=COMPONENTS[mode];return input.componentBuckling?.[key]?.filter(row=>row.kind===kind);}return input[{euler_column:'eulerColumns',stringer_blade:'stringerBlades',skin_buckling:'skinBucklingPanels'}[mode]];}
  function scoped(input,mode,rows){if(COMPONENTS[mode])return{...input,componentBuckling:{...input.componentBuckling,[COMPONENTS[mode][0]]:rows}};return{...input,[{euler_column:'eulerColumns',stringer_blade:'stringerBlades',skin_buckling:'skinBucklingPanels'}[mode]]:rows};}
@@ -13,8 +25,8 @@
   return{...previous,rows,coverage,...(previous.excludedProperties||updated.excludedProperties?{excludedProperties}:{}),complete:updated.missingCases?.length===0&&!updated.excludedCases?.some(c=>c.relevant)&&rows.length>0&&rows.every(r=>r.complete),includedCases:updated.includedCases,excludedCases:updated.excludedCases,missingCases:updated.missingCases};
  }
  function changedProperties(input,previous){
-  const props=value=>new Map(entries(value.elements).map(([,e])=>[Number(e.group?.pid),e.group?.properties])),a=props(input),b=props(previous),changed=new Set();
-  for(const[pid,p]of a)if(json(p)!==json(b.get(pid)))changed.add(pid);
+  const a=propertyDefinitions(input),b=propertyDefinitions(previous),changed=new Set();
+  for(const[pid,p]of a)if(p.length!==b.get(pid)?.length||p.some(value=>!b.get(pid).some(old=>equivalent(value,old))))changed.add(pid);
   if(json(input.allowables)!==json(previous.allowables))for(const pid of a.keys())changed.add(pid);
   return changed;
  }
@@ -37,7 +49,7 @@
     const before=new Map(old.map(row=>[String(row.key),row]));
     if(rows.length!==old.length||rows.some(row=>!before.has(String(row.key))))return fallback();
     const globalChanged=mode==='euler_column'?input.eulerFixityCoefficient!==prior.eulerFixityCoefficient:mode==='skin_buckling'?input.skinFixityCoefficient!==prior.skinFixityCoefficient:COMPONENTS[mode]?input.componentFixities?.[mode]!==prior.componentFixities?.[mode]:false;
-    const dirty=rows.filter(row=>globalChanged||json(row)!==json(before.get(String(row.key)))||[...members(row,index)].some(pid=>changed.has(pid)));
+    const dirty=rows.filter(row=>globalChanged||!equivalent(row,before.get(String(row.key)))||[...members(row,index)].some(pid=>changed.has(pid)));
     replace=new Set(dirty.map(row=>String(row.key)));key=row=>String(row.panelKey);
     if(!dirty.length){reports[mode]=oldReport;counts.reusedRows+=oldReport.rows.length;continue;}
     fresh=data.build({...scoped(input,mode,dirty),failureMode:mode});
@@ -47,5 +59,5 @@
   const result=input.failureMode==='minimum_rf'?policy.annotate(minimum.build(input,reports),input):reports[input.failureMode];
   result.incremental=counts;data.rememberCriteria(result,reports);return data.bindContext(result,input);
  }
- return{build,changedProperties,members};
+ return{build,changedProperties,members,equivalent,propertyDefinitions};
 });

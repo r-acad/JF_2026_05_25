@@ -4,7 +4,9 @@ This reference covers solver flags, exports, batch manifests, Python integration
 and result interpretation. Run its commands from the **repository root** after
 following your [operating-system installation guide](../README.md), or use the
 existing prepared-environment workflow below. The helpers share the source
-checkout and root sysimage; normal setup uses the root Project/Manifest.
+checkout and root Project/Manifest. Normal setup automatically reuses/builds a
+compatible local image, with a resource check and source-mode fallback. The
+solver and web apps run without an image when it cannot be built or loaded.
 
 ## Existing prepared package environments
 
@@ -28,7 +30,11 @@ listing the selected environment and depots. The prepared versions must
 support the current solver/application code; validate analyses when changing
 the dependency environment.
 
-### Build a shared image from existing caches
+### Optionally build a shared image from existing caches
+
+The environment/depot settings above are sufficient for ordinary source-mode
+launch when all required cached dependencies are present. Image construction is
+optional and may need substantial memory; skip it on a memory-constrained machine.
 
 For an already hydrated, disconnected Linux deployment, download the complete
 current repository on the connected computer and copy it to Linux. Keep the
@@ -151,7 +157,7 @@ These output/request limitations must remain separate from spectrum matching.
 
 ## Shared image workloads
 
-Normal setup includes representative static, modal, buckling, nonlinear,
+The shared image build includes representative static, modal, buckling, nonlinear,
 generation and sensitivity workloads. Sensitivity warmup includes imported
 material properties and generated skin, T-stringer and material dimensions.
 To add your own representative cases,
@@ -168,9 +174,14 @@ On Linux/macOS, use `bash "setup.sh"` or
 shared image before launchers use it. Workloads prepare compilation; they are
 separate from your analysis runs. New specializations may still compile.
 
-`--no-precompile` and `--no-verify` do not suppress image construction;
-download-only preparation also needs `--no-sysimage`. The OS guides explain
-normal installation, repair and offline preparation.
+Normal setup installs/verifies packages, defaults ordinary package precompilation
+to one task, then reuses a valid image or attempts a resource-checked image build.
+Insufficient or unknown available memory, a running memory-headroom limit, or
+an image-build failure reports a source-mode fallback and leaves setup usable.
+Package installation and module-verification errors remain genuine setup errors.
+`--no-precompile --no-verify --no-sysimage` selects download-only preparation;
+the first two flags alone do not cancel the default image step. The OS guides
+explain normal installation, repair and offline preparation.
 
 ## Fast Settings
 
@@ -538,10 +549,14 @@ directory.)
 
 ### Rebuild The Local Sysimage
 
-Normal setup builds the shared image automatically. After changing Julia, source,
-dependencies or recorded workloads, rerun the setup launcher in your
-`__Start here!__` operating-system folder. Standard launchers validate the receipt and
-fall back to source loading when it is absent or stale. See the
+After changing Julia, source, dependencies or workloads, run the root setup
+launcher normally. It reuses a compatible image first, otherwise checks available
+memory and supervises a fresh build. If it cannot finish that build, setup reports
+the fallback and applications run through ordinary package loading. Image builds
+can still require substantial RAM; the automatic checks are safeguards, not a
+guaranteed fixed peak. `--no-sysimage` intentionally skips construction;
+`--sysimage` remains supported and `--sysimage-threads=1` limits concurrency.
+Standard launchers validate the receipt and ignore absent/stale images. See the
 [installation guides](../README.md) for repair and offline preparation.
 
 The sections below show the fully explicit `julia ... run_bdf.jl` form, which
@@ -1326,9 +1341,10 @@ Run the command from the repository root with `--project=.`.
 
 First run is slower than later runs:
 
-Julia compiles methods on first use. Rebuild the local sysimage with a
-representative deck, then use the batch runner for production so any remaining
-compilation is paid once for the full set of cases.
+Julia compiles methods on first use. Running repeated cases in the same app or
+batch process reuses compiled methods without an image. An optional sysimage
+trained with representative decks can reduce startup compilation, but its build
+can require substantial RAM and is unnecessary for using the applications.
 
 No `.jfem` file is written:
 

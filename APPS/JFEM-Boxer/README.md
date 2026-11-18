@@ -1,9 +1,9 @@
-> **Before first launch:** run `setup.cmd` (Windows), `bash setup.sh` (Linux), or `bash setup.command` (macOS) at the repository root. This installs shared packages and creates the shared image under the root `sysimage/` directory. Wait until setup completes.
+> **Before first launch:** run `setup.cmd` (Windows), `bash setup.sh` (Linux), or `bash setup.command` (macOS) at the repository root. This installs shared packages and automatically reuses/builds an image when resources permit. Low memory or an image-build failure selects ordinary Julia loading with the same app features.
 
 # JFEM-Boxer
 
 This folder (`APPS/JFEM-Boxer`) is the authoritative application source.
-Develop and run Boxer here, using the repository root Julia project and shared
+Develop and run Boxer here, using the repository root Julia project and optional shared
 sysimage. Launch from `Windows/JFEM-Boxer.cmd`, `Linux/JFEM-Boxer.sh` or
 `Mac/JFEM-Boxer.command`. No separate generator checkout or source synchronization is required.
 
@@ -1105,11 +1105,16 @@ date. Boxer refreshes section metadata on the retained FEM, then updates the
 RF tables and active RF field using a **fixed-load sizing estimate**. Only checks
 affected by the edited property are recalculated, including any shared physical
 skin/column checks; unrelated assessment rows are reused. Numeric assessment
-runs in a background worker. The model and previous field remain visible while
-an inline status reports the update, without the full-assessment progress card.
-With **RF < 1 only**, the previous visibility mask remains until the new
-assessment is ready. Boxer then updates colors and visibility together, so a
-newly passing region disappears only after its new RF is available. Geometry,
+runs in a background worker. While typing in the editor, a spinning indicator
+shows section preparation and the affected RF/case checks being evaluated.
+Draft estimates use the same retained internal loads as Apply. Each completed
+estimate updates the active 3D RF field and its colors. With **RF < 1 only**,
+a newly passing region disappears together with its edges and inspection glow.
+The model stays visible while the next estimate is pending. **Cancel** restores
+the accepted RF values using the current display options. **Apply** keeps the
+estimated field visible through the committed section update. Automatic redraws
+reuse the draft field and its local assessment, and the main report accepts the
+updated sections on Apply. Geometry,
 loads, constraints or Study changes still prevent using incompatible old RFs.
 This works with Live mesh off. Property edits do not regenerate the FEM or run
 another equilibrium solution, even when Live mesh is on. Continue editing, then
@@ -1123,6 +1128,62 @@ constraints. Thickness, beam-section and material edits can satisfy this;
 changing a shell stringer's height or flange width moves its mesh and requires
 a new analysis.
 
+A compression panel contains one stringer between adjacent ribs and half of
+the skin bay on each side. Inspect identifies the physical region from the
+picked element; changing its governing failure mode does not select a different
+panel. The editor lists the minimum RF for every applicable check across the
+selected cases, including checks that already pass. Stringers are numbered
+from the front spar toward the rear spar.
+
+The RF field and Inspect editor use one physical sizing panel. Its single RF
+table combines local skin/stringer strength, its own column and blade checks,
+and the applicable skin-plate checks. Only that panel's section inputs appear
+below the table. A physical panel opens directly in the main window.
+Property edits refresh the RF colors and **Only RF < 1** filter when the
+estimates become available. A passing panel disappears independently of a
+failing neighbor, even when they use the same property ID.
+
+The skin is divided at the midpoint between stringers or between a stringer
+and spar. Display polygons can split an FE face; the original nodes, elements
+and solver connectivity remain unchanged. Material strength uses the recovered
+samples belonging to the selected region. Skin buckling retains the actual
+full plate between its physical supports: display partition lines introduce
+no artificial restraints. Editing a property also updates other regions that
+use that property. The separate property tables retain full-property envelopes.
+The **Inspect** label pulses yellow while an RF field is displayed; reduced
+motion uses steady yellow.
+
+The 3D RF view frames these physical regions with dark-blue 3.5-pixel lines.
+Internal FE mesh edges are excluded from the panel frames. The frames follow
+entity visibility, RF < 1 filtering, property-sizing refreshes and exploded
+views. In Inspect, cyan identifies the selected panel and white identifies the
+selected element fragment.
+
+After editing properties, a red **Analyze FEM** button appears immediately to
+the left of **Create FEM**. It updates the FEM and runs the selected JFEM
+analysis. Both buttons hide as the analysis launches. Further edits reveal the
+appropriate actions again, and an unsuccessful operation restores the retry
+controls.
+
+**Create FEM** is hidden while the physical mesh matches the Study. A geometry
+preview keeps the action available until a physical FEM is created. Reanalysis
+retains the requested RF field, palette, case selection, RF filter, camera and
+layer visibility. Previous analysis values clear when the run starts, and the
+field returns automatically after the current results and RF assessment arrive.
+**Clear field** cancels that pending display request. An analysis with modal or
+buckling results opens its applicable FE results.
+
+A plain skin plate beside a spar contains no internal stringer. Selecting that
+physical region opens its skin and, when present, spar-cap properties. Its RF
+table contains the skin strength/plate checks and the cap's own strength and
+stability checks. Neighboring stringer-column and blade checks belong to their
+respective compression panels.
+
+**P13** is the shared square-bar property for stringer run-out connectors.
+Its editor changes the side and material for every actual P13 connector.
+**Properties / Stringers** contains the minimum runout side. Existing Studies
+inherit the original 5 mm² square section with a side of approximately 2.236 mm.
+
 An amber notice identifies estimated values in the app and table exports. This
 is a preliminary indication for manual sizing: changing stiffness redistributes
 forces in the real structure, and changing mass can change inertia loads. Rerun
@@ -1133,8 +1194,9 @@ checks remain unassessed. A visible calculation message appears before the first
 new analysis results replace both the baseline and the sizing estimate.
 
 Cell and 3D colors update with the estimated RF. With **Only RF < 1** enabled,
-a property that reaches RF 1 or higher disappears from the filtered table and
-field; turn off the filter to inspect or edit it again. **Inspect**
+a physical panel that reaches RF 1 or higher disappears from the field;
+the property table filters its full-property RF. Turn off the corresponding
+filter to inspect or edit passing regions again. **Inspect**
 also shows the selected element's minimum RF and governing failure mode and
 provides **Edit property**, using the same dialog and update behavior.
 The blue **Edit property** button opens the local property editor. The picked
@@ -1145,18 +1207,30 @@ The picked
 element has a cyan glow, and the other visible elements with the same property
 have an amber highlight. These inspection overlays follow the displayed shape
 and explosion settings and respect hidden layers and the RF filter.
+
+RF calculation and draft resizing show an animated progress glyph and elapsed
+clock alongside the current phase. Edited-section preparation, native RF
+assessment and the RF optimization workflow also report elapsed time. Progress
+indicators close on completion, cancellation, errors and Study replacement.
+Reduced-motion preferences use a static glyph while the elapsed clock updates.
+
 Unfinished edits pause remeshing and saving. A changed mesh or locked form cannot
 receive an old draft. Imported properties must be edited in their source file;
 shared defaults, run-out connectors and movable-surface definitions retain their
 existing Properties or Structure editors.
 
 **Open reserve factor table ↗** opens a separate, resizable table window with
-the same structural-group layout as the sensitivity table. Generated models
-can be arranged by rib bay and component; imported models retain their actual
-property list. Shared properties appear once as shared regions rather than
-being assigned fictitious local values. The window follows the Stress Report's
+two independent selectors. **Layout** chooses a property list or rib/bay matrix.
+**Components** filters skins, stringers, spars, ribs or other properties. The
+matrix is available for a selected component with verified physical locations.
+All-component and imported selections use the property list. Shared properties
+appear once with their actual scope. The window follows the Stress Report's
 case selection, failure mode, envelope method and material limits. Both the
 main report and the separate table offer the sensitivity color palettes.
+Each Boxer window reuses one table tab across remeshing and Study changes.
+Property edits refresh an existing table in the background. Inspect opens its
+property editor in the Study window. Use **Open reserve factor table ↗** to
+open or return to the detached table.
 The default RF palette maps 0–1 to red and 1–2 to blue, with a visible change
 of hue immediately across 1; exactly 1 is neutral. Colors saturate at 2,
 and RF values above 2 use dark-orange numbers on a light backing for contrast.
@@ -1171,7 +1245,7 @@ The table retains one row per actual property ID. A physical column or panel
 assessment contributes to each property whose elements actually belong to it;
 the details identify that shared physical scope. This does not create a separate
 local stress estimate for each contributing property. The detached table's
-**Presentation** selector offers **Minimum RF**, **Critical case** and
+**Cell content** selector offers **RF value**, **Critical case** and
 **Failure mode**; the latter two also display the governing numerical RF.
 
 A complete RF above 1 has a **yellow background** when the relevant property
@@ -1212,34 +1286,39 @@ retained/discarded counts and cutoff. Stresses use MPa for generated SI models;
 an imported deck's undeclared unit system remains labeled **source stress units**.
 
 For **Assessment → Von Mises stress**, the reserve factor is the material's
-allowable stress divided by the chosen
-property envelope. Values below 1 exceed the specified allowable. A missing
+allowable stress divided by the product of the chosen limit-load property
+envelope and the strength safety factor. Values below 1 exceed the specified allowable. A missing
 case withholds reserve factors across the selected case envelope; incomplete
 element recovery withholds the affected property's factor. Missing material
 limits, mixed-material PSHELLs, laminates and beams without recovered equivalent
 stress are explicitly unassessed. Zero demand has no finite reserve factor.
 
 For constant isotropic **PBARL T** beams, JFEM recovers a documented
-**thin-walled T-section equivalent-stress envelope** from the complete axial,
-shear, torque and end-moment resultants. It combines the largest total
-axial-plus-bending normal stress at the actual section vertices with bounded
-transverse-shear flow and Saint-Venant torsional shear. This is a conservative
-envelope within that beam-section model: the normal and shear maxima need not
-occur at the same point. It is not an exact pointwise three-dimensional von
-Mises stress and excludes junction concentrations and restrained warping.
-The method requires flange thickness / full width and web thickness / clear
-height no greater than 0.10, consistent section properties, and no varying
-section or distributed element loading. Unsupported sections and incomplete
-resultants retain an explicit unavailable reason. Recovery details identify
-this approximation wherever it contributes to the RF.
+**finite-thickness nominal T-section envelope** from the complete axial, shear,
+torque and end-moment resultants. It combines the largest total axial-plus-
+bending normal stress at the actual polygon vertices with finite `VQ/(I b)`
+shear components, including the flange's vertical shear. Free-warping torsion
+uses compatible rectangular flange/web limbs with their finite-rectangle
+Saint-Venant torsion constants. The limb shear bound uses their summed rigidity
+and includes the nominal centroid/shear-centre transfer couple.
 
-Boxer's native-result reader can reprocess existing generated records containing
-all required force resultants without another FE solve. Legacy imported results
+The normal and shear maxima need not occur at the same point. Their combination
+is conservative within this nominal engineering beam model, rather than a
+rigorous pointwise 3D T-junction bound. Sharp-junction concentrations, restrained
+warping and transverse normal stresses are excluded. Positive nonoverlapping
+dimensions and consistent section properties are required; the former 0.10
+wall-ratio rejection no longer applies. Varying sections, distributed element
+loads and incomplete resultants retain explicit unavailable reasons. Recovery
+tooltips identify the model and its assumptions wherever it contributes to RF.
+
+Boxer's native RF assessment can reprocess legacy thin-wall generated records
+containing all required force resultants and consistent section dimensions
+without another FE solve. It preserves the source records. Legacy imported results
 require a fresh solve to establish section and loading provenance. The method
 does not change element stiffness, solved displacements or buckling eigenvalues.
 Its shear-flow and open-section torsion assumptions follow the
 [Mississippi State structural-analysis notes](https://www.ae.msstate.edu/tupas/SA2/chA14.7_text.html)
-and [open-section torsion notes](https://www.ae.msstate.edu/tupas/SA2/chA6.6_text.html).
+and [finite rectangular torsion notes](https://www.ae.msstate.edu/tupas/SA2/chA6.4_text.html).
 
 Constant isotropic **PBARL BAR** sections, including generated square spar caps
 and runout connectors, also receive a material-stress RF from complete beam
@@ -1444,6 +1523,15 @@ the case cannot govern an otherwise converged envelope. RFs above **999** displa
 as **999** in tables, fields, inspection and exports. Uncapped values continue
 to determine the governing case and failure mode. This display cap is separate
 from the no-demand sentinel of 99.
+
+This envelope rule also applies to the native RF service. A retained plate
+basis can have only negative roots under a nearly tensile, oblique load state;
+that does not prove zero buckling demand. The individual case stays unresolved.
+Only complete physical recovery and an all-mode lower bound strictly above
+another converged case of the same panel can certify it as non-governing. The
+table preserves the actual governing RF, labels the certificate, and leaves
+the unresolved case eigenvalue blank. Missing forces or invalid panel geometry
+cannot receive this certificate.
 
 For **spars and ribs**, the Assessment selector also provides **Spar-web
 buckling**, **Rib-web buckling**, **Spar cap column buckling**, **Rib stiffener
@@ -1902,8 +1990,9 @@ shows both counts rather than treating this as an invalid geometry. No local
 assignments are discarded automatically.
 
 On Windows, double-click **JFEM-Boxer.cmd** in `__Start here!__/Windows` or
-`APPS/JFEM-Boxer/Windows`. Setup builds the shared JFEM/app sysimage automatically; the launcher checks
-and loads it. The Julia entry point is **JFEM-Boxer.jl**. Existing `.wingfem.json`
+`APPS/JFEM-Boxer/Windows`. Setup installs shared packages and automatically reuses/builds the shared
+image when resources permit. If memory is insufficient or its build fails,
+setup continues and the app uses ordinary Julia loading. The Julia entry point is **JFEM-Boxer.jl**. Existing `.wingfem.json`
 studies and internal parameter keys remain readable.
 
 **Structure / Stringers / Stringer elements** selects **Beam (PBARL)** or
@@ -2076,6 +2165,13 @@ browser without Boxer or a network connection. Exports are disabled until a
 model provides summary tables. Downloads use the browser's selected download
 folder; enable its **Ask where to save each file** setting to choose a folder.
 
+These summaries explicitly list the included leading-edge and control-surface
+structure. Component mass properties include their skins, webs, ribs and hinge
+fittings, with material and non-structural mass. The CG and inertia tables show
+each structural component, the dry structure and the loaded model with engines
+and the selected case's fuel. Inertia tensors use BASIC axes about each listed
+CG. The component subtotals reconcile with the dry and loaded mass totals.
+
 **Undeformed aero** and the deformed aerodynamic loft controls are grouped
 together in **Display / Geometry / Aerodynamic geometry**.
 Each geometry entity groups its visibility and appearance controls together.
@@ -2200,9 +2296,14 @@ julia --project=. APPS/JFEM-Boxer/JFEM-Boxer.jl
 The single shared setup is at the repository root (`setup.cmd`, `setup.sh`, `setup.command`).
 The installer prepares
 one root environment and verifies JFEM, JFEM-Boxer, PANDEATOR and the static viewer.
-The shared sysimage is built automatically as part of setup. The first setup can
-take several minutes while Julia downloads and compiles packages. All apps use
-the same package versions and source tree.
+Normal setup automatically reuses a compatible image or builds one after checking
+available RAM. It preserves memory headroom during the build. If resources are
+insufficient or image construction fails, setup reports the reason and continues
+without it. No manual image-build decision is needed. A build can take an hour
+or longer, so keep the console open. With the fallback, first-use compilation
+can occur when the app starts or a new calculation is requested; the running app
+and workers retain compiled methods. All apps use the same package versions,
+source tree and features in either mode.
 
 The app opens a browser at `http://127.0.0.1:8080`. If the browser does not open,
 visit that address manually. It is a local desktop web app, not a hosted service.
@@ -2304,8 +2405,9 @@ explicit property values and local sizing overrides.
    specified limit aerodynamic loads to ultimate loads.
 6. Use **Analysis / FE Analysis / Run in JFEM**. Open **Results / FE Results** for displacements, shell/bar
    stresses and forces, modes, buckling or linear/nonlinear comparisons.
-7. **Save Study** stores the complete model definition, display settings and
-   selected portable reference data. **Save TOML** exports the text definition.
+7. **Save Study** stores the complete model definition, display settings,
+   selected portable reference data and synchronized FEM results.
+   **Save TOML** exports the text definition.
    The first save chooses a destination; subsequent saves update that linked
    file. **Save Study as…** selects another filename and folder. The Save Study
    button is orange for unsaved definition changes and green after saving.
@@ -2338,9 +2440,22 @@ the Study restores them without requiring the original image files. Image or
 camera edits alone do not trigger Autosave; use Save Study to capture those
 changes immediately.
 
-The definition is saved independently from solved results. Exported decks and
-solver result files remain in their run directories. A stale model/result is
-identified in the GUI rather than being silently presented as current.
+Saving a Study with synchronized FEM results embeds a compressed checkpoint
+containing its mesh, load cases, analysis variants, displacement and reaction
+buffers, contours and element forces, stresses and strains. Reopening that
+Study restores the editable FEM and results, including the data needed for RF
+assessment and fixed-load resizing. This works through Save Study, Save Study
+as, Autosave and browser recovery copies. Completed analyses mark the Study
+as needing a save. A Study saved after geometry, properties or loads have
+changed contains the current definition, and a fresh solve supplies matching
+results. Existing Studies with no result checkpoint open their geometry preview.
+
+Component minimum gauges, thicknesses and linear section dimensions are
+entered in **mm**, including skin, spar and rib webs, spar caps, stringers,
+stiffeners, leading-edge shells and movable-surface shells and attachment ribs.
+Study and TOML files retain SI metres, so existing saved dimensions load at
+their original size. Overall wing geometry and locations continue to use the
+units shown beside each input.
 
 The **Deck** tab caches the current deck and lays out large text in contained
 blocks, so reopening or resizing does not relayout every line. The complete text
@@ -2355,10 +2470,193 @@ still gives the original deck text.
 The **Project** dropdown groups New Study, Study/TOML reading and saving,
 Read Reference, Read Abaqus input, Write deck, geometry export and
 configured-input operations.
-**Export geometry…** opens the STL/GLB options. Save Study retains its orange
+**Export geometry…** opens the STL/GLB and SolidCraft options. Save Study retains its orange
 or green saved-state indicator inside the menu. The Project button is orange
 for unsaved definition changes and green when the definition is saved;
 navigation and display changes do not affect it.
+
+To create a native CAD model, open **Project → Export geometry… → SolidCraft**
+and click **Create in SolidCraft**. The export uses the current Study definition,
+including edits made before creating a FEM. Select **Include structure** for
+physical shell gauges, ribs, webs and beam sections, **Mirror across symmetry
+plane** for the opposite wing half, and **Apply movable-surface deflections**
+for the Study's geometric hinge rotations. The local native MCP bridge builds
+named loft and extrusion bodies in an isolated construction session. It checks
+every expected body for closure and positive volume, then saves a native `.sc`
+document before opening it in a separate SolidCraft window. Reopening verifies
+the complete body list, volumes, bounds and construction history. The export
+displays a selectable full path with **Copy path** and shows the current component,
+body count and elapsed time. **Cancel** stops the export. Failed or cancelled
+construction opens no partial model. If opening the completed model fails or is
+cancelled after saving, its path remains available for opening the `.sc` manually.
+
+Rotating spar-web sections can expose a native stitching warning even when the
+CAD command reports success. Boxer checks these members immediately and, when
+needed, restores a verified component checkpoint before retrying native capping
+with the same original sections. Their gauge, position and geometry are preserved.
+The complete exported model must still pass closure and positive-volume checks.
+
+Install SolidCraft on the computer running the Boxer server. Executables are
+detected from PATH, standard installation folders, or `SOLIDCRAFT_CLI` and
+`SOLIDCRAFT_APP`. Expand **SolidCraft connection** to enter custom executable
+paths. The bridge uses the shared Julia environment and its standard-library
+Sockets dependency. Loft profiles sample the authored interpolation, with CAD
+dimensions in millimetres and the source Study in metres. The saved CAD metadata
+records source provenance, component definitions and any geometric approximation
+notes. This export is available for generated wing Studies.
+
+The translucent aerodynamic envelopes and the structural solids are separate
+body groups. Envelope volumes overlap the structure. Shells use their total
+section gauge, including combined skin/flange regions and their reference
+offsets. Engine bodies represent the authored equivalent beam area. Actuator
+barrel and rod bodies are schematic symbols at the defined attachment endpoints.
+
+### Chat and MCP control
+
+Click **Chat** in the top bar to request an action or find an input. **Commands**
+mode works locally without an AI account or model installation. Try **Create FEM**,
+**Open Stress Report**, or **Set minimum upper skin thickness to 2 mm**. If several
+controls match, choose the intended item from the displayed suggestions. The chat
+uses the same form controls and handlers as the menus, including their normal
+validation, minimum-gauge behavior and unsaved-change prompts.
+
+For conversational requests and several-step tasks, open Chat settings, select
+**Google Gemini**, **Ollama** or **OpenAI-compatible**, enter the connection settings and a model,
+then test the connection. Ollama's usual local base URL is
+`http://127.0.0.1:11434`; a compatible local server might use
+`http://127.0.0.1:1234/v1`. Use a model that supports function/tool calling. Boxer
+does not download a model automatically. Messages and compact current-Study
+context are sent only to the connection you explicitly select. **Commands** mode
+makes no AI inference requests. API keys entered in Chat are kept only in that
+browser session and are cleared when the panel is destroyed. Server defaults can
+instead use `BOXER_CHAT_PROVIDER`, `BOXER_CHAT_URL`, `BOXER_CHAT_MODEL` and
+`BOXER_CHAT_API_KEY`. Keys are not written to the Study or connection discovery file.
+
+#### Connect Google Gemini and use voice
+
+The **Help** button in Chat opens the setup instructions without leaving Boxer.
+Google Gemini uses the same registered actions as the MCP bridge, so it can find
+inputs, edit the current Study, inspect results and request existing menu actions.
+The external MCP connection remains available for other assistants.
+
+1. Open [Google AI Studio](https://aistudio.google.com/apikey), sign in with your
+   Google account and accept its terms. Create or select a project and create an
+   API key. If a project already exists, import/select it in AI Studio as needed.
+2. Check that the selected project's billing tier is **Free** if you intend to
+   use the free allowance. A Google account alone does not guarantee API access:
+   age, supported region, account restrictions, model availability and quotas
+   apply. AI Studio requires users to be 18 or older. A consumer Gemini
+   subscription and a Gemini API project are separate products.
+3. In Boxer, open **Chat > Settings**, choose **Google Gemini**, and paste the
+   key into **API key**. Use the supplied Google API URL,
+   `https://generativelanguage.googleapis.com/v1beta`. Boxer does not ask for your
+   Google password. Keys stay in session memory and are excluded from Study files,
+   browser storage and copied MCP configuration.
+4. Click **Test connection** to retrieve the available models. Choose a general
+   Gemini model with function calling and audio input, such as a current Flash
+   model available to your project. The model ID remains editable. Listing a
+   model checks the connection; it does not prove a remaining free quota.
+5. Type a simple request such as **Open Loft** or **Set minimum upper skin
+   thickness to 2 mm**, then click **Send**. Review the resulting action messages.
+   Normal save prompts and engineering validation still apply.
+6. To dictate, click **Record voice** and allow microphone access. Speak,
+   then press **Stop recording**. Google transcribes the clip into the message box; review
+   or correct it and press **Send**. Recording is limited to one minute and uses
+   mono 16-bit WAV audio. It does not run continuously in the background.
+7. For spoken replies, choose an available Google TTS model and voice in Settings,
+   then press **Read last reply**. Long replies read the first 2,000 characters,
+   as indicated in the playback status. TTS is a separate API request and
+   has its own availability and quotas. Closing Chat or pressing the voice Stop
+   control stops microphone capture/playback. This is turn-based dictation and
+   speech playback; no always-on Live API session is opened.
+
+Google receives messages, compact current-Study context and any audio you explicitly
+send. The free tier may use submitted content to improve Google's products;
+review Google's current terms before using confidential model information. With a
+paid project, API requests can incur charges. Boxer cannot infer a project's
+billing tier from a key and does not automatically switch models or enable billing.
+
+For **429 / quota** errors, check AI Studio usage and rate limits, wait or choose
+another available model deliberately. For **401/403**, check the key, project/API
+permissions and account eligibility. For **model not found**, test the connection
+again and choose an available model. Microphone access needs a supported browser
+on `localhost`/`127.0.0.1` or HTTPS, plus browser and operating-system permission.
+Text chat remains available if voice access is denied.
+
+Server-side configuration can use `BOXER_CHAT_PROVIDER=google`,
+`BOXER_CHAT_MODEL` and `BOXER_CHAT_API_KEY`; `GEMINI_API_KEY` or `GOOGLE_API_KEY`
+are also supported for Google. Keep keys outside files intended for publication.
+`BOXER_CHAT_TRANSCRIPTION_MODEL` and `BOXER_CHAT_SPEECH_MODEL` can supply optional
+server defaults for the two voice model inputs.
+
+Account access, model names and allowances change. The setup guide links to
+Google's current [API key instructions](https://ai.google.dev/gemini-api/docs/api-key),
+[pricing](https://ai.google.dev/gemini-api/docs/pricing),
+[rate limits](https://ai.google.dev/gemini-api/docs/rate-limits),
+[supported regions](https://ai.google.dev/gemini-api/docs/available-regions),
+[audio input](https://ai.google.dev/gemini-api/docs/audio?generate-content=true) and
+[speech generation](https://ai.google.dev/gemini-api/docs/speech-generation?generate-content=true).
+These instructions were checked on 2026-11-18.
+
+Actions appear with progress and elapsed time. **Stop** ends the current chat
+request and prevents subsequent tool calls. A solver or export already started
+continues until its existing **Stop** or **Cancel** action is requested. Chat reports
+dispatch and analysis completion separately. File dialogs and existing confirmation
+forms can still require your interaction. Fixed-load RF resizing remains an estimate
+until the updated FEM is analyzed again.
+
+If you replace the Study or edit its definition while an AI reply is pending,
+stale actions stop and the chat asks for a new request. Camera changes remain
+available. Opening a different Study and completing an existing dialog form a
+workflow boundary; send the next request after that action finishes.
+
+To connect an external assistant, keep Boxer and its browser open, then use
+**Chat → Settings → Copy MCP configuration**. Paste that JSON into your MCP client's
+server configuration. It selects the current Julia executable, this repository's
+shared project, `BoxerMCP.jl` and the current server's connection file. It contains
+no bearer token. After restarting Boxer, copy a fresh MCP configuration, replace
+the client's previous entry and reconnect; the copied entry identifies that
+specific Boxer server. The copied configuration starts `BoxerMCP.jl` directly;
+Windows needs no additional MCP batch launcher. Optional manual launchers remain
+at `Linux/JFEM-Boxer-MCP.sh` and `Mac/JFEM-Boxer-MCP.command`. They connect to an
+already running Boxer server. The bridge accepts `--discovery FILE` for a specific
+server; the default is `output/.wingfegen/boxer_mcp.json` in the app. A launcher
+using that default follows the latest server and only needs reconnection after
+Boxer restarts.
+The bridge waits up to 300 seconds for an HTTP reply to accommodate first-use
+Julia compilation. Adjust this with `--timeout SECONDS` or
+`BOXER_MCP_TIMEOUT_SECONDS`. This is a connection wait and does not limit an
+analysis run. Clients that request MCP progress receive elapsed-wait notices.
+Commands are not automatically repeated after an uncertain timeout.
+
+MCP tools discover the open browser clients, current Study, available actions and
+input definitions, then invoke actions, edit inputs, navigate, inspect entities and
+track or cancel queued operations. If several browser clients are open, select the
+intended `client_id` explicitly. A queued operation's completion means the browser
+handled that command; inspect the live Study state for solver, aerodynamic or export
+completion. Existing form values use their displayed units, while structured
+`update_parameters` edits use canonical model units, including metres for lengths.
+Search input definitions before editing. Structured edits are validated together
+and preserve the current mesh/results for the normal dirty-state and resizing workflow.
+The curated **Read current view** action reads visible cached report text,
+tables and logs without starting a calculation. **Read calculated reserve factors**
+provides a structured, paginated view of the cached RF assessment.
+
+The native bridge uses newline-delimited JSON-RPC over stdio. The local HTTP
+endpoint is `/api/mcp`, with bearer authentication and protocol/session negotiation
+for MCP versions 2025-11-25, 2025-06-18 and 2024-11-05. It accepts JSON responses
+without a server-push event stream. Discovery files use fresh per-server tokens and
+are removed when that server stops. Neither chat nor MCP accepts arbitrary Julia,
+JavaScript or shell code. No separate Julia environment is needed.
+
+Protocol and provider references are the
+[MCP transport specification](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)
+and [Ollama tool calling documentation](https://docs.ollama.com/capabilities/tool-calling).
+
+**New Study** restores a clean definition and its geometry preview without
+constructing or validating a FEM. Physical geometry and property checks run
+when **Create FEM** or an analysis is requested, so a new definition can be
+opened and edited without waiting for numerical mesh preparation.
 
 Recent-study actions include explanatory tooltips. **Open latest disk file**
 reads the linked file, including changes made outside this browser. **Open
@@ -2989,6 +3287,24 @@ LGDISP setting is preserved for both FE analysis and sensitivity.
 contains sensitivity setup. The **Results** menu separately presents FE results
 and completed sensitivity results.
 
+For sizing, open **Results / Stress Report / RF sensitivities and structural
+sizing**. Select physical failure checks and continuous dimensions to compute
+the RF/utilization Jacobian, a Jacobian-vector product, a mode-cluster-aware
+directional derivative or a weighted adjoint gradient. The same section offers
+bounded minimum-mass sizing, a before/after dimension table, native matrix
+exports and an independent final RF verification. Completed sizing applies
+the final assessed dimensions, regenerates the FEM and displays the updated
+property color field. The Study is marked unsaved. These are full
+equilibrium derivatives, separate from the immediate fixed-force estimates
+used while editing properties. RF support covers generated fixed-geometry
+SOL101 and eligible elastic SOL106 geometric-stiffness states with supported
+structural inertia. Nonlinear formulation and coverage restrictions are
+identified explicitly. Follow the [RF sensitivity and sizing instructions](SENSITIVITY_METHOD.md#reserve-factor-derivatives-and-structural-sizing).
+
+Launching a new FE, aerodynamic, sensitivity or sizing analysis clears previous
+result fields, tables and deformed shapes. Results from the current run appear
+as they become available. **Assessment** starts at **Minimum RF**.
+
 Under **Analysis / Sensitivity**, choose **Analysis** independently of the response,
 then select an eligible load case and the design variables. SOL101 offers
 displacement/shell/bar stress, SOL103 modal eigenvalues, SOL105 buckling factors,
@@ -3133,7 +3449,8 @@ set it to 0 to remove that limit.
 
 The first FE or sensitivity analysis starts a Julia solver worker. Later analyses reuse that
 process, its loaded packages and compiled methods. The worker uses the same
-root `Project.toml`, `Manifest.toml` and verified shared sysimage as the app.
+root `Project.toml` and `Manifest.toml` as the app, with the same optional
+verified shared image. App and workers run without one.
 First-use code can still compile during an analysis. Only one solver request runs
 at a time; every request gets a fresh model, immutable deck snapshot, output
 directory, result files and log. Per-request `JFEM_*` flags and CLI output
@@ -3142,8 +3459,8 @@ options are applied independently.
 Sensitivity no longer starts a separate Julia process for each calculation.
 Repeated runs can reuse both the baseline solver and derivative specializations.
 The timing log distinguishes compilation from execution; the first run after
-installation, a source update or worker restart can take longer. Installation's
-precompile workload covers imported properties and generated skin, T-stringer
+installation, a source update or worker restart can take longer. The shared
+image-build workload covers imported properties and generated skin, T-stringer
 and material derivatives; uncommon model features may still compile on first use.
 
 The Log identifies the worker PID and session. Each run's `solver_worker.json`

@@ -28,7 +28,7 @@
     host.append(wrap);
     const fields=rib?["thickness",...T_FIELDS]:["front_thickness","rear_thickness"];
     const defaultKey=field=>rib?(field==="thickness"?"properties.t_rib_web":"properties.rib_stiffener_"+field):"properties.t_spar_web";
-    const value=key=>Number(doc.getElementById("p-"+key)?.value);
+    const value=key=>{const input=doc.getElementById("p-"+key);return root.WingParameterUnits?.readModel(input,key)??Number(input?.value);};
     function gaugeParameters(){const p=Object.fromEntries(fields.map(field=>[defaultKey(field),value(defaultKey(field))]));p['materials.shells']=JSON.parse(doc.getElementById('p-materials.shells')?.value||'[]');p['properties.components']=JSON.parse(doc.getElementById('p-properties.components')?.value||'[]');p['properties.rib_stiffeners_enabled']=doc.getElementById('p-properties.rib_stiffeners_enabled')?.checked!==false;return p;}
     function read() {return Array.from(body.rows).map(tr=>{
       const row={[idKey]:tr.querySelector('[data-field="'+idKey+'"]').value.trim()===""?NaN:Number(tr.querySelector('[data-field="'+idKey+'"]').value)};

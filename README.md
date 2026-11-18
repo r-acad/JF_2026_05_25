@@ -15,12 +15,19 @@ Download the complete repository with **Code / Download ZIP** and extract it.
 | Linux | Run `bash setup.sh`, then see [Linux](<__Start here!__/Linux/README.md>) |
 | macOS | Run `bash setup.command`, then see [Mac](<__Start here!__/Mac/README.md>) |
 
-The single root setup installs
-the packages and automatically builds one shared Julia image for the solver,
-apps and workers. The first build can take an hour or longer. Keep its console
-open until it finishes; native code generation can have long quiet periods.
+The single root setup installs the shared packages and automatically reuses or
+builds a compatible shared Julia image. **Setup checks available memory first.**
+If memory is insufficient or the image build fails, setup reports the reason and
+continues successfully without the image. Boxer, PANDEATOR, the solver and their
+workers provide the same features through ordinary Julia loading.
 Each app also has its own `Windows/`, `Linux/` and `Mac/` launcher folders
-under [`APPS/`](APPS/README.md). Only the shared setup launchers live at the repository root. Run setup again after a Julia or dependency update; it rebuilds an outdated shared image under `sysimage/`.
+under [`APPS/`](APPS/README.md). Only the shared setup launchers live at the repository root. Run setup again after a Julia or dependency update to check the packages.
+
+No image-build decision is required during normal installation. When a build
+can proceed, it may take an hour or longer; keep the console open. If setup uses
+the automatic fallback, app startup and the first calculation may compile Julia
+code. Later calculations reuse the running process and package cache. See your
+OS guide for repair and the explicit `--no-sysimage` option.
 
 | Application | Purpose |
 | --- | --- |
@@ -47,7 +54,7 @@ and save an edited deck or portable Study. See the
 
 Supporting decks, images, automation helpers and solver regression tests are grouped
 in [`utils/`](utils/README.md). Generated Julia images in `sysimage/` stay local;
-setup builds the appropriate image on each computer.
+images are reused or built locally when resources permit.
 
 ## Guides and solver reference
 

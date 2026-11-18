@@ -24,7 +24,7 @@ function sensitivity_eigen_mass(native,op)
     native.Solver._apply_constraint_congruence(physical,op.rbe3_map;expected_ndof=op.ndof)
 end
 
-function sensitivity_geometric_matrix(native,op,state;physical=false,geometric_capture=nothing)
+function sensitivity_geometric_matrix(native,op,state;physical=false,geometric_capture=nothing,geometric_capture_scope=Val(:full))
     model=op.model;mapping=op.rbe3_map
     if physical
         # An empty prebuilt map alone is insufficient: native assembly rebuilds
@@ -49,7 +49,7 @@ function sensitivity_geometric_matrix(native,op,state;physical=false,geometric_c
     end
     geometric_capture===nothing ? native.Solver.assemble_geometric_stiffness(model,op.id_map,op.X,op.node_R,op.ndof,state,
         op.snorm_normals,mapping;options...) : native.Solver.assemble_geometric_stiffness(model,op.id_map,op.X,op.node_R,op.ndof,state,
-        op.snorm_normals,mapping;options...,geometric_capture)
+        op.snorm_normals,mapping;options...,geometric_capture,geometric_capture_scope)
 end
 
 """Node supports of the physical geometric-stiffness derivative (before MPCs)."""

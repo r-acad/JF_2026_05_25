@@ -1401,7 +1401,7 @@ function resolve_thermal_loads(model, temp_sid, scale, id_map, elem_map, node_co
             i1, i2 = id_map[ga], id_map[gb]
             p1 = SVector{3}(node_coords[i1,1], node_coords[i1,2], node_coords[i1,3])
             p2 = SVector{3}(node_coords[i2,1], node_coords[i2,2], node_coords[i2,3])
-            wa, wb, has_offset, p1_eff, p2_eff = bar_offsets_and_endpoints(bar, p1, p2)
+            wa, wb, has_offset, p1_eff, p2_eff = bar_offsets_and_endpoints(bar, p1, p2; model=model, id_map=id_map, node_coords=node_coords)
             L = norm(p2_eff - p1_eff)
             L < 1e-9 && continue
 
@@ -1463,7 +1463,7 @@ function resolve_thermal_loads(model, temp_sid, scale, id_map, elem_map, node_co
             i1, i2 = id_map[ga], id_map[gb]
             p1 = SVector{3}(node_coords[i1,1], node_coords[i1,2], node_coords[i1,3])
             p2 = SVector{3}(node_coords[i2,1], node_coords[i2,2], node_coords[i2,3])
-            wa, wb, has_offset, p1_eff, p2_eff = bar_offsets_and_endpoints(bar, p1, p2)
+            wa, wb, has_offset, p1_eff, p2_eff = bar_offsets_and_endpoints(bar, p1, p2; model=model, id_map=id_map, node_coords=node_coords)
             L = norm(p2_eff - p1_eff)
             L < 1e-9 && continue
 

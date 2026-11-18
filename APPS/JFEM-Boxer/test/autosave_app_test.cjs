@@ -15,18 +15,19 @@ try{
  context.on('page',p=>p.on('pageerror',error=>errors.push(error.stack)));page.on('pageerror',error=>errors.push(error.stack));page.on('download',d=>downloads.push(d.suggestedFilename()));
  await context.route('http://127.0.0.1:43955/**',async route=>{const url=new URL(route.request().url()),posted=route.request().method()==='POST'?route.request().postDataJSON():null;if(url.pathname.startsWith('/api/'))requests.push(url.pathname);
   if(url.pathname==='/api/input')return route.fulfill({json:schema});
-  if(url.pathname==='/api/validate_workspace'){if(holdValidation)await new Promise(resolve=>pendingValidation=resolve);return route.fulfill({json:{ok:true,parameters:posted}});}
+  if(['/api/validate_workspace','/api/restore_workspace'].includes(url.pathname)){if(holdValidation)await new Promise(resolve=>pendingValidation=resolve);return route.fulfill({json:{ok:true,parameters:posted}});}
   if(['/api/generate','/api/prepare_workspace'].includes(url.pathname)){const data=M.decode(M.encode(model));data.model_params=posted;return route.fulfill({body:Buffer.from(M.encode(data)),contentType:'application/msgpack'});}
   if(url.pathname==='/api/sensitivity/catalog')return route.fulfill({json:{ok:true,catalog}});
   if(url.pathname==='/api/activity')return route.fulfill({json:{ok:true,events:[]}});
   if(url.pathname==='/api/last_deck')return route.fulfill({json:{ok:true,available:false}});
   if(url.pathname==='/api/jfem_probe')return route.fulfill({json:{found:true}});
   if(url.pathname.startsWith('/api/'))return route.fulfill({status:404,json:{ok:false,error:'Isolated Autosave regression'}});
-  return route.fulfill({path:path.join(web,url.pathname==='/'?'index.html':decodeURIComponent(url.pathname))});
+  const file=url.pathname.startsWith('/shared/')?path.join(web,'../..',url.pathname.slice(8)):path.join(web,url.pathname==='/'?'index.html':decodeURIComponent(url.pathname));
+  return route.fulfill({path:file});
  });
- const ready=async()=>{await page.waitForFunction(()=>state.autoMeshReady&&state.data&&!state.workspaceBusy&&!state.busy,null,{timeout:90000});await page.evaluate(()=>state.engine.stopRenderLoop());};
+ const ready=async()=>{await page.waitForFunction(()=>state.autoMeshReady&&!state.workspaceBusy&&!state.busy,null,{timeout:90000});await page.evaluate(()=>state.engine.stopRenderLoop());};
  const settled=async()=>page.waitForFunction(()=>!state.autosaveBusy&&!state.studyDirty&&!state.workspaceBusy,null,{timeout:15000});
- const edit=async(key,value)=>page.evaluate(({key,value})=>{const input=document.getElementById('p-'+key);input.value=String(value);parameterEdited(key);},{key,value});
+ const edit=async(key,value)=>page.evaluate(({key,value})=>{const input=document.getElementById('p-'+key);input.value=String(WingParameterUnits.toDisplay(key,value));input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));},{key,value});
  const color=()=>page.locator('#btn-project').getAttribute('data-saved');
  await page.goto('http://127.0.0.1:43955/');await page.locator('.startup-study-dialog [data-choice="new"]').click();await ready();await page.locator('#auto-mesh').uncheck();
  await page.evaluate(()=>{
@@ -46,7 +47,7 @@ try{
  await page.waitForTimeout(1200);assert.equal(await page.evaluate(()=>writes.length),beforeView);assert.equal(await color(),'true');
  checks.push('Camera and display-only changes neither autosave nor mark Project unsaved');
 
- await page.evaluate(()=>{for(const value of [.0021,.0022,.0023]){document.getElementById('p-properties.t_skin_upper').value=value;parameterEdited('properties.t_skin_upper');}});
+ await page.evaluate(()=>{for(const value of [2.1,2.2,2.3]){const input=document.getElementById('p-properties.t_skin_upper');input.value=value;input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));}});
  assert.equal(await color(),'false');await settled();assert.equal(await page.evaluate(()=>writes.length),beforeView+1);assert.equal(await page.evaluate(()=>JSON.parse(writes.at(-1)).parameters['properties.t_skin_upper']),.0023);assert.equal(await page.evaluate(()=>pickCalls),1);assert.equal(await color(),'true');
  checks.push('A burst of significant edits is coalesced into one background write with the latest definition');
 
@@ -85,8 +86,9 @@ try{
  const finalText=await page.evaluate(()=>writes.at(-1));await table.close();
 
  await page.reload();await page.locator('.startup-study-dialog [data-choice="open"]').click();await page.locator('.recent-studies-dialog').waitFor();await page.locator('.recent-study').filter({has:page.locator('h3',{hasText:'Autosaved-study.wingfem.json'})}).locator('.recent-study-copy').click();await page.locator('.study-comments-open').click();await ready();
+ await page.evaluate(async()=>{await createFEM({preserveView:true});activateWorkspaceTab('sensitivity');});await page.locator('#sensitivity-refresh').click();
  await page.waitForFunction(()=>document.querySelectorAll('#sensitivity-variables input:checked').length===2);assert.deepEqual(await page.evaluate(()=>state.sensitivity.capture().variables),['properties.t_spar','material.E']);assert.equal(await color(),'true');assert.equal(await page.locator('#auto-save').isChecked(),true);
- assert.equal(await page.evaluate(()=>document.getElementById('p-properties.t_skin_upper').value),'.0025'.replace(/^\./,'0.'));assert.equal(await page.evaluate(()=>state.studyNotes.text),'Recovered edit');
+ assert.equal(await page.evaluate(()=>document.getElementById('p-properties.t_skin_upper').value),'2.5');assert.equal(await page.evaluate(()=>state.studyNotes.text),'Recovered edit');
  checks.push('A fresh-page Recent Studies load restores the actual autosaved definition, selected variables, notes and enabled Autosave setting');
 
  // No disk-write API: background saves must use persistent browser storage, without download spam.

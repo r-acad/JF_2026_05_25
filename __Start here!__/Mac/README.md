@@ -1,4 +1,4 @@
-> **Setup must run first.** From the repository root, run `bash setup.command`. All applications share these packages and the root `sysimage/`; this folder contains application shortcuts only.
+> **Setup must run first.** From the repository root, run `bash setup.command`. All applications share these packages. Setup handles image builds and low-memory fallback automatically. This folder contains application shortcuts only.
 
 # JFEM on macOS
 
@@ -20,10 +20,11 @@
    bash setup.command
    ```
 
-Stay online until setup succeeds. It installs one root package environment and
-builds one shared image for JFEM, Boxer, PANDEATOR and workers. The first build
-can take an hour or longer and can be quiet during code generation. Keep the
-Terminal window open; later setup runs reuse a current image.
+Stay online until setup succeeds. It installs one shared root package environment
+and automatically reuses/builds a compatible image when resources permit.
+A build can take an hour or longer; keep the console open. Low memory or an
+image-build failure selects ordinary Julia loading and setup continues. Then
+launch an app; first use may compile when no image is available.
 
 ## Launch an app
 
@@ -58,35 +59,60 @@ containing `Project.toml`, `Manifest.toml` and `setup.command`.
   path without flags. Remove an obsolete `WINGFEGEN_JULIA` override for Boxer,
   or point it to that same executable.
 - **Updating JFEM:** save your Studies, stop the app and update the complete
-  repository, keeping your Studies/decks and Julia depot. Run
-  `bash setup.command` at the updated repository root, then launch Boxer normally.
-  Setup reuses cached packages and a current eligible image. Julia source,
-  runtime or dependency changes can require a long rebuild. A fresh ZIP has no
-  generated image, so its first setup builds one even with cached packages.
-  UI-only or documentation edits in an existing checkout do not themselves
-  invalidate the Julia image. Restart the app and reload the browser.
+  repository, keeping your Studies/decks and Julia depot. Run `bash setup.command`
+  at the updated repository root, then restart the app and reload the browser.
+  Setup reuses cached packages and checks the shared image. A compatible image
+  is reused; otherwise setup checks resources and attempts a fresh build.
+  Low memory or an image-build failure selects normal Julia loading. First use
+  after source/package updates may compile when using this fallback.
 - **Julia not found:** put the tested Julia executable on PATH and reopen the
   terminal or launcher. `JFEM_JULIA` can name its full executable path without flags.
 - **Download failure:** restore network/proxy access and rerun setup; completed
   downloads are reused. Keep the error text if it fails again.
-- **Image missing or stale:** rerun setup after source, Julia, package or folder
-  changes. Launchers check the image receipt before loading it. Do not force an
-  old image with `-J`.
-- **Image build runs out of memory:** close other applications and use
-  `bash setup.command --sysimage-threads=1`. `bash setup.command --no-sysimage` explicitly skips the image;
-  normal source loading remains available and may compile on first use.
+- **Image missing or stale:** the app runs through normal Julia loading. No
+  rebuild is needed to use it. Launchers check compatibility before loading
+  an existing image. Do not force an old image with `-J`.
+- **Image build skipped or failed:** setup reports the reason and continues
+  without the image. This is a usable installation; launch the app normally.
+  If package installation or verification fails, fix that separate error before
+  launching. Do not force a stale image with `-J`.
 - **Browser cannot connect:** wait for the console's ready message, then open
   its printed local address. Keep that console open while using the app.
 
-`bash setup.command --dry-run` shows the setup plan. Build concurrency defaults to two threads;
-this does not limit normal analysis threads. Do not delete your studies or decks
+`bash setup.command --dry-run` shows the setup plan. Ordinary package
+precompilation defaults to one task; this does not limit analysis threads. Do not delete your studies or decks
 to repair an installation. See the [solver reference](../../utils/julia_tools/README.md)
 for batch commands and representative precompile workloads.
 
 The generated image (`sysimage/OpenJFEM_sysimage.dll` on Windows, `.so` on
 Linux or `.dylib` on macOS) is local installation output. It is not included
 in GitHub: it depends on the operating system, Julia version, CPU and source
-revision. Setup builds it for this computer and launchers check its receipt.
+revision. Setup handles its reuse/build automatically; launchers check the
+receipt and run without it when unavailable.
+
+## Automatic image build and fallback
+
+Normal setup requires no image-build decision. It reuses a compatible image
+first, checks available RAM before a new build, and keeps memory headroom while
+building. Insufficient or unknown memory, or an image-build failure, selects
+ordinary Julia loading and setup continues. The console explains which mode is
+ready. This automatic check is a resource safeguard, not a guarantee of a fixed
+peak-memory requirement.
+
+All applications provide the same features without an image. Initial startup
+and the first calculation may compile Julia code; later requests reuse the
+running process and normal package caches.
+
+To intentionally skip image construction, the explicit option is:
+
+```bash
+bash setup.command --no-sysimage
+```
+
+`--sysimage` remains supported and `--sysimage-threads=1` limits build
+concurrency. Neither removes the automatic memory checks or guarantees a low RAM
+peak. Set `JFEM_NO_SYSIMAGE=1` in the launch environment to force ordinary
+package loading even when an image exists.
 
 ## Offline use
 
@@ -97,7 +123,7 @@ revision. Setup builds it for this computer and launchers check its receipt.
    `JULIA_DEPOT_PATH` instead if you set that variable.
 3. Install the matching Julia runtime and put it on PATH. Run
    `bash setup.command --offline` on the target computer. This uses cached packages and native
-   artifacts and rebuilds the image when its machine/location receipt differs.
+   artifacts. Image reuse/build and low-memory fallback are automatic here too.
 4. If a package or artifact is missing, repeat setup on the connected computer
    and refresh the copied depot. Keep the pinned Manifest unchanged.
 

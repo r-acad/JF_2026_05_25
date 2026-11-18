@@ -209,8 +209,7 @@ function fuel_summary(m::Model)
     return result
 end
 
-function fuel_info(m::Model)
-    summary = fuel_summary(m)
+function fuel_info(m::Model; summary=fuel_summary(m))
     summary["enabled"] || return Tuple{String,String}[]
     return Tuple{String,String}[
         ("Fuel tank ribs", @sprintf("%d to %d of %d (ETA %.6g to %.6g)",

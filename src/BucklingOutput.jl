@@ -210,7 +210,7 @@ function _buckling_element_volume(model, family, element)
         prop === nothing && return nothing
         length_element = norm(xyz[2,:]-xyz[1,:])
         if family in ("CBARs","CBEAMs")
-            _,_,_,pa,pb = Solver.bar_offsets_and_endpoints(element,StaticArrays.SVector{3}(xyz[1,:]),StaticArrays.SVector{3}(xyz[2,:]))
+            _,_,_,pa,pb = Solver.bar_offsets_and_endpoints(element,StaticArrays.SVector{3}(xyz[1,:]),StaticArrays.SVector{3}(xyz[2,:]);model=model)
             length_element = norm(pb-pa)
         end
         area = Float64(get(prop,"A",0))

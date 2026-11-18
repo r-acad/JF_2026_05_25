@@ -56,7 +56,9 @@ function recovery_checks()
             @test S._buckling_local_rhs_has_operator_gap(m)
             minimal=Dict{String,Any}("model"=>m,"id_map"=>Dict(i=>i for i=1:4),"node_coords"=>X)
             @test_throws ErrorException S._solve_adjoint_buckling_case(minimal,Dict("design_variables"=>[Dict("type"=>"bar_area","pids"=>[99])]))
-            @test_throws ArgumentError S.analytic_shell_constitutive(m,101)
+            state=S.analytic_shell_constitutive(m,101)
+            @test isapprox(state.Cm,m["PSHELLs"]["101"]["Cm"];rtol=2e-12)
+            @test isapprox(state.Cb,m["PSHELLs"]["101"]["Cb"];rtol=2e-12)
             # Alternate recovery branches must also leave model tensors intact.
             withenv("JFEM_Q4_KERNEL_STATIC"=>"mitc") do;recovered(m,X,u);end
         end

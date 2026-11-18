@@ -10,7 +10,7 @@ if(!out)throw Error('Expected output folder');fs.mkdirSync(out,{recursive:true})
   await page.setContent('<html><body><div id="canonical" hidden></div><main id="structure"></main></body></html>');
   for(const file of ['style.css','movable_surfaces.css'])await page.addStyleTag({path:path.join(web,file)});
   await page.addStyleTag({content:'body{display:block;overflow:auto;background:#14202c;color:#dceafa;font:14px system-ui;margin:12px}#structure{width:900px;padding:14px;border:1px solid #426078}'});
-  await page.addScriptTag({path:path.join(web,'movable_structure.js')});
+  for(const file of['numeric_inputs.js','parameter_units.js','movable_structure.js'])await page.addScriptTag({path:path.join(web,file)});
   await page.evaluate(()=>{
    window.locked=false;window.edits=[];
    window.geometry=[{name:'Flap',kind:'flap',eta_start:.1,eta_end:.9},{name:'Aileron',kind:'aileron',eta_start:.6,eta_end:.95}];

@@ -9,10 +9,16 @@
 .rf-property-assessment{margin:12px 0;padding:12px;border:1px solid #54768f;border-radius:8px;background:#102031}
 .rf-property-assessment h3{margin:0 0 6px;font-size:16px}
 .rf-property-assessment p{margin:6px 0}
-.rf-property-assessment table{width:100%;border-collapse:collapse;margin-top:10px;font-size:13px}
+.rf-property-assessment table{width:100%;max-width:100%;min-width:0!important;table-layout:fixed;border-collapse:collapse;margin-top:10px;font-size:13px}
 .rf-property-assessment caption{text-align:left;font-weight:600;margin-bottom:6px}
-.rf-property-assessment th,.rf-property-assessment td{padding:7px;text-align:left;border-bottom:1px solid #54768f;vertical-align:top}
-.rf-property-assessment td:first-child{background:#843443;color:#fff;font-weight:700;white-space:nowrap}
+.rf-property-assessment th,.rf-property-assessment td{box-sizing:border-box;min-width:0!important;width:auto!important;padding:7px;text-align:left;border-bottom:1px solid #54768f;vertical-align:top;white-space:normal;overflow-wrap:anywhere}
+.rf-property-assessment td:first-child{width:22%!important;background:#843443;color:#fff;font-weight:700;white-space:normal}
+.rf-property-preview-status{padding:9px 11px;border-left:3px solid #58baff;background:#102c42;color:#cfebff;font-size:13px}
+.rf-property-preview-status[data-pending="true"]::before{content:"";display:inline-block;box-sizing:border-box;width:14px;height:14px;margin-right:8px;vertical-align:-2px;border:2px solid #678ba8;border-top-color:#cfebff;border-radius:50%;animation:rf-draft-spin .8s linear infinite}
+.rf-property-preview-status.activity-inline-message[data-pending="true"]::before{display:none}
+@keyframes rf-draft-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.rf-property-preview-status[data-pending="true"]::before{animation:none;border-style:dotted}}
+.rf-property-assessment.preview-pending{opacity:.75}
 .rf-property-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .rf-property-cell{display:flex;flex-direction:column;gap:5px;padding:10px;border:1px solid #47637a;border-radius:7px;background:#192f42;min-width:0}
 .rf-property-label{font-weight:600}
@@ -32,3 +38,8 @@
 .rf-assembly-section>h3{margin:0 0 10px;font-size:16px;color:#b7dcff}
 .rf-assembly-editor footer{position:sticky;bottom:-20px;background:#142536;padding:12px 0;z-index:1}
 @media(max-width:520px){.rf-property-fields{grid-template-columns:1fr}}
+
+.rf-property-assessment td.rf-check-passing{background:#164a70;color:#fff}
+.rf-property-assessment td.rf-check-unavailable{background:#475564;color:#e8f1f8}
+.rf-panel-assessment{margin:12px 0 18px}
+.rf-panel-properties-title{margin:14px 0 10px;font-size:17px;color:#c5e6ff}

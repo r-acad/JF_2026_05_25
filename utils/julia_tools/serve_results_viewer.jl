@@ -1,6 +1,7 @@
 #!/usr/bin/env julia
 """Local browser-asset server only; no solver packages or analysis files are loaded."""
 module JFEMResultsViewerServer
+include("compilation_defaults.jl")
 using HTTP
 
 const VIEWER_PATH="/APPS/JFEM_results_viewer/postv11.html"
@@ -72,6 +73,7 @@ function open_browser(url)
 end
 
 function main(args=ARGS)
+    consume_no_sysimage_option!(args)
     parsed=options(args)
     if parsed===nothing
         println("Usage: Results-viewer [--no-browser] [--port N]")

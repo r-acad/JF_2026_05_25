@@ -4,13 +4,13 @@
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 const [output,modulePath='playwright']=process.argv.slice(2),out=path.resolve(output),web=path.resolve(__dirname,'../web');
 const {chromium}=require(modulePath),origin='http://127.0.0.1:43996';
-const scripts=['assessment_load_policy','color_scales','material_allowables','euler_column_data','stringer_blade_data','skin_buckling_data','component_buckling_data','minimum_rf_data','stress_report_data','rf_incremental','rf_compute_client'];
+const scripts=['assessment_load_policy','color_scales','material_allowables','euler_column_data','stringer_blade_data','skin_buckling_data','component_buckling_data','minimum_rf_data','stress_report_data','rf_incremental','rf_native_report_view','rf_compute_client'];
 (async()=>{
  fs.mkdirSync(out,{recursive:true});const browser=await chromium.launch({headless:true,channel:process.env.CHROME_PATH?undefined:'chrome',executablePath:process.env.CHROME_PATH||undefined});
  try{
   const context=await browser.newContext(),page=await context.newPage(),errors=[];
   page.on('pageerror',error=>errors.push(error.stack));
-  await context.route(origin+'/**',route=>{const p=new URL(route.request().url()).pathname;return p==='/'?route.fulfill({contentType:'text/html',body:'<!doctype html><title>RF Worker regression</title>'+scripts.map(f=>'<script src="'+f+'.js"></script>').join('')}):route.fulfill({path:path.join(web,p)});});
+  await context.route(origin+'/**',route=>{const p=new URL(route.request().url()).pathname;if(p.startsWith('/api/'))return route.fulfill({status:404,json:{error:'Standalone compatibility fixture'}});return p==='/'?route.fulfill({contentType:'text/html',body:'<!doctype html><title>RF Worker regression</title>'+scripts.map(f=>'<script src="'+f+'.js"></script>').join('')}):route.fulfill({path:path.join(web,p)});});
   await page.goto(origin+'/');
   const result=await page.evaluate(async()=>{
    const p=t=>({type:'PSHELL',material_id:1,material:{id:1,type:'MAT1'},thickness_m:t}),element=(pid,t)=>({group:{pid,kind:'quad',name:'Synthetic P'+pid,properties:p(t)}}),vm=x=>({stress:{z1:{von_mises:x},z2:{von_mises:x}}});

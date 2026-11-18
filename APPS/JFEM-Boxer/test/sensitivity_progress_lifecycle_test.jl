@@ -1,6 +1,6 @@
-using Test,JSON
+using Test,JSON,WingFEGen
 include(joinpath(@__DIR__,"..","src","sensitivity_io.jl"))
-include(joinpath(@__DIR__,"..","src","sensitivity_worker_core.jl"))
+const JFEMSensitivityWorker=WingFEGen.JFEMSensitivityWorker
 length(ARGS)<=1||error("Usage: sensitivity_progress_lifecycle_test.jl [fixture.json]")
 mutable struct JobFixture
     outdir::String

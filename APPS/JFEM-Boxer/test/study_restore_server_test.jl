@@ -10,6 +10,11 @@ const SR=WingFEGen
     @test isempty(unknown)
     @test restored==full
     @test p==before
+    legacy_runout=deepcopy(p);delete!(legacy_runout,"properties.runout_side")
+    @test SR.canonical_study_parameters(legacy_runout)
+    legacy_restored,legacy_unknown=SR.restore_study_params(legacy_runout)
+    @test isempty(legacy_unknown)
+    @test legacy_restored==p
     # A broken physical layout must remain editable. Generation still refuses it.
     bad=deepcopy(p);bad["box.rib_pitch"]=-1.
     @test first(SR.restore_study_params(bad))["box.rib_pitch"]==-1.
@@ -41,10 +46,26 @@ const SR=WingFEGen
         @test SR.handle_restore_workspace(st,req(merge(p,Dict("unknown.key"=>1)))).status>=400
         @test SR.handle_restore_workspace(st,req([1,2,3])).status>=400
         @test SR.handle_restore_workspace(st,req(merge(p,Dict("ribs.masters"=>"invalid")))).status>=400
+        # The fast editable restore does not weaken the separate full check.
+        @test SR.handle_workspace(st,req(bad)).status>=400
+        @test SR.handle_workspace(st,req(p)).status==200
+        @test SR.handle_prepare_workspace(st,req(bad)).status>=400
         @test st.params==params_before
         @test st.model===nothing
         @test st.latest_deck===nothing
         @test readdir(temp)==disk_before
+        tiny=merge(p,Dict("planform.area"=>2.,"planform.aspect_ratio"=>2.,
+            "box.rib_pitch"=>.5,"box.stringer_pitch"=>.2,"leading_edge.enabled"=>false))
+        prepared=SR.handle_prepare_workspace(st,req(tiny))
+        @test prepared.status==200
+        @test SR.MsgPack.unpack(prepared.body)["nodes"]["count"]>0
+        published=st.model;published_params=deepcopy(st.params)
+        @test published!==nothing
+        @test SR.handle_prepare_workspace(st,req(bad)).status>=400
+        @test st.model===published
+        @test st.params==published_params
+        @test SR.handle_workspace(st,req(bad);generate=true).status>=400
+        @test st.model===published
     end
 end
 

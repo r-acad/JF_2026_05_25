@@ -132,10 +132,33 @@ function orientation_checks()
         @test_throws ErrorException J._tacs_shell_material_angle(m,e,ctx,X)
     end
 end
+
+function beam_orientation_checks()
+    ids = Dict(1=>1,2=>2,3=>3)
+    points = [0.0 0.0 0.0; 2.2 0.0 0.0; 0.0 1.0 0.0]
+    rotation(angle) = [1.0 0.0 0.0; 0.0 cos(angle) -sin(angle); 0.0 sin(angle) cos(angle)]
+    frames = [rotation(pi/5),rotation(-pi/7),Matrix{Float64}(I,3,3)]
+    orientation = [0.0,1.0,0.0]
+    first_offset, second_offset = [0.01,0.02,-0.04], [-0.02,0.03,0.01]
+    beam = Dict{String,Any}("ID"=>1,"GA"=>1,"GB"=>2,"G0"=>0,
+        "V"=>orientation,"OFFT"=>"BBB","WA"=>first_offset,"WB"=>second_offset)
+    expected = J._tacs_beam_frame_and_transform(beam,ids,points,frames)
+    grid = merge(beam,Dict("OFFT"=>"GGG","V"=>frames[1]'*orientation,
+        "WA"=>frames[1]'*first_offset,"WB"=>frames[2]'*second_offset))
+    element = merge(beam,Dict("OFFT"=>"BOO"))
+    referenced = merge(beam,Dict("G0"=>3))
+    for representation in (grid,element,referenced)
+        actual = J._tacs_beam_frame_and_transform(representation,ids,points,frames)
+        @test actual.L ≈ expected.L rtol=2e-14
+        @test actual.T12 ≈ expected.T12 rtol=2e-14 atol=1e-15
+        @test actual.dofs == expected.dofs
+    end
+end
 end
 
 @testset "TACS linear PSHELL sections and rigidly connected masses" begin
     TACSLinearCompatibilityFixture.constitutive_checks()
     TACSLinearCompatibilityFixture.connection_checks()
     TACSLinearCompatibilityFixture.orientation_checks()
+    TACSLinearCompatibilityFixture.beam_orientation_checks()
 end

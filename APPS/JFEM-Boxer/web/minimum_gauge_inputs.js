@@ -4,7 +4,7 @@
  const finite=v=>typeof v==='number'&&Number.isFinite(v),array=v=>typeof v==='string'?JSON.parse(v):Array.isArray(v)?v:[];
  const SHELL_KEYS={upper_skin:'properties.t_skin_upper',lower_skin:'properties.t_skin_lower',spar_web:'properties.t_spar_web',rib_web:'properties.t_rib_web',leading_edge_skin:'leading_edge.t_skin',leading_edge_rib:'leading_edge.t_rib'};
  const T_FIELDS=['flange_width','height','flange_thickness','web_thickness'];
- const isMinimumKey=key=>Object.values(SHELL_KEYS).includes(key)||key==='properties.spar_cap_side'||/^properties\.(stringer|rib_stiffener)_(flange_width|height|flange_thickness|web_thickness)$/.test(key);
+ const isMinimumKey=key=>Object.values(SHELL_KEYS).includes(key)||['properties.spar_cap_side','properties.runout_side'].includes(key)||/^properties\.(stringer|rib_stiffener)_(flange_width|height|flange_thickness|web_thickness)$/.test(key);
  function dimensions(p,component,value){
   const rows=[],add=(field,actual,minimum,key)=>{if(finite(minimum)&&minimum>=0)rows.push({field,value:actual,minimum,key});};
   if(SHELL_KEYS[component]){
@@ -12,6 +12,7 @@
    add('total_thickness',value.kind==='sandwich'?2*value.face_thickness+value.core_thickness:value.thickness,min,key);
    if(value.kind==='sandwich'&&sandwich){add('face_thickness',value.face_thickness,base.face_thickness,'materials.shells');add('core_thickness',value.core_thickness,base.core_thickness,'materials.shells');}
   }else if(component==='spar_cap')add('side',value.side,p['properties.spar_cap_side'],'properties.spar_cap_side');
+  else if(component==='runout')add('side',value.side,p['properties.runout_side']??Math.sqrt(5e-6),'properties.runout_side');
   else if(['stringer','rib_stiffener'].includes(component)&&value.enabled!==false){
    const blade=component==='stringer'&&value.flange_width===0;
    for(const field of T_FIELDS){if(blade&&field==='flange_thickness')continue;const key='properties.'+component+'_'+field;add(field,value[field],p[key],key);}
@@ -40,8 +41,8 @@
  function reconcileMinimumEdit(parameters,key){
   const component=Object.keys(SHELL_KEYS).find(part=>SHELL_KEYS[part]===key),
    t=/^properties\.(stringer|rib_stiffener)_(flange_width|height|flange_thickness|web_thickness)$/.exec(key),
-   cap=key==='properties.spar_cap_side',minimum=parameters[key];
-  if((!component&&!t&&!cap)||!finite(minimum)||minimum<0||minimum===0&&t?.[2]!=='flange_width')return{patches:{},changes:[]};
+   cap=key==='properties.spar_cap_side',runout=key==='properties.runout_side',minimum=parameters[key];
+  if((!component&&!t&&!cap&&!runout)||!finite(minimum)||minimum<0||minimum===0&&t?.[2]!=='flange_width')return{patches:{},changes:[]};
   const p={...parameters},patches={},changes=[];
   for(const name of ['materials.shells','properties.panels','properties.ribs','properties.spar_bays','properties.components'])p[name]=structuredClone(array(parameters[name]));
   const raise=(row,field,floor,scope)=>{
@@ -95,6 +96,7 @@
    if(component)shell(row,families[part],row.key);
    if(t?.[1]==='rib_stiffener'&&part==='rib_stiffener')raise(row,t[2],minimum,row.key);
    if(cap&&['front_upper_cap','front_lower_cap','rear_upper_cap','rear_lower_cap'].includes(part))raise(row,'side',minimum,row.key);
+   if(runout&&part==='stringer_runout')raise(row,'side',minimum,row.key);
   }
   for(const name of ['materials.shells','properties.panels','properties.ribs','properties.spar_bays','properties.components'])if(JSON.stringify(p[name])!==JSON.stringify(array(parameters[name])))patches[name]=p[name];
   return{patches,changes};

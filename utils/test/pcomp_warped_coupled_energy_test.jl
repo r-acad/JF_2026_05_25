@@ -93,8 +93,8 @@ function checks()
         @test recovered[1] ≈ projected.N_center
         @test recovered[2] ≈ -projected.M_center
         @test recovered[3] ≈ F.quad4_macneal_mean_shear_resultant(X,up,D,Cs,h;Cm=A,Bmb=B)
-        # A coupled MAT8 property remains outside the analytic shell material
-        # domain; this primal extension must not silently enable its tangent.
+        # A missing physical ply stack remains invalid even though complete
+        # coupled MAT8 laminates now support analytic property derivatives.
         model=Dict("PSHELLs"=>Dict("1"=>Dict("TYPE"=>"PCOMP_CLT","BEND_RATIO"=>1.,
             "PLY_DATA"=>Any[],"IS_ISOTROPIC"=>false)))
         @test_throws ArgumentError S.analytic_shell_constitutive(model,1)

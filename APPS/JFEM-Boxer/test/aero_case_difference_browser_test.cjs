@@ -44,7 +44,7 @@ assert(native.cases.length>=2&&!native.mesh_only,'Provide at least two solved VL
   await page.route('http://127.0.0.1:43986/**',async route=>{
    const url=new URL(route.request().url());
    if(url.pathname==='/api/input')return route.fulfill({json:schema});
-   if(url.pathname==='/api/validate_workspace')return route.fulfill({json:{ok:true,parameters:route.request().postDataJSON()}});
+   if(['/api/validate_workspace','/api/restore_workspace'].includes(url.pathname))return route.fulfill({json:{ok:true,parameters:route.request().postDataJSON()}});
    if(['/api/generate','/api/prepare_workspace'].includes(url.pathname))return route.fulfill({body:fs.readFileSync(path.join(fixture,'payload.msgpack')),contentType:'application/msgpack'});
    if(url.pathname==='/api/activity')return route.fulfill({json:{ok:true,events:[]}});
    if(url.pathname==='/api/last_deck')return route.fulfill({json:{ok:true,available:false}});

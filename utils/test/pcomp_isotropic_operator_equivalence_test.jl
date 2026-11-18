@@ -94,7 +94,9 @@ function run_checks()
             @test S.shell_membrane_is_isotropic(model["PSHELLs"]["105"]["Cm"])
             @test geo[13].iso && geo[14].iso
             @test isapprox(geo[13].Kg,geo[14].Kg;rtol=2e-11)
-            @test_throws ArgumentError S.analytic_shell_constitutive(model,105)
+            state=S.analytic_shell_constitutive(model,105)
+            @test isapprox(state.Cm,model["PSHELLs"]["105"]["Cm"];rtol=2e-12)
+            @test isapprox(state.Cb,model["PSHELLs"]["105"]["Cb"];rtol=2e-12)
             for g in 0:2
                 a,b,c,d=4g.+(1,2,3,4)
                 @test all(!only(cap.contexts[e].calls).kwargs.membrane_incomp for e in (a,b,c,d))

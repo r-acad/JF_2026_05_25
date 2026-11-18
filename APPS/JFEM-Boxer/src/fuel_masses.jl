@@ -119,6 +119,13 @@ structural_conm2_eid(m::Model,sp::FuelBaySpider)=structural_mass_is_concentrated
 bay_reference_is_massless(m::Model,sp::FuelBaySpider)=!structural_mass_is_concentrated(m)&&fuel_reference_is_massless(m,sp)
 
 """Generate bay references for fuel, dry inertia loads, or concentrated structural mass."""
+function needs_bay_mass_references(p::AbstractDict)
+    get(p,"fuel.enabled",false) && return true
+    get(p,"mass.structural_representation","distributed")=="bay_concentrated" && return true
+    any(spec->structure_inertia_enabled(spec.params) &&
+        !iszero(spec.params["loads.load_factor"]) && any(!iszero,inertia_acceleration_g(spec.params)),load_case_specs(p))
+end
+
 function add_fuel_references!(m::Model)
     isempty(m.fuel_rbe3)||return m
     concentrated=structural_mass_is_concentrated(m)
