@@ -4,6 +4,46 @@ Recorded results, 19 October 2026. **[Browse the illustrated gallery](index.html
 or consult the [19-case inventory](CASE_INVENTORY.csv). Every case has its own
 [case card, model, figures and numerical data](README.md).
 
+## Rerun with the present solver, 24 November 2026
+
+Every public analysis was run again with the present source. The outcomes are
+those of the recorded collection; the values moved with the element
+corrections made since the recording.
+
+| Set | Analyses | Outcome on 24 November 2026 | Recorded outcome |
+|---|---:|---|---|
+| Default manifest ([comparison.md](comparison.md)) | 24 | 44 quantities: 34 PASS, two coarse-mesh FAIL, eight REGRESSION_PASS; 17 secondary HISTORICAL_PASS | the same counts |
+| Analytical convergence set, all meshes and load levels | 39 | 126 comparisons: 98 PASS, 28 coarse-mesh FAIL | the same counts |
+| Original published uCRM9, static and modal | 2 | 20/20 frequencies below 0.5% (largest 0.274244%); 19/20 angular eigenvalues below 0.5% (first mode 0.547736%); inferred tip point 2.4825496 m | 0.273387%, 0.546027%, 2.4825351 m |
+
+Present errors of the earlier benchmarks against their published or analytical
+targets, beside the recorded ones:
+
+| Case | Recorded error | Present error | Tolerance |
+|---|---:|---:|---:|
+| Curved beam, coarse | 16.663% FAIL | 11.255% FAIL | 2% |
+| Curved beam, 24×4 | 0.63818% | 1.0620% | 2% |
+| Twisted beam, in-plane | 0.77172% | 0.66560% | 2% |
+| Twisted beam, out-of-plane | 2.6627% | 1.4217% | 5% |
+| Scordelis–Lo roof, 4×4 / 8×8 / 16×16 | 5.8210% / 1.0624% / 0.097123% | unchanged | 10% |
+| Pinched cylinder, coarse | 47.591% FAIL | 46.787% FAIL | 10% |
+| Pinched cylinder, 24×24 | 0.21088% | 0.30571% | 2% |
+| Hemisphere with opening, 4×4 / 8×8 / 16×16 | 6.1811% / 2.4620% / 0.93755% | 6.3482% / 2.5338% / 0.99260% | 10% |
+| Square plate buckling | 1.6680% | 1.5111% | 3% |
+| Cylinder screening strip, supplied / 16×4 | 4.2809% / 0.53713% | 2.1118% / 0.0045504% | 15% |
+| One-element cantilever buckling | 0.75223% | 0.75223% | 5% |
+
+The five analytical cases keep their finest-mesh errors: ACA01 0.00096223%,
+ACA02 1.3877e-10%, ACA03 0.18353%, ACA04 0.077231% and ACA05 3.1e-6%, each
+far inside its declared tolerance. The largest change of any value in that
+set is 0.048%.
+
+The stored regression scalars are met within their 0.1% tolerance; the
+largest differences are 0.096% (pinched cylinder, 24×24) and 0.051% (fourth
+CRM wingbox eigenvalue). The case cards, figures, per-case result files and
+the [case inventory](CASE_INVENTORY.csv) keep their recorded values and solver
+revisions; the tables and text below describe that recorded collection.
+
 ## Coverage and interpretation
 
 | Recorded collection | Analyses | Comparisons and outcome |

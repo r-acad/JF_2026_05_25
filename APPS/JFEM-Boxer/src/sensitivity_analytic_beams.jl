@@ -6,9 +6,9 @@ isdefined(@__MODULE__, :BeamSectionWarping) || include("beam_section_runtime.jl"
 
 """PBARL section values and exact directional derivatives for T, BAR and ROD.
 
-`dimensions` uses native PBARL order. `As_y/z` reproduces the current parser:
-BAR uses its energy-equivalent 5/6 area; ROD uses the fixed nu=0.3 Cowper factor.
-T uses the same converged section solve and exact implicit gradients as the parser.
+`dimensions` uses native PBARL order. Torsion constants and shear areas are those of the
+solver's finite-element section conversion (the parser's PBARL values); their derivatives
+come from the smooth section solutions, scaled to the converted values.
 `offset_y` follows WingFEGen's outside-face placement for T/BAR.
 """
 function sensitivity_analytic_section(shape::AbstractString,dimensions,direction=zeros(length(dimensions)))
@@ -33,13 +33,18 @@ function sensitivity_analytic_section(shape::AbstractString,dimensions,direction
         section.J_gradient===nothing && throw(ArgumentError(
             "Independent T-dimension sensitivity is unavailable at a rectangular limiting shape; " *
             "use a BAR section or explicit section properties for this limit."))
-        J=section.J;dJ=dot(collect(section.J_gradient),d)
+        # Values are those of the solver's finite-element section conversion. That conversion is
+        # piecewise smooth in the dimensions (its boundary subdivision changes in steps), so the
+        # derivatives are those of the converged section solution, scaled to the converted value:
+        # the logarithmic derivatives of the two agree to the discretisation error (below 1 %).
+        fe=BeamSectionWarping.section_library_properties("T",dims)
+        J=fe.J;dJ=dot(collect(section.J_gradient),d)*(fe.J/section.J)
         offset_y=yc-h;doffset_y=dyc-dh
         polygon=[[h-yc,-b/2],[h-yc,b/2],[q-yc,b/2],[q-yc,t/2],[-yc,t/2],[-yc,-t/2],[q-yc,-t/2],[q-yc,-b/2]]
         dpolygon=[[dh-dyc,-db/2],[dh-dyc,db/2],[dq-dyc,db/2],[dq-dyc,dt/2],[-dyc,dt/2],[-dyc,-dt/2],[dq-dyc,-dt/2],[dq-dyc,-db/2]]
-        As_y=section.K1*A;As_z=section.K2*A
-        dAs_y=section.K1*dA+A*dot(collect(section.K1_gradient),d)
-        dAs_z=section.K2*dA+A*dot(collect(section.K2_gradient),d)
+        As_y=fe.K1*A;As_z=fe.K2*A
+        dAs_y=fe.K1*dA+A*dot(collect(section.K1_gradient),d)*(fe.K1/section.K1)
+        dAs_z=fe.K2*dA+A*dot(collect(section.K2_gradient),d)*(fe.K2/section.K2)
     elseif shape=="BAR"
         length(dims)==2||throw(ArgumentError("BAR section needs two dimensions"))
         b,h=dims;db,dh=d;b>0&&h>0||throw(ArgumentError("BAR dimensions must be positive"))
@@ -59,17 +64,22 @@ function sensitivity_analytic_section(shape::AbstractString,dimensions,direction
             J=(h*b^3-.63b^4+.0525b^8/h^4)/3
             dJ=((b^3-.21b^8/h^5)*dh+(3h*b^2-2.52b^3+.42b^7/h^4)*db)/3
         end
+        # Value from the solver's finite-element section conversion; derivative of the closed
+        # form scaled to it (see the T section above).
+        fe=BeamSectionWarping.section_library_properties("BAR",dims)
+        dJ*=fe.J/J;J=fe.J
         offset_y=-h/2;doffset_y=-dh/2
         polygon=[[h/2,-b/2],[h/2,b/2],[-h/2,b/2],[-h/2,-b/2]]
         dpolygon=[[dh/2,-db/2],[dh/2,db/2],[-dh/2,db/2],[-dh/2,-db/2]]
-        factor=5/6;As_y=As_z=factor*A;dAs_y=dAs_z=factor*dA
+        As_y=fe.K1*A;As_z=fe.K2*A;dAs_y=fe.K1*dA;dAs_z=fe.K2*dA
     elseif shape=="ROD"
         length(dims)==1||throw(ArgumentError("ROD section needs one radius"))
         r=only(dims);dr=only(d);r>0||throw(ArgumentError("ROD radius must be positive"))
         A=pi*r^2;dA=2pi*r*dr;I1=I2=pi*r^4/4;dI1=dI2=pi*r^3*dr
         J=pi*r^4/2;dJ=2pi*r^3*dr;offset_y=doffset_y=0.
         polygon=[[-r,0.],[0.,-r],[r,0.],[0.,r]];dpolygon=[[-dr,0.],[0.,-dr],[dr,0.],[0.,dr]]
-        factor=6*1.3/(7+6*.3);As_y=As_z=factor*A;dAs_y=dAs_z=factor*dA
+        # The solver's section conversion has no Poisson coupling in the shear factors: 6/7 for a circle.
+        factor=BeamSectionWarping.section_library_properties("ROD",dims).K1;As_y=As_z=factor*A;dAs_y=dAs_z=factor*dA
     else
         throw(ArgumentError("Analytic section derivatives support T, BAR and ROD, received $shape"))
     end

@@ -409,6 +409,32 @@ function _add_accel1_load!(F_acc, model, card, scale, id_map, node_coords, mass_
     return nothing
 end
 
+"""
+Consistent nodal forces (n×3) of a pressure on a CQUAD8 (n = 8) or CTRIA6
+(n = 6): the integral of N p over the true surface. `corner` holds the corner
+pressures, interpolated bilinearly on the quadrilateral and linearly on the
+triangle, or `nothing` for the uniform `p`. Without `direction` the pressure
+acts along the surface normal of the node ordering.
+"""
+function _higher_order_shell_pressure(X::AbstractMatrix, p::Float64, corner, direction)
+    n = size(X, 1)
+    F = zeros(n, 3)
+    rc = (-1.0, 1.0, 1.0, -1.0); sc = (-1.0, -1.0, 1.0, 1.0)
+    for (a, b, w) in FEM._higher_order_shell_rule(n)
+        N, da, db = n == 8 ? FEM.shape_quad8(a, b) : FEM.shape_tria6(a, b)
+        ga = X' * da; gb = X' * db
+        nv = cross(ga, gb)
+        pressure = corner === nothing ? p :
+                   n == 8 ? sum(corner[k]*(1 + rc[k]*a)*(1 + sc[k]*b)/4 for k in 1:4) :
+                            corner[1]*a + corner[2]*b + corner[3]*(1 - a - b)
+        vec = direction === nothing ? nv : direction .* norm(nv)
+        for k in 1:n, c in 1:3
+            F[k, c] += w*pressure*N[k]*vec[c]
+        end
+    end
+    return F
+end
+
 # PLOAD4 LINE is an edge load on CTRIAR/CQUADR, not surface pressure.
 # The native card ignores SORL on other element types. Check only selected,
 # nonzero loads before any force accumulation or normal-follower dispatch.
@@ -417,9 +443,16 @@ function _check_selected_pload4_semantics(model, scales::AbstractDict)
         factor = get(scales, Int(card["SID"]), 0.0)
         iszero(factor) && continue
         pressure = Float64(card["P"]) * factor
+        corner = get(card, "PCORNER", nothing)
+        corner === nothing || (pressure = maximum(abs, corner) * factor)
         iszero(pressure) && continue
         isfinite(pressure) || throw(ArgumentError("Nonfinite PLOAD4 pressure"))
         sid, eid = card["SID"], card["EID"]
+        if corner !== nothing
+            shell = get(get(model, "CSHELLs", Dict()), string(eid), nothing)
+            shell !== nothing && length(get(shell, "NODES", ())) in (6, 8) || throw(ArgumentError(
+                "PLOAD4 SID=$sid EID=$eid: nonuniform P1-P4 pressure is not supported"))
+        end
         sorl = uppercase(strip(String(get(card, "SORL", "SURF"))))
         isempty(sorl) && (sorl = "SURF")
         sorl in ("SURF", "LINE") || throw(ArgumentError(
@@ -538,6 +571,16 @@ function _resolve_loads!(model, sid::Int, scale, id_map, elem_map, node_coords,
                 # path routed transverse pressure through the removed macro-quad
                 # condensation, which added a partial nodal-moment component the
                 # reference does not produce.
+                if length(nids) in (6, 8)
+                    # CQUAD8 / CTRIA6: consistent forces of the quadratic surface.
+                    fixed_direction = haskey(pload, "N") && norm(pload["N"]) > 1e-30 ? load_dir : nothing
+                    Fq = _higher_order_shell_pressure(Xc, Float64(pload["P"]), get(pload, "PCORNER", nothing), fixed_direction)
+                    for (k, idx) in enumerate(nids)
+                        dof = (idx-1)*6
+                        F_acc[dof+1:dof+3] .+= scale .* view(Fq, k, :)
+                    end
+                    continue
+                end
                 tf = area * pload["P"] * scale
                 f_node = load_dir .* (tf / length(nids))
                 for idx in nids; dof = (idx-1)*6; F_acc[dof+1:dof+3] .+= f_node; end
@@ -698,6 +741,21 @@ function _resolve_loads!(model, sid::Int, scale, id_map, elem_map, node_coords,
                 idxs = [get(id_map, n, 0) for n in nids]
                 if any(x->x==0, idxs); continue; end
                 Xc = node_coords[idxs, :]
+                if nn in (6, 8)
+                    # CQUAD8 / CTRIA6: the body force follows the element mass
+                    # matrix (consistent with COUPMASS, its diagonal otherwise).
+                    areal = rho * get(prop, "T", 0.0) + nsm_shell
+                    coupled = _sol103_param_enabled(get(model, "PARAM_COUPMASS", false), false)
+                    Mq = FEM.consistent_mass_shell_higher_order(Xc, (areal, 0.0, 0.0); lumped=!coupled)
+                    acc = zeros(6nn)
+                    for k in 1:nn; acc[6(k-1)+1:6(k-1)+3] .= grav_vec; end
+                    fq = Mq * acc
+                    for (k, idx) in enumerate(idxs)
+                        dof = (idx-1)*6
+                        F_acc[dof+1:dof+3] .+= view(fq, 6(k-1)+1:6(k-1)+3)
+                    end
+                    continue
+                end
                 if nn == 3
                     v1 = Xc[2,:] - Xc[1,:]; v2 = Xc[3,:] - Xc[1,:]
                     area = 0.5 * norm(cross(v1, v2))
@@ -1311,6 +1369,62 @@ function _add_cpenta_thermal_load!(F_acc, idxs, coords, thermal_stress)
     return F_acc
 end
 
+"""
+Temperature load of a CQUAD8 or CTRIA6 with an isotropic PSHELL: the consistent
+forces of the thermal membrane force E t alpha (T - TREF) / (1 - nu) and the
+consistent moments of the thermal bending moment E I alpha G / (1 - nu), G being
+the temperature gradient along the element normal, integrated over the
+quadratic surface. The mean temperature is the average of the grid
+temperatures of the element unless a TEMPP1 record of the set names the
+element; that record also supplies the gradient.
+"""
+function _add_higher_order_shell_thermal!(F_acc, model, el, temp_sid, node_temps, default_temp, scale, id_map, node_coords)
+    nids = el["NODES"]; n = length(nids)
+    prop = get(model["PSHELLs"], string(get(el, "PID", 0)), nothing)
+    prop === nothing && return nothing
+    haskey(prop, "BEND_RATIO") || return nothing
+    idxs = [get(id_map, g, 0) for g in nids]
+    any(iszero, idxs) && return nothing
+    t = Float64(get(prop, "T", 0.0))
+    t > 0 || return nothing
+    record = temp_sid === nothing ? nothing :
+             get(get(get(model, "TEMPP1s", Dict()), Int(temp_sid), Dict()), Int(get(el, "ID", 0)), nothing)
+    mats = model["MATs"]
+    isotropic(mid) = begin
+        mat = get(mats, string(mid), nothing)
+        (mat === nothing || haskey(mat, "TYPE")) ? nothing : mat
+    end
+    membrane_force = 0.0; moment = 0.0
+    mat1 = isotropic(get(prop, "MID", 0))
+    if mat1 !== nothing && Float64(get(mat1, "ALPHA", 0.0)) != 0.0
+        mean = record === nothing ? _average_temperature_for_nodes(nids, node_temps, default_temp) : record[1]
+        membrane_force = Float64(mat1["E"])*t*Float64(mat1["ALPHA"])*(mean - Float64(get(mat1, "TREF", 0.0)))/(1 - Float64(mat1["NU"]))*scale
+    end
+    mat2 = isotropic(get(prop, "MID2", 0))
+    if record !== nothing && mat2 !== nothing && record[2] != 0.0
+        inertia = Float64(get(prop, "BEND_RATIO", 1.0))*t^3/12
+        moment = Float64(mat2["E"])*inertia*Float64(get(mat2, "ALPHA", 0.0))*record[2]/(1 - Float64(mat2["NU"]))*scale
+    end
+    (membrane_force == 0.0 && moment == 0.0) && return nothing
+    X = node_coords[idxs, :]
+    for (a, b, w) in FEM._higher_order_shell_rule(n)
+        N, da, db = n == 8 ? FEM.shape_quad8(a, b) : FEM.shape_tria6(a, b)
+        ga = X' * da; gb = X' * db
+        nv = cross(ga, gb); dA = norm(nv)
+        dA < 1e-300 && continue
+        e3 = nv ./ dA
+        g11 = dot(ga, ga); g12 = dot(ga, gb); g22 = dot(gb, gb); metric = g11*g22 - g12^2
+        ca = (g22 .* ga .- g12 .* gb) ./ metric; cb = (g11 .* gb .- g12 .* ga) ./ metric
+        for k in 1:n
+            grad = da[k] .* ca .+ db[k] .* cb          # surface gradient of the shape function
+            dof = 6(idxs[k] - 1)
+            F_acc[dof+1:dof+3] .+= (w*dA*membrane_force) .* grad
+            F_acc[dof+4:dof+6] .+= (w*dA*moment) .* cross(e3, grad)
+        end
+    end
+    return nothing
+end
+
 function _assert_supported_shell_thermal_load(model, temp_sid, scale)
     isnothing(temp_sid) && return nothing
     sid = Int(temp_sid)
@@ -1374,7 +1488,8 @@ function resolve_thermal_loads(model, temp_sid, scale, id_map, elem_map, node_co
     temp_sid = isnothing(temp_sid) ? nothing : Int(temp_sid)
     _assert_supported_shell_thermal_load(model, temp_sid, scale)
     node_temps, default_temp = _temperature_field_for_sid(model, temp_sid)
-    if isempty(node_temps) && !haskey(get(model, "TEMPDs", Dict()), temp_sid)
+    if isempty(node_temps) && !haskey(get(model, "TEMPDs", Dict()), temp_sid) &&
+       !haskey(get(model, "TEMPP1s", Dict()), temp_sid)
         return
     end
 
@@ -1603,6 +1718,10 @@ function resolve_thermal_loads(model, temp_sid, scale, id_map, elem_map, node_co
     for (_, el) in get(model, "CSHELLs", Dict())
         if !haskey(el, "NODES"); continue; end
         nids_th = el["NODES"]; nn = length(nids_th)
+        if nn == 6 || nn == 8
+            _add_higher_order_shell_thermal!(F_acc, model, el, temp_sid, node_temps, default_temp, scale, id_map, node_coords)
+            continue
+        end
         if nn != 3 && nn != 4; continue; end
         pid = string(get(el, "PID", 0))
         prop = get(model["PSHELLs"], pid, nothing)

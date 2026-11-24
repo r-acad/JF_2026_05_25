@@ -284,6 +284,46 @@
         tables,cached:true,model_out_of_date:!!state.modelDirty,results_out_of_sync:!!state.modelDirty&&!!state.resultCases?.size,
         recalculated:false,message:'Read the currently rendered view only. No navigation, FEM generation, analysis or RF assessment was started.'};
     }
+    /* Airfoil tools, the same for the chat and for the MCP bridge (web/boxer_airfoil_tools.js). */
+    let airfoilTools=null;
+    const airfoils=()=>{
+      if(!airfoilTools){
+        if(!root.WingBoxerAirfoilTools||!root.WingAirfoils)throw Error('The airfoil tools are not available in this page.');
+        airfoilTools=root.WingBoxerAirfoilTools.create({fetch:fetcher,airfoils:root.WingAirfoils,readParameters:()=>options.readParameters(),updateParameters,
+          inputValue:id=>doc.getElementById(id)?.value,setInput:(id,value)=>commands.execute({command:'set_input',arguments:{input_id:id,value},source:'airfoil-tools'})});
+      }
+      return airfoilTools;
+    };
+    // A name that is not a NACA code never reaches the code box: the form would become invalid and block every later change.
+    function guardInput(id,value){
+      const naca=root.WingBoxerAirfoilTools?.nacaCode;
+      if(naca&&/^p-airfoil\.(root|tip)$|^airfoil-station-\d+-code$/.test(id)&&!naca(value))
+        throw Error('“'+text(value,60)+'” was not entered: this input takes only a NACA 4- or 5-digit code, and Boxer generates no other section. Look the profile up with the action find_airfoils and apply it with set_airfoil.');
+    }
+    /* The analysis is started with its solution. The Study's own setting is 103 until someone changes it, and a run
+     * that was meant for load cases then returned normal modes (recorded on 2026-11-20). */
+    const SOLUTIONS={101:'static analysis',103:'normal modes analysis',105:'buckling analysis',106:'nonlinear static analysis'};
+    async function runAnalysis(args={}){
+      if(state.importedDeck||state.data?.imported_deck)   // an imported model carries its own solution
+        return{...track('run_analysis',options.runJfem,{dispatchOnly:true}),solution:'as defined by the imported model'};
+      const wanted=String(args.solution??'').replace(/^sol\s*/i,'').trim();
+      let before='';try{before=String(options.readParameters()['output.solution']??'');}catch{}
+      if(!wanted)throw Error('State the solution to run: "101" static (load cases, load factors or g cases, stresses, deflections, reserve factors, and any run after load cases were generated or changed), "103" normal modes, "105" buckling, "106" nonlinear static. The Study is set to '+(before||'an unknown solution')+'. Call run_analysis again with “solution”.');
+      if(!SOLUTIONS[wanted])throw Error('Unknown solution “'+text(wanted,20)+'”. Use 101, 103, 105 or 106.');
+      const changed=before!==wanted;
+      if(changed)await updateParameters({'output.solution':wanted});
+      /* The launcher returns without a word while Boxer is busy, and a change of the solution makes it busy for a
+       * moment (seen on 2026-11-21: the run after the change never started). Wait for it, then make sure it began. */
+      const pause=ms=>new Promise(resolve=>win.setTimeout(resolve,ms)),until=Date.now()+120000;
+      while(busy()&&Date.now()<until)await pause(250);
+      if(busy())throw Error('Boxer is still busy with another operation, so the analysis was not started. Read get_state and call run_analysis again.');
+      const launch=Promise.resolve().then(options.runJfem);
+      const first=await Promise.race([launch.then(value=>value===true?'launched':'returned',()=>'returned'),pause(2000).then(()=>'working')]);
+      // Boxer says why in its error panel or, for a solver that could not be launched, in the last line of its log.
+      if(first==='returned'){await pause(500);throw Error('Boxer did not start the analysis. '+(errorText()||text(doc.getElementById('log')?.lastElementChild?.textContent,400)||text(doc.getElementById('mesh-status')?.textContent,300)||'Check the model and call run_analysis again.'));}
+      return{...track('run_analysis',()=>launch,{dispatchOnly:true}),solution:wanted,...(changed&&before?{solution_was:before}:{}),study_changed:changed,
+        message:'Started the '+SOLUTIONS[wanted]+' (SOL '+wanted+')'+(changed&&before?'; the Study’s Solution was '+before+' and is now '+wanted:'')+'. The run has only been started: Boxer shows its progress, and the Study status says when it has finished.'};
+    }
     const objectSchema=properties=>({type:'object',properties,additionalProperties:false});
     const idSchema={...objectSchema({id:{type:'integer',minimum:1}}),required:['id']};
     const actions={
@@ -299,8 +339,20 @@
         run:args=>track('read_abaqus',()=>readDeck(args,'abaqus'),{waiting:!args.path||!!state.studyDirty})},
       create_fem:{label:'Create FEM',description:'Generate the physical FEM using the current Study. Preserve the viewport and existing menu validation.',enabled:()=>editable()&&!state.importedDeck,
         run:()=>track('create_fem',()=>options.createFEM({preserveView:true}))},
-      run_analysis:{label:'Run in JFEM',aliases:['run analysis','analyze FEM','solve model','run solver'],description:'Run every enabled case using the selected solution. Read analysis.running and native progress for completion.',enabled:()=>available()&&!state.diskResults,
-        run:()=>track('run_analysis',options.runJfem,{dispatchOnly:true})},
+      run_analysis:{label:'Run in JFEM',aliases:['run analysis','analyze FEM','solve model','run solver','run load cases','run statics','run modes','run buckling'],
+        description:'Start the structural analysis of every enabled case with the stated solution; the Study’s Solution is set to it first. 101 static: load cases, load factors, stresses, deflections, reserve factors, and any run after load cases were generated or changed. 103 normal modes. 105 buckling. 106 nonlinear static. Read analysis.running and native progress for completion.',
+        inputSchema:{...objectSchema({solution:{type:'string',enum:['101','103','105','106'],description:'101 static, 103 normal modes, 105 buckling, 106 nonlinear static'}}),required:['solution']},await_completion:true,
+        enabled:()=>available()&&!state.diskResults,run:runAnalysis},
+      find_airfoils:{label:'Find airfoils in the UIUC database',aliases:['find airfoil','search airfoils','uiuc airfoil'],
+        description:'Search the UIUC airfoil coordinate database by file name and return the names that match or come nearest. For every section that is not a NACA 4- or 5-digit code. Changes nothing.',
+        inputSchema:{...objectSchema({query:{type:'string',description:'Name or a part of it, for example 64a410, sc20714, rae2822, b737'},limit:{type:'integer',minimum:1,maximum:40}}),required:['query']},await_completion:true,
+        run:args=>airfoils().find(args)},
+      set_airfoil:{label:'Set airfoil',aliases:['set airfoil','change airfoil','airfoil section'],
+        description:'Set the airfoil of the root, the tip, both, or an intermediate section. Give exactly one of naca, uiuc or coordinates. Answers with the measured thickness and camber of the section.',
+        inputSchema:{...objectSchema({section:{type:'string',description:'root, tip, both, or the eta of an intermediate section between 0 and 1'},naca:{type:'string',description:'NACA 4- or 5-digit code, for example 2412'},
+          uiuc:{type:'string',description:'file name from find_airfoils, for example sc20714.dat'},coordinates:{type:'string',description:'x z pairs as fractions of the chord, one pair on each line, from the trailing edge over the upper surface to the leading edge and back'},
+          name:{type:'string',description:'name of a profile given by coordinates'},thickness:{type:'string',description:'optional thickness in percent of the chord; scales the section and keeps its camber'}}),required:['section']},await_completion:true,
+        enabled:()=>editable()&&!state.importedDeck,run:args=>airfoils().set(args)},
       stop_analysis:{label:'Stop JFEM analysis',description:'Request cancellation of the currently running native JFEM job.',enabled:()=>!!state.jobId&&!!(state.polling||state.solverStarting),
         run:()=>track('stop_analysis',options.stopJfem,{dispatchOnly:true})},
       run_aerodynamics:{label:'Run aerodynamics',description:'Run the current independent aerodynamic conditions. The existing derivative-sweep warning remains active.',enabled:()=>editable()&&!state.aerodynamicStudy?.busy,
@@ -325,7 +377,8 @@
     const inputAliases={
       'p-planform.area':['wing area','planform area','lifting surface area'],
       'p-planform.aspect_ratio':['aspect ratio','wing aspect ratio'],
-      'p-planform.taper':['taper ratio','wing taper'],
+      'p-planform.taper_ratio':['taper ratio','taper','wing taper'],
+      'p-planform.twist_tip':['tip twist','twist','washout'],
       'p-planform.sweep':['sweep','sweep angle','wing sweep'],
       'p-planform.dihedral':['dihedral','dihedral angle'],
       'p-box.rib_pitch':['rib pitch','rib spacing'],
@@ -334,16 +387,32 @@
       'p-properties.t_skin_lower':['lower skin thickness','minimum lower skin thickness'],
       'p-properties.t_spar_web':['spar web thickness','minimum spar web thickness'],
       'p-properties.t_rib_web':['rib web thickness','minimum rib web thickness'],
-      'p-material.E':['young modulus','youngs modulus'],
+      'p-material.E':['young modulus','youngs modulus','elastic modulus'],
+      'p-material.nu':['poisson ratio','poissons ratio'],
+      'p-material.rho':['density','material density'],
+      'p-output.title':['title','model title','study title'],
+      'p-output.solution':['solution','solution type','analysis type'],
       'p-output.n_modes':['number of modes','requested modes'],
     };
     commands=root.WingBoxerCommands.create({document:doc,fetch:fetcher,pollMs:options.pollMs,connect:options.connect,inputAliases,
-      getSchema:schema,getParameters:options.readParameters,getState:snapshot,actions,updateParameters,navigate:target=>{
+      getSchema:schema,getParameters:options.readParameters,getState:snapshot,actions,updateParameters,guardInput,navigate:target=>{
         const result=options.navigate(target);
         if(result===false)throw Error('Unknown or unavailable Boxer tab '+target+'. Search list_actions for its current name.');
         return typeof result==='string'?result:options.getWorkspace?.().active_tab||target;
       },inspect,log:options.log,onConnection:()=>chat?.refresh(),onState:snapshot=>chat?.refresh(snapshot)});
-    chat=root.WingBoxerChat?.create({document:doc,commands,fetch:fetcher});
+    /* What the assistant is told about how this application is built. It restates the Help
+     * of the Planform and Spars forms and the parameter descriptions; keep it in step with them. */
+    const guide=`How this application is organised:
+The wing starts from a base trapezoid (area, aspect ratio, taper ratio, sweep). Its outline is then refined with two tables of perturbation points, planform.leading_edge_points and planform.trailing_edge_points. Each is a list of points {"eta": spanwise position from 0 at the root to 1 at the tip, "dxc": chordwise offset as a fraction of the local base chord, positive aft}. Straight segments join the points. An end that is not listed has zero offset. Each eta may appear only once, and the root and tip rows stay at eta 0 and 1; only their dxc can change. The forms number the rows from the root: point 1 is the root row at eta 0 and the last point is the tip row, so "point 1 eta" cannot be changed; say so instead of moving another point.
+To add, move or remove a point, call update_parameters with the complete new list. Example, a trailing-edge kink (also called Yehudi, crank, or the triangle at the root): {"planform.trailing_edge_points":[{"eta":0,"dxc":0.3},{"eta":0.35,"dxc":0}]} extends the root chord aft by 30 % and returns to the base trailing edge at 35 % of the semispan, where the kink is. A leading-edge extension is the same with planform.leading_edge_points and a negative dxc at the root.
+The front and rear spar paths use box.front_spar_points and box.rear_spar_points in the same form, measured from the nominal spar positions. Both spars must stay inside the refined outline, the front ahead of the rear; Boxer refuses a list that breaks this and says why.
+Engines are one table, engines.items (form Engines): a list of {"name", "enabled", "x", "y", "z", "mass", "length", "front_rib", "aft_rib", "aft_xc", "E", "G", "A", "I1", "I2", "J"}. x, y and z are the engine's centre of gravity in metres in the model axes (x aft, y along the span, z up, so an engine hung under the wing lies below it), mass is in kg and length in m, front_rib and aft_rib are the numbers of the ribs that carry it and are best left out: Boxer then attaches the engine to the rib in line with it, the one nearest its y (0 means the same; give a number only when the user names a rib), aft_xc is the chordwise position of the aft attachment, and E, G, A, I1, I2, J describe the pylon beam in SI units. There are no other fields: no thrust, diameter, pylon or type. Fields that are left out keep their default values, so {"name":"Engine 1","x":...,"y":...,"z":...,"mass":...,"length":...} is a complete engine. Send the whole list, with the existing engines that are to stay.
+Load cases: load case 1 is defined by the keys of the Loads form (loads.label is its name, loads.load_factor its limit load multiplier, loads.lift_total, loads.method and the others). Further cases are one table, loads.cases: a list of {"label", "enabled"} with any of "load_factor", "lift_total", "method", "distribution", "aircraft_mass", "maneuver_factor", "match_aircraft_lift", "torque_y", "speed", "density", "alpha", "altitude", "fuel_percent", "structure_inertia", "engine_thrust", "follower_forces", "fuel_accel_x", "fuel_accel_y", "fuel_accel_z". A field that is left out is taken from load case 1, and there are no other fields. A manoeuvre of n g is a case whose load_factor is n, negative for a push-over. Send the whole list. Load cases are run with run_analysis and solution 101.
+Thrust is a separate table for load case 1, loads.engine_thrust: a list of {"engine": the name of a defined engine, "thrust_n": newtons, positive forward}.
+Airfoils (form Airfoils) are defined at the root (eta 0), at the tip (eta 1) and optionally at intermediate sections, and are set with set_airfoil. A section has one of three sources. "naca": a NACA 4- or 5-digit code such as 2412 or 23012, which Boxer generates; the code input accepts nothing else. "uiuc": coordinates from the UIUC airfoil database, found by file name with find_airfoils. "coordinates": points typed into set_airfoil. A NACA 6-series, supercritical, laminar or aircraft section is therefore never typed as a code: look it up.
+UIUC file names: NACA 6-series naca642415 (NACA 64(2)-415: design lift 0.4, 15 % thick), naca64a410, naca651412, naca63a210, and the shorter n63415, n64212; NASA supercritical sc20714 (SC(2)-0714: the first two digits are the design lift coefficient in tenths, the last two the thickness in percent, so sc20012 is symmetric and a transport wing takes 04 to 07), sc20612, sc20410, and whitcomb; rae2822, rae5212; NASA low- and medium-speed ls417, ms317; laminar nlf0115, nlf414f; transport wings from root to tip b737a to b737d, b707a to b707e, kc135a to kc135d, c5a to c5e, c141a to c141f. Search with the distinctive part of the name. When the exact profile is missing, take the nearest of the same family and camber and pass the thickness asked for to set_airfoil, which scales the section and keeps its camber: a NACA 64A415 is {"section":"root","uiuc":"naca64a410.dat","thickness":"15"}. The scaling is kept in the table loft.thickness_stations, a list of {"eta", "tc"} with tc the thickness over chord; one row alone applies to the whole span, so leave that table to set_airfoil unless the user asks for a thickness distribution. Type coordinates only when you know them reliably, such as values the user gave; do not invent them.
+The planform drawing is part of the Planform form and follows a parameter change at once; there is nothing to refresh. If the user cannot see a change, read the list back with list_inputs and report its values, then offer to open the Planform form (find it with list_actions). Never suggest resizing, zooming, reloading or waiting. The mesh follows by itself when Live mesh is on; otherwise it is rebuilt with Create FEM, which you start only when the user asks.`;
+    chat=root.WingBoxerChat?.create({document:doc,commands,fetch:fetcher,guide});
     const controller={commands,chat,execute:request=>commands.execute(request),snapshot,updateParameters,readReserveFactors:readRF,readPanel,
       refresh(){commands.refresh();chat?.refresh();},destroy(){if(destroyed)return;destroyed=true;chat?.destroy();commands.destroy();}};
     return controller;

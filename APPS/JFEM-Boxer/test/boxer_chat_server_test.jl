@@ -16,9 +16,9 @@ function normalize_params(parameters)
 end
 include(joinpath(APP,"src","boxer_google.jl"))
 include(joinpath(APP,"src","boxer_chat.jl"))
-function request(action,raw=Dict();host="127.0.0.1:8080",origin="http://127.0.0.1:8080",content_type="application/json",site="same-origin",body=nothing)
+function request(action,raw=Dict();host="127.0.0.1:8080",origin="http://127.0.0.1:8080",content_type="application/json",site="same-origin",body=nothing,st=nothing)
     headers=["Host"=>host,"Origin"=>origin,"Content-Type"=>content_type,"Sec-Fetch-Site"=>site]
-    handle_boxer_chat(nothing,HTTP.Request(action=="config" ? "GET" : "POST","/api/chat/"*action,headers,
+    handle_boxer_chat(st,HTTP.Request(action=="config" ? "GET" : "POST","/api/chat/"*action,headers,
         body===nothing ? JSON.json(raw) : body);action)
 end
 decode(response)=JSON.parse(String(response.body);dicttype=Dict{String,Any})
@@ -244,6 +244,48 @@ try
         @test C.decode(response)["values"]==Dict("box.rib_pitch"=>.6)
         @test C.request("validate",Dict("parameters"=>Dict(),"values"=>Dict("not.a.key"=>1.))).status==400
         @test C.request("validate",Dict("parameters"=>Dict(),"values"=>Dict("box.rib_pitch"=>-1.))).status==400
+    end
+
+    @testset "The conversation record is appended to one file for each conversation" begin
+        mktempdir() do root
+            st=(root=root,);id="20261119_101500_ab12cd"
+            first_lines=[JSON.json(Dict("kind"=>"conversation","conversation"=>id)),"{\"t\":\"2026-11-19T10:15:01.000Z\",\"kind\":\"user\",\"text\":\"añade un motor\"}"]
+            response=C.request("record",Dict("id"=>id,"lines"=>first_lines);st)
+            @test response.status==200
+            value=C.decode(response);path=joinpath(root,"output","chat_conversations","boxer_conversation_"*id*".jsonl")
+            @test value["ok"] && value["path"]==path && value["entries"]==2
+            @test C.request("record",Dict("id"=>id,"lines"=>["{\"kind\":\"gemini_reply\",\"text\":\"Done.\"}"]);st).status==200
+            # Entries are written as they came, one on each line, in the order received.
+            written=readlines(path)
+            @test written==vcat(first_lines,["{\"kind\":\"gemini_reply\",\"text\":\"Done.\"}"])
+            @test JSON.parse(written[2])["text"]=="añade un motor"
+            # Only a well-formed name and one-line JSON objects are accepted; nothing else is written anywhere.
+            for bad in (Dict("id"=>"../escape","lines"=>["{}"]),Dict("id"=>id*"x","lines"=>["{}"]),Dict("id"=>id,"lines"=>String[]),Dict("id"=>id,"lines"=>["not json"]),
+                    Dict("id"=>id,"lines"=>["{\"a\":1}\n{\"b\":2}"]),Dict("id"=>id,"lines"=>["[1,2]"]),Dict("id"=>id,"lines"=>[Dict("a"=>1)]),Dict("id"=>id,"lines"=>["{broken}"]))
+                @test C.request("record",bad;st).status==400
+            end
+            @test readlines(path)==written
+            @test readdir(joinpath(root,"output","chat_conversations"))==["boxer_conversation_"*id*".jsonl"]
+            @test readdir(root)==["output"]
+            # The record is for this computer only, like every other chat request.
+            @test C.request("record",Dict("id"=>id,"lines"=>["{}"]);st,origin="http://foreign.invalid").status==400
+            @test C.request("record",Dict("id"=>id,"lines"=>["{}"]);st,site="cross-site").status==400
+            @test readlines(path)==written
+        end
+    end
+
+    @testset "Local providers explain what to do when they cannot be used" begin
+        response=C.request("test",Dict("provider"=>Dict("kind"=>"ollama","endpoint"=>"http://127.0.0.1:9")));@test response.status==400
+        @test occursin("Could not reach Ollama at http://127.0.0.1:9. Start Ollama on this computer",C.decode(response)["error"])
+        response=C.request("test",Dict("provider"=>Dict("kind"=>"compatible","endpoint"=>"http://127.0.0.1:9/v1")));@test response.status==400
+        @test occursin("Could not reach the AI server at http://127.0.0.1:9/v1. Check that the server is running",C.decode(response)["error"])
+        response=C.request("message",message(merge(ollama,Dict("model"=>" "))));@test response.status==400
+        @test C.decode(response)["code"]=="no_model" && occursin("press Connect",C.decode(response)["error"])
+        # A key pasted with blanks or a line break at its ends still authenticates.
+        response=C.request("test",Dict("provider"=>merge(compatible,Dict("api_key"=>"  "*secret[]*" 
+"))));@test response.status==200
+        @test last(requests)["authorization"]=="Bearer "*secret[]
+        @test occursin("1 model(s) are available",C.decode(response)["message"])
     end
 finally
     close(server)

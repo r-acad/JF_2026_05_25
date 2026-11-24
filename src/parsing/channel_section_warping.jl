@@ -1,4 +1,4 @@
-# Finite-thickness MSC CHAN2: two side walls and a bottom web, open in +y.
+# Finite-thickness CHAN2 library section: two side walls and a bottom web, open in +y.
 # DIM1=side thickness, DIM2=bottom thickness, DIM3=height, DIM4=width.
 # Analytic centroid/inertias use disjoint rectangles. A quadratic section mesh
 # solves Saint-Venant torsion and the energy-equivalent geometric shear areas.

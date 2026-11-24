@@ -8,6 +8,9 @@ if(!url||!out)throw Error('Expected URL and output folder');fs.mkdirSync(out,{re
  page.on('pageerror',error=>errors.push(error.message));
  try{
   await page.goto(url,{timeout:120000});await page.getByRole('button',{name:'Start new study',exact:true}).click();
+  // A new Study shows its geometry and waits for Create FEM.
+  await page.waitForFunction(()=>typeof state!=='undefined'&&!state.meshRequestInFlight&&/press Create FEM|up to date/i.test(document.getElementById('mesh-status')?.textContent||''),null,{timeout:180000});
+  if(!(await page.evaluate(()=>state.data?.nodes?.count)))await page.evaluate(()=>createFEM());
   await page.waitForFunction(()=>state.data?.nodes?.count&&!state.meshRequestInFlight,null,{timeout:180000});
   await page.locator('#auto-mesh').uncheck();await page.evaluate(()=>{document.getElementById('auto-save').checked=false;state.autosave?.destroy();});
   const original=await page.evaluate(()=>({nodes:state.data.nodes.count,params:state.data.model_params,signature:state.modelSignature}));
@@ -19,12 +22,18 @@ if(!url||!out)throw Error('Expected URL and output folder');fs.mkdirSync(out,{re
   for(const[key,value]of [['E','68'],['G','25'],['A','.012'],['I1','.00016'],['I2','.00018'],['J','.0003']])await visible().locator('[data-engine-field='+key+']').fill(value);
   await visible().locator('[data-engine-field=x]').fill('0.3');await visible().locator('[data-engine-field=y]').fill('1.2');await visible().locator('[data-engine-field=z]').fill('-1.4');
   assert(await page.evaluate(()=>state.modelDirty&&state.studyDirty));assert.equal(await page.evaluate(()=>state.data.nodes.count),original.nodes);
-  const entered=await page.evaluate(()=>collectParams()['engines.items']);assert.equal(entered[0].front_rib,2);
+  const entered=await page.evaluate(()=>collectParams()['engines.items']);assert.equal(entered[0].front_rib,0);assert.equal(entered[0].aft_rib,0);
   assert.equal(entered[0].E,68e9);assert.equal(entered[0].G,25e9);assert.equal(entered[0].I1,.00016);
   await page.locator('#engine-create-fem').click();
   await page.waitForFunction(()=>!state.meshRequestInFlight&&state.data?.engine_structure?.engines.length===1,null,{timeout:240000});
   assert(await page.evaluate(()=>formSignature()===state.modelSignature&&formSignature(state.data.model_params)===state.modelSignature));
-  const record=await page.evaluate(()=>state.data.engine_structure.engines[0]);assert.equal(record.mass_kg,650);assert.equal(record.length_m,2.4);assert.equal(record.mounts[0].rib,2);assert.equal(record.mounts[1].rib,2);
+  const record=await page.evaluate(()=>state.data.engine_structure.engines[0]);assert.equal(record.mass_kg,650);assert.equal(record.length_m,2.4);
+  // The new engine was left on Automatic: both mounts use the interior rib in line with it, nearest its BASIC Y.
+  const inLine=await page.evaluate(()=>{const ribs=state.data.rib_layout.ribs,interior=ribs.slice(1,-1);return interior.reduce((best,rib)=>Math.abs(rib.front[1]-1.2)<Math.abs(best.front[1]-1.2)?rib:best).number;});
+  assert.equal(record.mounts[0].rib,inLine);assert.equal(record.mounts[1].rib,inLine);assert(record.mounts.every(mount=>mount.rib_automatic===true));
+  assert.match(record.mounts[0].patch_note,new RegExp('^R'+inLine+' chosen automatically as the rib in line with the engine'));
+  assert.equal(await visible().locator('[data-engine-rib=front_rib]').inputValue(),'0');
+  assert.equal(await visible().locator('[data-engine-rib=front_rib] option').first().textContent(),'Automatic · rib in line with the engine (R'+inLine+' in the current FEM)');
   assert.deepEqual(record.center_of_gravity_m,[.3,1.2,-1.4]);
   assert.equal(record.mounts[0].ref,record.cg_node);assert.equal(record.cg_node,record.beam_nodes[1]);
   assert.equal(record.mounts[1].ref,record.beam_nodes[2]);

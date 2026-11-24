@@ -56,6 +56,8 @@ axis remains parallel to the GRID line. The outer flange/cap face lies on the
 skin or rib datum. Areas and bending inertias are exact; the torsion model is
 explicitly identified in `torsion_model` and shared with the solver parser.
 """
+const SECTION_TORSION_MODEL="Finite-element section conversion (six-node triangles on the section), the same as the solver's PBARL conversion"
+
 function section_definition(p::AbstractDict, pid::Integer)
     haskey(p,"imported.native")&&return imported_section(imported_native(p)["PBARLs"][string(pid)])
     base_pid=component_base_pid(pid)
@@ -71,13 +73,12 @@ function section_definition(p::AbstractDict, pid::Integer)
         if base_pid==PID_STRINGER&&iszero(b)
             # A blade remains a blade when changing FE representation. Never
             # create a fictitious flange or retain its inactive thickness.
-            wide,narrow=max(h,tw),min(h,tw)
-            torsion=wide*narrow^3/3*(1-.63narrow/wide+.0525(narrow/wide)^5)
+            torsion=BeamSectionWarping.section_library_properties("BAR",[tw,h]).J
             return Dict{String,Any}(
                 "type"=>"PBARL","shape"=>"BAR","dimensions_m"=>[tw,h],
                 "polygon_yz_m"=>[[h/2,-tw/2],[h/2,tw/2],[-h/2,tw/2],[-h/2,-tw/2]],
                 "offset_y_m"=>-h/2,"area_m2"=>tw*h,"I1_m4"=>tw*h^3/12,"I2_m4"=>h*tw^3/12,
-                "J_m4"=>torsion,"torsion_model"=>"JFEM PBARL rectangular-section approximation",
+                "J_m4"=>torsion,"torsion_model"=>SECTION_TORSION_MODEL,
                 "placement"=>"Blade attached edge at skin; full height inward; centroid offset included in CBAR; no flange")
         end
         hw = h - tf
@@ -87,8 +88,7 @@ function section_definition(p::AbstractDict, pid::Integer)
         i1 = tw * hw^3 / 12 + aw * (yc - hw / 2)^2 +
              b * tf^3 / 12 + af * (hw + tf / 2 - yc)^2
         i2 = hw * tw^3 / 12 + tf * b^3 / 12
-        section=BeamSectionWarping.t_section_warping(b,h,tf,tw)
-        torsion=section.J
+        torsion=BeamSectionWarping.section_library_properties("T",[b,h,tf,tw]).J
         polygon = [[h-yc, -b/2], [h-yc, b/2], [hw-yc, b/2],
                    [hw-yc, tw/2], [-yc, tw/2], [-yc, -tw/2],
                    [hw-yc, -tw/2], [hw-yc, -b/2]]
@@ -96,7 +96,7 @@ function section_definition(p::AbstractDict, pid::Integer)
             "type" => "PBARL", "shape" => "T", "dimensions_m" => [b,h,tf,tw],
             "polygon_yz_m" => polygon, "offset_y_m" => -(h-yc),
             "area_m2" => area, "I1_m4" => i1, "I2_m4" => i2, "J_m4" => torsion,
-            "torsion_model" => "Saint-Venant section finite elements; 0.01% successive-mesh tolerance",
+            "torsion_model" => SECTION_TORSION_MODEL,
             "torsion_formulation" => "saint_venant_2d",
             "placement" => base_pid==PID_STRINGER ? "Flange outer face at skin; web inward; centroid offset included in CBAR" :
                 "Flange outer face on rib-web datum; web outboard (final rib inboard); centroid offset included in CBAR")
@@ -108,8 +108,8 @@ function section_definition(p::AbstractDict, pid::Integer)
                                   [-side/2,side/2], [-side/2,-side/2]],
             "offset_y_m" => -side/2, "area_m2" => side^2,
             "I1_m4" => side^4/12, "I2_m4" => side^4/12,
-            "J_m4" => side^4/3 * (1 - 0.63 + 0.0525),
-            "torsion_model" => "JFEM PBARL rectangular-section approximation",
+            "J_m4" => BeamSectionWarping.section_library_properties("BAR",[side,side]).J,
+            "torsion_model" => SECTION_TORSION_MODEL,
             "placement" => "Outer face at skin; square inward; centroid offset included in CBAR")
     elseif base_pid == PID_STRINGER_RUNOUT
         side = Float64(get(component_table_override(p,pid),"side",get(p,"properties.runout_side",sqrt(STRINGER_RUNOUT_AREA))))

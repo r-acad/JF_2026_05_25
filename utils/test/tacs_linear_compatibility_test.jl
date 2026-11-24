@@ -88,8 +88,10 @@ function connection_checks()
         u=r["subcases"][1]["raw_displacement"];v=b["subcases"][1]["raw_displacement"]
         ids=r["id_map"];dof(g,c)=6*(ids[g]-1)+c
         @test r["backend_forced_by"] == "CQUADR"
+        # The directly applied FORCE magnitudes are read in single precision
+        # (49.05 is not exact there); the linked mass load is not rounded.
         for g in 1:4,c in 1:6
-            @test u[dof(g,c)] ≈ v[6*(b["id_map"][g]-1)+c] atol=1e-13 rtol=5e-11
+            @test u[dof(g,c)] ≈ v[6*(b["id_map"][g]-1)+c] atol=1e-13 rtol=1e-7
         end
         @test u[dof(5,3)] ≈ (u[dof(2,3)]+u[dof(3,3)])/2 atol=1e-14
         @test u[dof(6,3)] ≈ u[dof(5,3)] atol=1e-14

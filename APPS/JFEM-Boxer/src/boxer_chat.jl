@@ -1,6 +1,40 @@
 """Optional conversational inference. Actions always execute through the browser registry."""
 const BOXER_CHAT_TOOL_NAMES = Set(["get_state","list_actions","list_inputs","invoke_action","set_input","update_parameters","navigate"])
 
+const BOXER_CHAT_RECORD_LOCK = ReentrantLock()
+const BOXER_CHAT_RECORD_BYTES = 50*1024*1024
+
+"""Folder in which the conversations of the chat panel are kept, one file for each."""
+boxer_chat_record_folder(st)=joinpath(st.root,"output","chat_conversations")
+
+"""
+Append entries of a chat conversation to its file.
+
+The chat panel records what was asked, what the assistant was told and answered,
+and every action with its result, so that a conversation can be assessed later.
+Each entry arrives as one line of JSON text and is written as it came; the panel
+never includes a key. The file name is fixed by the conversation's own stamp.
+"""
+function boxer_chat_record!(st,raw)
+    id=get(raw,"id",nothing);lines=get(raw,"lines",nothing)
+    id isa AbstractString && occursin(r"^[0-9]{8}_[0-9]{6}_[a-z0-9]{6}$",id) || throw(ArgumentError("The conversation record has no valid name."))
+    lines isa AbstractVector && 1<=length(lines)<=500 || throw(ArgumentError("Expected 1 to 500 record entries."))
+    for line in lines
+        line isa AbstractString && 2<=ncodeunits(line)<=400_000 && !occursin(r"[\r\n]",line) && startswith(line,"{") && endswith(line,"}") ||
+            throw(ArgumentError("Each record entry must be one line holding a JSON object."))
+        try JSON.parse(line) isa AbstractDict || error() catch; throw(ArgumentError("Each record entry must be one line holding a JSON object.")) end
+    end
+    folder=boxer_chat_record_folder(st);path=joinpath(folder,"boxer_conversation_"*id*".jsonl")
+    lock(BOXER_CHAT_RECORD_LOCK) do
+        mkpath(folder)
+        (isfile(path) ? filesize(path) : 0)+sum(ncodeunits,lines)+length(lines)<=BOXER_CHAT_RECORD_BYTES || throw(ArgumentError("This conversation record is full."))
+        open(path,"a") do io
+            for line in lines;println(io,line);end
+        end
+    end
+    Dict{String,Any}("ok"=>true,"path"=>path,"entries"=>length(lines))
+end
+
 function boxer_chat_origin_guard(req)
     authority = lowercase(HTTP.header(req,"Host",""))
     host = try lowercase(String(HTTP.URI("http://"*authority).host)) catch; "" end
@@ -13,6 +47,41 @@ function boxer_chat_origin_guard(req)
     end
     lowercase(HTTP.header(req,"Sec-Fetch-Site",""))=="cross-site" && throw(ArgumentError("Cross-site chat requests are not accepted."))
     nothing
+end
+
+"""A provider failure with a stable reason code and a plain-language next step.
+
+`detail` keeps the provider's own (already redacted) wording for diagnosis.
+"""
+struct BoxerChatFailure <: Exception
+    code::String
+    message::String
+    detail::String
+    status::Int
+end
+BoxerChatFailure(code,message;detail="",status=0)=BoxerChatFailure(String(code),String(message),String(detail),Int(status))
+Base.showerror(io::IO,failure::BoxerChatFailure)=print(io,failure.message)
+
+"""Normalize a pasted API key without ever reporting its characters.
+
+Keys are routinely copied with surrounding spaces, a trailing line break, quotes
+or as a whole `GEMINI_API_KEY=...` line. Google keys contain no whitespace, so
+every blank, line break and zero-width character is removed for Google. Other
+providers only have their ends trimmed and still reject an embedded line break.
+"""
+function boxer_chat_clean_key(value,kind)
+    value isa AbstractString || throw(ArgumentError("The API key must be text."))
+    edges=[' ','\t','\r','\n','\u00a0','\u200b','\u200c','\u200d','\ufeff','"','\'','`']
+    key=String(strip(String(value),edges))
+    if kind=="google"
+        key=replace(key,r"[\s ​‌‍﻿]+"=>"")
+        key=replace(key,r"^(?:export)?(?:GEMINI_API_KEY|GOOGLE_API_KEY|x-goog-api-key|api[_-]?key|key)[=:]"i=>"")
+        key=String(strip(key,edges))
+        occursin(r"^[\x21-\x7e]*$",key) || throw(BoxerChatFailure("invalid_key",
+            "The pasted API key contains characters that a Google key cannot have. Copy the key again with the Copy button in Google AI Studio (aistudio.google.com/apikey) and paste it into Settings."))
+    end
+    length(key)<=8192 && !occursin(r"[\r\n]",key) || throw(ArgumentError("Invalid API key."))
+    key
 end
 
 function boxer_chat_provider(raw=Dict{String,Any}())
@@ -42,13 +111,12 @@ function boxer_chat_provider(raw=Dict{String,Any}())
     model=strip(String(get(raw,"model",inherit ? get(ENV,"BOXER_CHAT_MODEL","") : "")))
     length(model)<=250 || throw(ArgumentError("The model name is too long."))
     kind=="google" && !isempty(model) && (model=boxer_google_model(model))
-    key=String(get(raw,"api_key",""))
-    isempty(key) && inherit && (key=get(ENV,"BOXER_CHAT_API_KEY",""))
+    key=boxer_chat_clean_key(get(raw,"api_key",""),kind)
+    isempty(key) && inherit && (key=boxer_chat_clean_key(get(ENV,"BOXER_CHAT_API_KEY",""),kind))
     if isempty(key) && kind=="google"
-        key=get(ENV,"GEMINI_API_KEY","")
-        isempty(key) && (key=get(ENV,"GOOGLE_API_KEY",""))
+        key=boxer_chat_clean_key(get(ENV,"GEMINI_API_KEY",""),kind)
+        isempty(key) && (key=boxer_chat_clean_key(get(ENV,"GOOGLE_API_KEY",""),kind))
     end
-    length(key)<=8192 && !occursin(r"[\r\n]",key) || throw(ArgumentError("Invalid API key."))
     Dict("kind"=>kind,"endpoint"=>endpoint,"model"=>model,"api_key"=>key)
 end
 
@@ -135,34 +203,84 @@ function boxer_chat_context(raw)
     out
 end
 
+"""Classify a transport exception by type only. Its text can contain request headers."""
+function boxer_chat_transport_kind(error)
+    names=String[];current=error;operation=""
+    for _ in 1:6
+        push!(names,String(nameof(typeof(current))))
+        isempty(operation) && hasproperty(current,:operation) && (operation=string(getproperty(current,:operation)))
+        next=nothing
+        for field in (:cause,:err,:error,:ex)
+            hasproperty(current,field) || continue
+            value=getproperty(current,field)
+            value isa Exception && (next=value;break)
+        end
+        next===nothing && break
+        current=next
+    end
+    any(name->occursin("Timeout",name),names) && return operation in ("connect","tls_handshake") ? :connect : :timeout
+    any(name->occursin("DNS",name) || occursin("Lookup",name) || occursin("Resolve",name),names) && return :dns
+    any(name->occursin("TLS",name) || occursin("SSL",name) || occursin("Certificate",name),names) && return :tls
+    any(name->occursin("Connect",name) || name in ("IOError","OpError","EOFError"),names) && return :connect
+    :other
+end
+
+function boxer_chat_transport_failure(error,provider,timeout)
+    kind=boxer_chat_transport_kind(error)
+    seconds=timeout>=1 ? string(round(Int,timeout)) : string(timeout)
+    if get(provider,"kind","")=="google"
+        host="generativelanguage.googleapis.com"
+        kind===:timeout && return BoxerChatFailure("timeout","Google did not answer within $seconds seconds. Send the message again.")
+        kind===:dns && return BoxerChatFailure("offline","Boxer could not find Google's server ($host). This computer seems to be offline, or its network blocks that address. Check the internet connection and press Connect again. Built-in commands keep working without internet.")
+        kind===:tls && return BoxerChatFailure("network_blocked","A secure connection to Google could not be established. Security software or a company proxy that inspects web traffic usually causes this. Ask your network administrator to allow https://$host, or try another network.")
+        kind===:connect && return BoxerChatFailure("network_blocked","Boxer could not open a connection to Google ($host). Check the internet connection. A firewall, VPN or company proxy may be blocking it; if your network needs a proxy, set the HTTPS_PROXY environment variable before starting Boxer.")
+        return BoxerChatFailure("network","The request to Google failed before an answer arrived. Check the internet connection and send the message again.")
+    end
+    # The endpoint was validated to carry no credentials, query or fragment.
+    target=get(provider,"kind","")=="ollama" ? "Ollama at "*provider["endpoint"] : "the AI server at "*provider["endpoint"]
+    kind===:timeout && return ErrorException("No answer from $target within the timeout ($seconds seconds). A large local model can need longer to load; send the message again, or choose a smaller model in Settings.")
+    hint=get(provider,"kind","")=="ollama" ? "Start Ollama on this computer, or correct the Server URL under Advanced in Settings." :
+        "Check that the server is running and that the Server URL in Settings is correct."
+    ErrorException("Could not reach $target. $hint")
+end
+
 function boxer_chat_http(provider,method,path;body=nothing,timeout=180.,max_response_bytes=4_000_000)
     headers=["Content-Type"=>"application/json","Accept"=>"application/json"]
-    key=provider["api_key"]
-    get(provider,"kind","")=="google" && isempty(key) && throw(ArgumentError("Enter a Google API key in Chat settings, or configure GEMINI_API_KEY/GOOGLE_API_KEY on the Boxer server."))
-    isempty(key) || push!(headers,get(provider,"kind","")=="google" ? "x-goog-api-key"=>key : "Authorization"=>"Bearer "*key)
-    response=try
-        HTTP.request(method,provider["endpoint"]*path,headers,body===nothing ? "" : JSON.json(body);
-            status_exception=false,redirect=false,retry=false,connect_timeout=10,request_timeout=timeout,read_idle_timeout=timeout)
-    catch
-        # Network exception formatting can contain request headers. Never return it.
-        throw(ErrorException("Could not reach the configured AI endpoint within its timeout. Check that the service is running and the URL is correct."))
+    key=provider["api_key"];google=get(provider,"kind","")=="google"
+    google && isempty(key) && throw(BoxerChatFailure("no_key",
+        "No Gemini API key has been entered. Open Settings, paste the key from Google AI Studio (aistudio.google.com/apikey) and press Connect. A server administrator can instead set GEMINI_API_KEY or GOOGLE_API_KEY before starting Boxer."))
+    isempty(key) || push!(headers,google ? "x-goog-api-key"=>key : "Authorization"=>"Bearer "*key)
+    payload=body===nothing ? "" : JSON.json(body)
+    response=nothing
+    # Google documents 503 UNAVAILABLE as a transient overload. Repeat it once.
+    # Quota (429) and every other status are reported without a retry.
+    for attempt in 1:(google ? 2 : 1)
+        response=try
+            HTTP.request(method,provider["endpoint"]*path,headers,payload;
+                status_exception=false,redirect=false,retry=false,connect_timeout=10,request_timeout=timeout,read_idle_timeout=timeout)
+        catch error
+            # Network exception formatting can contain request headers. Never return it.
+            throw(boxer_chat_transport_failure(error,provider,timeout))
+        end
+        response.status==503 && attempt==1 && google || break
+        sleep(1.5)
     end
     length(response.body)<=max_response_bytes || throw(ArgumentError("The AI response exceeded the supported size."))
     data=try JSON.parse(String(response.body);dicttype=Dict{String,Any}) catch
-        throw(ErrorException("The configured AI endpoint returned an unreadable JSON response."))
+        ok=200<=response.status<300
+        google && throw(BoxerChatFailure(ok ? "unreadable" : "blocked_response",ok ?
+            "Google's answer could not be read. Send the message again." :
+            "Something between Boxer and Google answered instead of Google (HTTP $(response.status), not a Google reply). A company proxy, firewall or network sign-in page usually causes this. Open a web page in your browser to check the connection, then press Connect again.";status=response.status))
+        throw(ErrorException(ok ? "The configured AI endpoint returned an unreadable JSON response." :
+            "The configured AI endpoint returned HTTP $(response.status) with an unreadable response. Check the Server URL in Settings."))
     end
     if !(200<=response.status<300)
-        detail=get(data,"error","")
+        google && throw(boxer_google_failure(response.status,data,key;model=boxer_google_path_model(path)))
+        detail=data isa AbstractDict ? get(data,"error","") : ""
         detail isa AbstractDict && (detail=get(detail,"message",""))
         text=replace(string(detail),r"\s+"=>" ")
         isempty(key) || (text=replace(text,key=>"[redacted]"))
         text=first(text,500)
-        if get(provider,"kind","")=="google"
-            guidance=response.status==429 ? "Google quota or rate limit was reached. Check the selected model's project quota and eligible free-tier allowance. No retry or alternate model was used. " :
-                response.status in (401,403) ? "Google rejected this key or its model permission. Check key restrictions and project access. " :
-                response.status==404 ? "Google could not find the selected model. Test the connection and choose an available model ID. " : ""
-            throw(ErrorException("Google returned HTTP $(response.status). "*guidance*text))
-        end
         throw(ErrorException("AI endpoint returned HTTP $(response.status). "*text))
     end
     data isa AbstractDict || throw(ArgumentError("The AI endpoint did not return an object."))
@@ -211,6 +329,7 @@ function handle_boxer_chat(st,req;action="message",requester=boxer_chat_http)
         raw isa AbstractDict || throw(ArgumentError("Expected a chat request object."))
         connection=get(raw,"provider",nothing)
         connection isa AbstractDict && get(connection,"api_key",nothing) isa AbstractString && push!(secrets,String(connection["api_key"]))
+        action=="record" && return json_response(boxer_chat_record!(st,raw))
         if action=="open_study"
             path=expanduser(String(get(raw,"path","")))
             isabspath(path) && endswith(lowercase(path),".json") && isfile(path) || throw(ArgumentError("Choose an absolute path to an existing Study JSON file."))
@@ -243,18 +362,22 @@ function handle_boxer_chat(st,req;action="message",requester=boxer_chat_http)
         provider=boxer_chat_provider(get(raw,"provider",Dict{String,Any}()))
         push!(secrets,provider["api_key"])
         if action in ("test","models")
-            provider["kind"]=="google" && return json_response(boxer_google_models(provider;requester))
+            provider["kind"]=="google" && return json_response(boxer_google_connect(provider,raw;requester))
             data=requester(provider,"GET",provider["kind"]=="ollama" ? "/api/tags" : "/models";timeout=30.)
             models=provider["kind"]=="ollama" ? [String(get(item,"name",get(item,"model",""))) for item in get(data,"models",Any[])] :
                 [String(get(item,"id","")) for item in get(data,"data",Any[])]
-            return json_response(Dict("ok"=>true,"models"=>filter(!isempty,models),"message"=>"Connected to the configured AI endpoint."))
+            models=filter(!isempty,models)
+            return json_response(Dict("ok"=>true,"models"=>models,"message"=>isempty(models) ?
+                "Connected, but this AI server lists no models. Install or load a model, or type its name under Advanced." :
+                "Connected to the configured AI endpoint. $(length(models)) model(s) are available."))
         end
         if action in ("transcribe","speech")
             provider["kind"]=="google" || throw(ArgumentError("Google speech and transcription require the Google Gemini connection."))
             return json_response(action=="transcribe" ? boxer_google_transcribe(provider,raw;requester) : boxer_google_speech(provider,raw;requester))
         end
         action=="message" || throw(ArgumentError("Unknown chat operation."))
-        isempty(provider["model"]) && throw(ArgumentError("Choose a model in Chat settings and test the connection."))
+        isempty(provider["model"]) && throw(BoxerChatFailure("no_model",
+            "No AI model is selected yet. Open Settings and press Connect; Boxer then lists the available models and selects one."))
         messages=boxer_chat_messages(get(raw,"messages",Any[]))
         isempty(messages) && throw(ArgumentError("Write a message first."))
         context=boxer_chat_context(get(raw,"context",Dict{String,Any}()))
@@ -282,10 +405,15 @@ function handle_boxer_chat(st,req;action="message",requester=boxer_chat_http)
         result=[Dict("id"=>call["id"],"name"=>call["function"]["name"],"arguments"=>JSON.parse(call["function"]["arguments"])) for call in normalized]
         json_response(Dict("ok"=>true,"text"=>String(text),"tool_calls"=>result,"messages"=>messages))
     catch error
-        text=error isa Union{ArgumentError,ErrorException} ? describe_error(error) : "The request or AI response could not be decoded. Check the connection and model settings."
+        text=error isa Union{ArgumentError,ErrorException,BoxerChatFailure} ? describe_error(error) : "The request or AI response could not be decoded. Check the connection and model settings."
         for secret in secrets
-            isempty(secret) || (text=replace(text,secret=>"[redacted]"))
+            isempty(secret) && continue
+            text=replace(text,secret=>"[redacted]")
+            cleaned=replace(secret,r"\s+"=>"")
+            isempty(cleaned) || (text=replace(text,cleaned=>"[redacted]"))
         end
-        error_response("Boxer chat. "*first(text,2000))
+        text="Boxer chat. "*first(text,2000)
+        # `code` lets the panel point at the setting that needs attention.
+        error isa BoxerChatFailure ? json_response(Dict{String,Any}("ok"=>false,"error"=>text,"code"=>error.code);status=400) : error_response(text)
     end
 end

@@ -101,6 +101,13 @@ function process_cards(lines)
                     steps += 1; continue
                 end
 
+                # General-section entries continue with free keyword text ("OUTP=10,INP=20").
+                # An indented line with an assignment belongs to the entry whole, commas included.
+                if base_name in ("PBRSECT", "PBMSECT") && isspace(first(next_line)) && occursin('=', next_clean)
+                    push!(fields, String(next_clean))
+                    steps += 1; continue
+                end
+
                 is_cont = false
                 is_cont_large = false
                 if startswith(next_clean, "*")

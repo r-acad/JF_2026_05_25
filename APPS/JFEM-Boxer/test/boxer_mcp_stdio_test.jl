@@ -97,7 +97,7 @@ const S=BoxerStdioFixture
             @test initialized["result"]["protocolVersion"]=="2025-06-18"
             S.send(process,Dict("jsonrpc"=>"2.0","method"=>"notifications/initialized"))
             S.send(process,S.message(2,"tools/list"))
-            @test length(S.receive(replies)["result"]["tools"])==11
+            @test length(S.receive(replies)["result"]["tools"])==17
             @test !isempty(seen[2]["session"])
             @test all(request["protocol"]=="2025-06-18" for request in seen[2:end])
             @test all(request["session"]==seen[2]["session"] for request in seen[2:end])

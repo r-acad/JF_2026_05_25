@@ -20,7 +20,10 @@ if(!out)throw Error('Expected output folder');fs.mkdirSync(out,{recursive:true})
   assert(await page.locator('#engine-edit').isHidden());assert.deepEqual(await page.evaluate(()=>editor.readDrafts()['engines.items']),[]);assert.equal(await page.locator('#group-engines [aria-label^="Help:"]').count(),1);
   await page.locator('#engine-add').click();assert.equal(await page.locator('.engine-card:not([hidden])').count(),1);
   const visible=()=>page.locator('.engine-card:not([hidden])');
-  assert.equal(await visible().locator('[data-engine-rib=front_rib]').inputValue(),'2');
+  // A new engine is attached automatically, to the rib in line with it.
+  assert.equal(await visible().locator('[data-engine-rib=front_rib]').inputValue(),'0');assert.equal(await visible().locator('[data-engine-rib=aft_rib]').inputValue(),'0');
+  assert.match(await visible().locator('[data-engine-rib=front_rib] option').first().textContent(),/^Automatic · rib in line with the engine$/);
+  assert.deepEqual(await page.evaluate(()=>(({front_rib,aft_rib})=>[front_rib,aft_rib])(editor.readDrafts()['engines.items'][0])),[0,0]);assert(await page.locator('.engine-error').isHidden());
   await visible().locator('[data-engine-field=mass]').fill('2300');await visible().locator('[data-engine-field=length]').fill('4.2');
   assert.equal(await visible().locator('[data-engine-field=E]').inputValue(),'70');assert.equal(await visible().locator('[data-engine-field=G]').inputValue(),'26');
   for(const [key,value]of [['E','68'],['G','25'],['A','.012'],['I1','.00016'],['I2','.00018'],['J','.0003']])await visible().locator('[data-engine-field='+key+']').fill(value);

@@ -32,14 +32,17 @@ end
             for name in ("K","K_eig","Kg")
                 K=Matrix(name=="K_eig" ? only(base["buckling"].subcases).K_eig : base[name])
                 Q=Matrix(name=="K_eig" ? only(current["buckling"].subcases).K_eig : current[name]) .* (d*d') ./ scale^3
-                @test norm(Q-K)/norm(K)<3e-10
+                # Kg follows the FORCE magnitudes, which are read in single precision.
+                load_precision=name=="Kg" ? 2e-7 : 0.
+                @test norm(Q-K)/norm(K)<3e-10+load_precision
                 # Diagonal congruence prevents strong rotational blocks from
                 # concealing a weak translational/coupling discrepancy.
                 w=1 ./ sqrt.(max.(abs.(diag(Matrix(base["K"]))),floatmin(Float64)))
-                @test norm((Q-K).*(w*w'))/norm(K.*(w*w'))<3e-9
+                @test norm((Q-K).*(w*w'))/norm(K.*(w*w'))<3e-9+load_precision
             end
             @test isapprox(current["eigenvalues"],base["eigenvalues"];rtol=1e-6,atol=0.)
-            @test isapprox(current["u_static"]./d,base["u_static"];rtol=3e-9,atol=0.)
+            # The static response follows the single-precision FORCE magnitudes too.
+            @test isapprox(current["u_static"]./d,base["u_static"];rtol=2e-7,atol=0.)
         end
     end
 end

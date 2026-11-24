@@ -1,16 +1,21 @@
 # Engine inertia is kept separate from the wing's distributed structural mass.
 # The engine has an explicitly editable elastic beam and a separate CG mass.
+# Rib number 0 means "the rib in line with the engine": the interior physical rib whose
+# attachment point is nearest the engine's BASIC Y, the engine axis lying along BASIC X.
+const ENGINE_RIB_AUTOMATIC=0
 const ENGINE_DEFAULTS=Dict{String,Any}("name"=>"Engine 1","enabled"=>true,
     "x"=>0.,"y"=>1.,"z"=>-1.,"mass"=>1000.,"length"=>3.,
-    "front_rib"=>2,"aft_rib"=>2,"aft_xc"=>.55,
+    "front_rib"=>ENGINE_RIB_AUTOMATIC,"aft_rib"=>ENGINE_RIB_AUTOMATIC,"aft_xc"=>.55,
     "E"=>70e9,"G"=>26e9,"A"=>.01,"I1"=>1e-4,"I2"=>1e-4,"J"=>2e-4)
-const ENGINE_MODEL_NOTE="Two elastic CBAR halves lie along BASIC X, centered at the entered CG, with editable E, G, A, I1, I2 and J. Example stiffness values must be replaced with engine data. The beam material has zero density and NSM: a single CONM2 carries the complete mass at the CG, with uniform slender-line inertia Iy=Iz=mL^2/12 and Ix=0. The CG is the front RBE3 reference, using the upper front-spar cap nodes at the physical ribs immediately inboard and outboard of the selected front rib. The aft beam end is the aft RBE3 reference, using the equivalent lower cap nodes at the adjacent physical ribs about its selected rib plus the nearest existing lower-rib node to the requested x/c. A collinear or nearly collinear patch also uses one cap-direction rotation to preserve every rigid motion and transfer moments. No intermediate mount nodes or RBE2 arms are added. The forward half remains an elastic overhang; pylon flexibility and distributed engine deformation inertia are not inferred from mass or length."
+const ENGINE_MODEL_NOTE="Two elastic CBAR halves lie along BASIC X, centered at the entered CG, with editable E, G, A, I1, I2 and J. Example stiffness values must be replaced with engine data. The beam material has zero density and NSM: a single CONM2 carries the complete mass at the CG, with uniform slender-line inertia Iy=Iz=mL^2/12 and Ix=0. The CG is the front RBE3 reference, using the upper front-spar cap nodes at the physical ribs immediately inboard and outboard of the selected front rib. An attachment rib left at 0 (automatic, the default) is the interior physical rib in line with the engine: the one whose front-spar cap point is nearest the engine's BASIC Y, the engine axis lying along BASIC X. The aft beam end is the aft RBE3 reference, using the equivalent lower cap nodes at the adjacent physical ribs about its selected rib plus the nearest existing lower-rib node to the requested x/c. A collinear or nearly collinear patch also uses one cap-direction rotation to preserve every rigid motion and transfer moments. No intermediate mount nodes or RBE2 arms are added. The forward half remains an elastic overhang; pylon flexibility and distributed engine deformation inertia are not inferred from mass or length."
 
 function normalize_engines(value)
     value isa AbstractVector&&length(value)<=100||throw(ArgumentError("engines.items must be a table of at most 100 engines"))
     result=Dict{String,Any}[];names=Set{String}()
     for raw in value
-        raw isa AbstractDict&&all(k->k in keys(ENGINE_DEFAULTS),keys(raw))||throw(ArgumentError("Engine definition contains unknown fields"))
+        raw isa AbstractDict||throw(ArgumentError("Each engine must be a set of named fields"))
+        unknown=sort!([String(k) for k in keys(raw) if !(k in keys(ENGINE_DEFAULTS))])
+        isempty(unknown)||throw(ArgumentError("Engine definition contains unknown fields: "*join(unknown,", ")*". An engine has only: "*join(sort!(collect(keys(ENGINE_DEFAULTS));by=lowercase),", ")*". Thrust is not an engine field: it is entered for each load case"))
         row=merge(ENGINE_DEFAULTS,raw);name=row["name"]
         name isa AbstractString&&!isempty(strip(name))&&length(name)<=80||throw(ArgumentError("Each engine needs a name of 1 to 80 characters"))
         name=strip(name);name in names&&throw(ArgumentError("Engine name $name is repeated"));push!(names,name);row["name"]=name
@@ -20,7 +25,7 @@ function normalize_engines(value)
         end
         for key in ("mass","length","E","G","A","I1","I2","J");row[key]>0||throw(ArgumentError("$name: $key must be positive"));end
         0<=row["aft_xc"]<=1||throw(ArgumentError("$name: aft attachment x/c must be between 0 and 1"))
-        for key in ("front_rib","aft_rib");row[key]=material_integer(row[key],"$name $key");end
+        for key in ("front_rib","aft_rib");row[key]=material_integer(row[key],"$name $key";minimum=ENGINE_RIB_AUTOMATIC);end
         push!(result,row)
     end
     result
@@ -61,7 +66,11 @@ function validate_engine_structure(p)
     isempty(rows)&&return nothing
     _,ribs,_=span_stations(make_wing(p),p)
     for r in rows,key in ("front_rib","aft_rib")
-        r[key]<=length(ribs)||throw(ArgumentError("$(r["name"]): $key R$(r[key]) does not exist; the wing has $(length(ribs)) physical ribs"))
+        if r[key]==ENGINE_RIB_AUTOMATIC
+            length(ribs)>=3||throw(ArgumentError("$(r["name"]): an engine attachment needs an interior physical rib with one rib on each side; the wing has $(length(ribs)) physical ribs. Reduce the rib pitch."))
+        else
+            r[key]<=length(ribs)||throw(ArgumentError("$(r["name"]): $key R$(r[key]) does not exist; the wing has $(length(ribs)) physical ribs"))
+        end
     end
     nothing
 end
@@ -101,6 +110,33 @@ function engine_patch_rotation(reg,nodes,label)
     rotation,spread
 end
 
+"""
+The interior physical rib in line with the engine, for an attachment rib left automatic.
+
+The engine axis lies along BASIC X, so the rib in line with it is the one whose attachment
+point (the front-spar cap on the surface of this mount) has the BASIC Y nearest the engine's.
+The first and last ribs are excluded because a mount uses the ribs on each side of its own.
+Two equally near ribs give the inboard one.
+"""
+function engine_automatic_rib(g,row,upper)
+    count=length(g.ribs)
+    count>=3||throw(ArgumentError("$(row["name"]): an engine attachment needs an interior physical rib with one rib on each side; the wing has $count physical ribs. Reduce the rib pitch."))
+    k=upper ? g.nh : 0
+    distance(ri)=abs(grid_point(g,0,g.ribs[ri],k)[2]-row["y"])
+    best=2
+    for ri in 3:count-1
+        distance(ri)<distance(best)&&(best=ri)
+    end
+    best
+end
+
+"""Replace an automatic attachment rib by its number in this FEM; report whether it was automatic."""
+function engine_resolve_rib!(g,row,kind,upper)
+    automatic=row[kind*"_rib"]==ENGINE_RIB_AUTOMATIC
+    automatic&&(row[kind*"_rib"]=engine_automatic_rib(g,row,upper))
+    automatic
+end
+
 """Cap intersections at the immediately adjacent physical ribs, never FE rows."""
 function engine_cap_nodes(reg,g,row,kind,upper)
     ri=row[kind*"_rib"];side=upper ? "upper" : "lower"
@@ -121,13 +157,15 @@ function engine_mount_interpolation!(mount,reg,row)
     rotation>0&&push!(groups,Dict{String,Any}("weight"=>1.,"components"=>rotation,"nodes"=>copy(mount["cap_nodes"])))
     mount["components"]=123;mount["rotation_component"]=rotation
     mount["transverse_spread_ratio"]=spread;mount["weight_groups"]=groups
+    get(mount,"rib_automatic",false)&&(mount["patch_note"]="R$(mount["rib"]) chosen automatically as the rib in line with the engine (nearest its BASIC Y). "*mount["patch_note"])
     mount["patch_note"]*=rotation>0 ? "; translations plus BASIC rotation $(rotation-3) on the two adjacent-rib cap nodes to resolve a collinear/near-collinear cap line" : "; translations only"
     mount
 end
 
 function engine_front_mount!(reg,g,row)
+    automatic=engine_resolve_rib!(g,row,"front",true)
     ri=row["front_rib"];j=g.ribs[ri];nodes,rows=engine_cap_nodes(reg,g,row,"front",true)
-    mount=Dict{String,Any}("kind"=>"front","rib"=>ri,"eta"=>g.etas[j+1],
+    mount=Dict{String,Any}("kind"=>"front","rib"=>ri,"rib_automatic"=>automatic,"eta"=>g.etas[j+1],
         "xc"=>g.upper_xcs[1,j+1],"actual_xc"=>g.upper_xcs[1,j+1],
         "position_m"=>collect(grid_point(g,0,j,g.nh)),"nodes"=>nodes,"cap_nodes"=>copy(nodes),
         "cap_span_indices"=>rows,"cap_ribs"=>[ri-1,ri+1],"inboard_cap_nodes"=>nodes[1:1],"outboard_cap_nodes"=>nodes[2:2],
@@ -136,6 +174,7 @@ function engine_front_mount!(reg,g,row)
 end
 
 function engine_aft_mount!(reg,g,row)
+    automatic=engine_resolve_rib!(g,row,"aft",false)
     ri=row["aft_rib"];j=g.ribs[ri];xc=row["aft_xc"];cap_nodes,rows=engine_cap_nodes(reg,g,row,"aft",false)
     # Use an existing lower-skin node on the physical rib. Duplicate logical
     # stringer columns at a runout map to the same cap node; deduplicate them.
@@ -149,7 +188,7 @@ function engine_aft_mount!(reg,g,row)
     isempty(candidates)&&throw(ArgumentError("$(row["name"]): aft attachment R$ri has no existing lower-surface rib nodes"))
     chosen=candidates[argmin([abs(c[3]-xc) for c in candidates])]
     node,column,actual_xc=chosen;nodes=unique(vcat(cap_nodes,node))
-    mount=Dict{String,Any}("kind"=>"aft","rib"=>ri,"eta"=>g.etas[j+1],"xc"=>xc,"actual_xc"=>actual_xc,
+    mount=Dict{String,Any}("kind"=>"aft","rib"=>ri,"rib_automatic"=>automatic,"eta"=>g.etas[j+1],"xc"=>xc,"actual_xc"=>actual_xc,
         "position_m"=>reg.xyz[3node-2:3node],"nodes"=>nodes,"cap_nodes"=>copy(cap_nodes),
         "cap_span_indices"=>rows,"cap_ribs"=>[ri-1,ri+1],"inboard_cap_nodes"=>cap_nodes[1:1],"outboard_cap_nodes"=>cap_nodes[2:2],
         "rib_node"=>node,"rib_column"=>column,

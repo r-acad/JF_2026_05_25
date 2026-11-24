@@ -1,13 +1,32 @@
 # extract_loads.jl — FORCE, MOMENT, PLOAD4, PLOAD2, PLOAD1, GRAV, LOAD combos
 
+"""
+Single-precision value of a FORCE/MOMENT magnitude or direction component.
+
+The input format stores these real fields in single precision. Usually that is
+invisible, but a load direction typed with seven digits is not exactly in the
+plane of a rotated flat panel: its out-of-plane part is a cancellation residue
+of order 1e-8, and it drives the (very flexible) bending response. Rounding the
+components as the reference does reproduces that residue. Verified on
+reference results: two out-of-plane response ratios, 1.32895 and 1.06896,
+equal (double residue)/(single residue) to all printed digits.
+Grid coordinates are not rounded; the references use them in double precision.
+"""
+function load_single_precision(x)
+    x isa Real || return x
+    value = Float64(x)
+    (isfinite(value) && abs(value) <= floatmax(Float32)) || return value
+    return Float64(Float32(value))
+end
+
 function extract_loads(cards)
     f = []
     for c in cards
         sid = to_id(parse_reference_number(safe_get(c, 3)))
         gid = to_id(parse_reference_number(safe_get(c, 4)))
         cid = to_id(parse_reference_number(safe_get(c, 5), 0))
-        mag = parse_reference_number(safe_get(c, 6), 0.0)
-        dir = [parse_reference_number(safe_get(c, 7),0.0), parse_reference_number(safe_get(c, 8),0.0), parse_reference_number(safe_get(c, 9),0.0)]
+        mag = load_single_precision(parse_reference_number(safe_get(c, 6), 0.0))
+        dir = [load_single_precision(parse_reference_number(safe_get(c, k), 0.0)) for k in 7:9]
         record=Dict{String,Any}("TYPE"=>"FORCE", "SID"=>sid, "GID"=>gid, "CID"=>cid, "Mag"=>mag, "Dir"=>dir)
         follower=uppercase(strip(string(safe_get(c,10,""))))
         follower in ("","ROT") || throw(ArgumentError("FORCE follower flag must be blank or ROT"))
@@ -46,8 +65,8 @@ function extract_moments(cards)
         sid = to_id(parse_reference_number(safe_get(c, 3)))
         gid = to_id(parse_reference_number(safe_get(c, 4)))
         cid = to_id(parse_reference_number(safe_get(c, 5), 0))
-        mag = parse_reference_number(safe_get(c, 6), 0.0)
-        dir = [parse_reference_number(safe_get(c, 7),0.0), parse_reference_number(safe_get(c, 8),0.0), parse_reference_number(safe_get(c, 9),0.0)]
+        mag = load_single_precision(parse_reference_number(safe_get(c, 6), 0.0))
+        dir = [load_single_precision(parse_reference_number(safe_get(c, k), 0.0)) for k in 7:9]
         push!(m, Dict("TYPE"=>"MOMENT", "SID"=>sid, "GID"=>gid, "CID"=>cid, "Mag"=>mag, "Dir"=>dir))
     end
     return m
@@ -60,11 +79,15 @@ function extract_pload4(cards)
         eid = to_id(parse_reference_number(safe_get(c, 4)))
         press = parse_reference_number(safe_get(c, 5), 0.0)
         # P1..P4 occupy c[5:8]; G1/THRU and G3/EID2 follow at c[9:10].
-        # The current load integrator supports uniform pressure only.
+        # Corner values that differ are kept; the load integrator accepts them
+        # on CQUAD8 and CTRIA6 and rejects them elsewhere when selected.
+        corner = Float64[press]
         for k in 6:8
             pk = parse_reference_number(safe_get(c, k), press)
-            pk == press || throw(ArgumentError("PLOAD4 SID=$sid EID=$eid: nonuniform P1-P4 pressure is not supported"))
+            pk isa Real && isfinite(pk) || throw(ArgumentError("PLOAD4 SID=$sid EID=$eid: corner pressures must be finite numeric data"))
+            push!(corner, Float64(pk))
         end
+        nonuniform = any(!=(Float64(press)), corner)
         thru = uppercase(strip(string(safe_get(c, 9, "")))) == "THRU"
         eid2 = thru ? to_id(parse_reference_number(safe_get(c, 10), 0)) : 0
         thru && eid2 < eid && throw(ArgumentError("PLOAD4 SID=$sid: THRU end $eid2 precedes EID $eid"))
@@ -95,6 +118,7 @@ function extract_pload4(cards)
         eids = thru && eid2 > eid ? collect(eid:eid2) : [eid]
         for e in eids
             d = Dict{String,Any}("TYPE"=>"PLOAD4", "SID"=>sid, "EID"=>e, "P"=>press)
+            nonuniform && (d["PCORNER"] = copy(corner))
             if g1 > 0; d["G1"] = g1; end
             if g3 > 0; d["G3"] = g3; end
             d["CID"] = cid
@@ -330,6 +354,44 @@ function extract_temp(cards)
         end
     end
     return temps
+end
+
+"""
+TEMPP1 records as SID => EID => (mean temperature, through-thickness gradient).
+The element list after the first element accepts `THRU` ranges.
+"""
+function extract_tempp1(cards)
+    fields = Dict{Int,Dict{Int,Tuple{Float64,Float64}}}()
+    for c in cards
+        sid = to_id(parse_reference_number(safe_get(c, 3)))
+        eid = to_id(parse_reference_number(safe_get(c, 4), 0))
+        (sid > 0 && eid > 0) || throw(ArgumentError("TEMPP1 requires a positive set and element identification"))
+        tbar = parse_reference_number(safe_get(c, 5), 0.0)
+        tprime = parse_reference_number(safe_get(c, 6), 0.0)
+        (tbar isa Real && isfinite(tbar) && tprime isa Real && isfinite(tprime)) ||
+            throw(ArgumentError("TEMPP1 SID=$sid EID=$eid requires finite TBAR and TPRIME"))
+        elements = Int[eid]
+        k = 9; last = eid
+        while k <= length(c)
+            raw = strip(string(something(safe_get(c, k), "")))
+            if isempty(raw) || (first(raw) in ('+', '*') && parse_reference_number(raw, nothing) === nothing)
+                k += 1; continue
+            end
+            if uppercase(raw) == "THRU"
+                upper = to_id(parse_reference_number(safe_get(c, k + 1), 0))
+                upper >= last || throw(ArgumentError("TEMPP1 SID=$sid: THRU end $upper precedes $last"))
+                append!(elements, last+1:upper); last = upper; k += 2; continue
+            end
+            value = parse_reference_number(raw, nothing)
+            value isa Real && value > 0 || throw(ArgumentError("TEMPP1 SID=$sid: invalid element identification $raw"))
+            last = to_id(value); push!(elements, last); k += 1
+        end
+        set = get!(fields, sid, Dict{Int,Tuple{Float64,Float64}}())
+        for e in elements
+            set[e] = (Float64(tbar), Float64(tprime))
+        end
+    end
+    return fields
 end
 
 function extract_tempd(cards)

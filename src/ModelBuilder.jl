@@ -671,6 +671,9 @@ function build_model(cards, cc)
     merge!(merged_bars, pbeams)
     pbeamls = haskey(cards,"PBEAML") ? ReferenceParser.extract_pbeaml(cards["PBEAML"];twbrbml) : Dict()
     merge!(merged_bars, pbeamls)
+    # General bar sections: outline perimeters converted by the finite-element section solution
+    pbrsects = haskey(cards,"PBRSECT") ? ReferenceParser.extract_pbrsect(cards["PBRSECT"], get(cards,"POINT",Any[]), get(cards,"SET1",Any[])) : Dict()
+    merge!(merged_bars, pbrsects)
 
     # Parse PLOAD2 and merge with PLOAD4
     pload4s = haskey(cards,"PLOAD4") ? ReferenceParser.extract_pload4(cards["PLOAD4"]) : []
@@ -946,6 +949,7 @@ function build_model(cards, cc)
         "EIGBs"       => haskey(cards,"EIGB")   ? ReferenceParser.extract_eigb(cards["EIGB"]) : Dict(),
         "TEMPs"       => haskey(cards,"TEMP")   ? ReferenceParser.extract_temp(cards["TEMP"]) : Dict{Int,Dict{Int,Float64}}(),
         "TEMPDs"      => haskey(cards,"TEMPD")  ? ReferenceParser.extract_tempd(cards["TEMPD"]) : Dict{Int,Float64}(),
+        "TEMPP1s"     => haskey(cards,"TEMPP1") ? ReferenceParser.extract_tempp1(cards["TEMPP1"]) : Dict{Int,Dict{Int,Tuple{Float64,Float64}}}(),
         "DMIGs"       => haskey(cards,"DMIG")   ? ReferenceParser.extract_dmig(cards["DMIG"]) : Dict{String,Dict{String,Any}}(),
         "DESVARs"     => haskey(cards,"DESVAR") ? ReferenceParser.extract_desvar(cards["DESVAR"]) : Dict(),
         "DRESP1s"     => haskey(cards,"DRESP1") ? ReferenceParser.extract_dresp1(cards["DRESP1"]) : Dict(),

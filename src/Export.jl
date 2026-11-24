@@ -3613,7 +3613,7 @@ function export_card_inventory(cards, output_dir, filename)
         "SPC1", "SPC", "SPCADD", "MPC", "MPCADD", "LOAD",
         "CONM2", "CONM1", "CMASS1", "CMASS2", "PMASS",
         "EIGRL", "EIGB", "NLPARM",
-        "TEMP", "TEMPD", "DMIG",
+        "TEMP", "TEMPD", "TEMPP1", "DMIG", "PBRSECT", "POINT",
         "PARAM"
     ])
     card_counts = Dict{String,Int}()

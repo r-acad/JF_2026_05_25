@@ -142,6 +142,141 @@ function _eigb_interval_count(K, Kg, lower::Float64, upper::Float64)
     return counts[1]
 end
 
+"""
+SOL105 `EIGRL V1=0., V2 blank, ND`: positive factors plus the load-reversal window.
+
+The reference solver does not treat a lone zero lower bound as a hard positive
+filter. Its buckling Lanczos cannot shift at zero, so its first shift is
+`sigma_1 = -0.9*lambda_tilde` for an eigenvalue estimate `lambda_tilde`, and
+every root it converges between `sigma_1` and zero is reported together with
+the ND lowest positive factors. Across the 1,187 native shift tables studied
+(2026-11-19) the reported negative factors are exactly the pencil's negative
+roots inside `(sigma_1, 0)`.
+
+`lambda_tilde` depends on the native starting vector and is not reproducible.
+JFEM therefore uses the smallest deterministic window that contains every
+native one observed:
+
+  * the positive branch returned ND factors: `B = 0.9 * lowest positive factor`
+    (the native estimate is then the first factor);
+  * the positive branch is exhausted before ND: `B = 0.9 * largest positive
+    factor` (the native search keeps shifting across the whole finite spectrum).
+
+Negative factors in `(-B, 0)` are counted by inertia first, so an empty window
+costs one factorization and no eigen-solve. Output is ordered by magnitude,
+as in the native listing; the negative factors are additional to ND.
+"""
+function _solve_buckling_zero_lower_window(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes;
+                                           rbe3_map, max_elem_stiff, orig_diag, eigen_cache,
+                                           buckling_subcase, static_subcase, sol105_options,
+                                           return_diagnostics)
+    common = (rbe3_map=rbe3_map, max_elem_stiff=max_elem_stiff, orig_diag=orig_diag,
+        eigen_cache=eigen_cache, buckling_subcase=buckling_subcase, static_subcase=static_subcase,
+        sol105_options=sol105_options, zero_lower_window=false, return_diagnostics=true)
+    values, modes, diag = solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes;
+        eigrl_v1=0.0, eigrl_v1_specified=true, eigrl_v2_specified=false, eigrl_nd_specified=true, common...)
+    window = Dict{String,Any}("rule" => "EIGRL V1=0, V2 blank: negative factors in (-B, 0)", "status" => "not_evaluated")
+    diag["zero_lower_window"] = window
+    finish() = return_diagnostics ? (values, modes, diag) : (values, modes)
+    positive = filter(>(0.0), values)
+    if isempty(positive)
+        window["status"] = "no_positive_factor"
+        return finish()
+    end
+    ctx, _ = prepare_eigen_solve_context(K, ndof, model, id_map, spc_id, rbe3_map; eigen_cache=eigen_cache)
+    nfree_window = length(ctx.free_dofs)
+    # Largest factor that is a finite number for the reference. Beyond
+    # 2^23*max|K|/max|Kg| the geometric stiffness in that direction is below one
+    # single-precision unit of the elastic stiffness, and the factor is round-off
+    # (on the reference results every factor up to 0.28 of this ceiling
+    # agrees to 1e-5, every factor above 50 times it does not).
+    finite_ceiling = let kmax = maximum(abs, nonzeros(K); init=0.0), gmax = maximum(abs, nonzeros(Kg); init=0.0)
+        gmax > 0 ? 2.0^23 * kmax / gmax : Inf
+    end
+    window["finite_factor_ceiling"] = finite_ceiling
+    if any(>(finite_ceiling), positive)
+        keep_finite = [i for i in eachindex(values) if abs(values[i]) <= finite_ceiling]
+        window["factors_above_ceiling"] = length(values) - length(keep_finite)
+        values = values[keep_finite]; modes = modes[:, keep_finite]
+        positive = filter(>(0.0), values)
+        diag["raw_eigenvalues"] = copy(values)
+        diag["filter_decisions"] = fill(:kept, length(values))
+        diag["returned_modes"] = length(values)
+        if isempty(positive)
+            window["status"] = "no_positive_factor"
+            return finish()
+        end
+    end
+    exhausted = length(positive) < num_modes
+    if exhausted && num_modes < nfree_window <= _buckling_dense_max_dof()
+        # The partial solver stopped short of ND on a small model. The native
+        # search keeps shifting across the whole finite spectrum, so complete
+        # the positive branch from the dense pencil. Roots whose 1/lambda is
+        # below the resolution of the pencil (8 n eps of the largest 1/|lambda|)
+        # are round-off of a singular Kg direction, not finite factors.
+        dense_values, dense_modes, dense_diag = solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, nfree_window;
+            eigrl_v1=0.0, eigrl_v1_specified=true, eigrl_v2_specified=false, eigrl_nd_specified=true,
+            dense_residual_scaling=true, common...)
+        resolution = 8 * nfree_window * eps(Float64)
+        dense_positive = filter(>(0.0), dense_values)
+        if !isempty(dense_positive)
+            ceiling = min(minimum(dense_positive) / resolution, finite_ceiling)
+            keep_dense = [i for i in eachindex(dense_values) if 0.0 < dense_values[i] <= ceiling]
+            if length(keep_dense) > length(positive)
+                window["dense_completion"] = Dict{String,Any}("partial_count" => length(positive),
+                    "dense_count" => length(keep_dense), "resolution" => resolution)
+                values = dense_values[keep_dense]; modes = dense_modes[:, keep_dense]
+                diag = dense_diag; diag["zero_lower_window"] = window
+                positive = copy(values)
+                diag["raw_eigenvalues"] = copy(values)
+                diag["filter_decisions"] = fill(:kept, length(values))
+                diag["returned_modes"] = length(values)
+            end
+        end
+    end
+    bound = 0.9 * (exhausted ? maximum(positive) : minimum(positive))
+    window["positive_branch_exhausted"] = exhausted
+    window["magnitude_bound"] = bound
+    available = try
+        ensure_eigen_solve_factorization!(ctx)
+        ctx.factor_backend == "cholesky" || error("constrained K is not positive definite")
+        Kgff = Kg[ctx.free_dofs, ctx.free_dofs]
+        _eigb_interval_count(ctx.K_ff, -0.5 * (Kgff + Kgff'), 0.0, bound)
+    catch err
+        err isa InterruptException && rethrow()
+        window["status"] = "count_unavailable"
+        window["reason"] = sprint(showerror, err)
+        log_msg("[BUCKLING] Load-reversal window (-$(bound), 0) not evaluated: $(window["reason"])")
+        return finish()
+    end
+    window["interval_count"] = available
+    if available == 0
+        window["status"] = "empty"
+        return finish()
+    end
+    nfree = length(ctx.free_dofs)
+    nev = nfree <= _buckling_dense_max_dof() ? nfree : available
+    pad = 128 * eps(Float64) * bound
+    negative, negative_modes, negative_diag = solve_buckling(K, -Kg, ndof, model, id_map, X, spc_id, node_R, nev;
+        eigrl_v1=0.0, eigrl_v2=bound + pad, eigrl_v1_specified=true, eigrl_v2_specified=true,
+        eigrl_nd_specified=true, common...)
+    keep = sortperm(negative)[1:min(available, length(negative))]
+    window["returned_count"] = length(keep)
+    window["status"] = length(keep) == available ? "complete" : "shortage"
+    window["solver"] = negative_diag
+    length(keep) == available || log_msg(
+        "[BUCKLING] WARNING: load-reversal window recovered $(length(keep)) of $available negative factors")
+    log_msg("[BUCKLING] EIGRL V1=0: $(length(keep)) load-reversal factor(s) in (-$(bound), 0) reported with the positive branch")
+    values = vcat(values, -negative[keep])
+    modes = hcat(modes, negative_modes[:, keep])
+    order = sortperm(abs.(values))
+    values = values[order]; modes = modes[:, order]
+    diag["raw_eigenvalues"] = copy(values)
+    diag["filter_decisions"] = fill(:kept, length(values))
+    diag["returned_modes"] = length(values)
+    return finish()
+end
+
 function _solve_eigb_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, request;
                              rbe3_map, max_elem_stiff, orig_diag, eigen_cache,
                              buckling_subcase, static_subcase, sol105_options,

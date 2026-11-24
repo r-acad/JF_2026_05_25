@@ -45,7 +45,9 @@
     function text(node){
       if(!node)return '';
       const copy=node.cloneNode(true);
-      for(const item of copy.querySelectorAll('input,select,textarea,button,script,style,.help-icon,.help-button,.field-tooltip,[role="tooltip"]'))item.remove();
+      // A unit badge inside a label is reported separately as the input's unit. The
+      // help text that form_help.js places beside a control is its description, not its name.
+      for(const item of copy.querySelectorAll('input,select,textarea,button,script,style,.help-icon,.help-button,.field-tooltip,[role="tooltip"],.unit,.boxer-form-help-description'))item.remove();
       return clean(copy.textContent,180);
     }
     function label(node){
@@ -275,7 +277,10 @@
       if(command==='list_actions'||command==='list_inputs')return{ok:true,...search(command==='list_actions'?actions:inputs,args.query,args.limit,args.offset)};
       if(command==='get_parameters'){
         if(!options.getParameters)throw Error('The current Study parameters are unavailable.');
-        return{ok:true,parameters:safe(options.getParameters())};
+        // “keys” narrows the answer: full keys, or groups such as "loads" for every key that starts with loads.
+        const all=options.getParameters(),wanted=(Array.isArray(args.keys)?args.keys:typeof args.keys==='string'?args.keys.split(/[\s,;]+/):[]).map(key=>String(key).replace(/[*.]+$/,'')).filter(Boolean).slice(0,100);
+        const chosen=wanted.length?Object.fromEntries(Object.entries(all).filter(([key])=>wanted.some(item=>key===item||key.startsWith(item+'.')))):all;
+        return{ok:true,parameters:safe(chosen),...(wanted.length?{requested_keys:wanted}:{})};
       }
       const expectedEpoch=request.expected_study_epoch??args.expected_study_epoch,expectedStudyRevision=request.expected_study_revision??args.expected_study_revision;
       if(expectedEpoch!==undefined||expectedStudyRevision!==undefined){
@@ -287,6 +292,7 @@
       if(expected!==undefined&&String(expected)!==String(getState().revision))throw Error('The Study changed after this request was prepared. Read get_state and the current catalog before retrying.');
       if(command==='invoke_action'||command==='execute_action')return invoke(String(args.action_id||args.id||''),plain(args.arguments)?args.arguments:args);
       if(command==='set_input'){
+        options.guardInput?.(String(args.input_id||args.id||''),args.value);     // the application may refuse a value before it reaches the form
         const result=applyInput(prepareInput(String(args.input_id||args.id||''),args.value));
         scheduleScan();return{ok:true,status:'updated',...result,message:'Updated using Boxer’s input handlers and displayed units. Analysis results may now need recalculation.'};
       }

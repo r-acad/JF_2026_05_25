@@ -7,7 +7,10 @@
   const KEY = 'engines.items';
   const defaults = { name: 'Engine 1', enabled: true, x: 0, y: 1, z: -1,
     mass: 1000, length: 3, E: 70e9, G: 26e9, A: 0.01, I1: 1e-4, I2: 1e-4, J: 2e-4,
-    front_rib: 2, aft_rib: 2, aft_xc: 0.55 };
+    front_rib: 0, aft_rib: 0, aft_xc: 0.55 };
+  // Rib number 0 is automatic: Boxer attaches to the interior rib in line with the engine,
+  // the one nearest the engine's BASIC Y (the engine axis lies along BASIC X).
+  const AUTOMATIC = 0;
   const HELP = [
     'The engine is a flexible beam aligned with BASIC X, the line-of-flight direction, with two CBAR elements meeting at the centre of gravity. Its midpoint and centre of gravity share the entered BASIC X, Y and Z coordinates in metres. The endpoints are X minus half the length and X plus half the length. These coordinates are independent of the wing planform; they do not move automatically when the wing changes. A newly added engine starts with example values; replace its location, mass, length and stiffness data with the actual installation data.',
     'The engine mass is concentrated once at the centre of gravity. The two elastic beam elements are massless. The CG inertia uses a uniform slender-line estimate: Iyy = Izz = mass times length squared / 12 and Ixx = 0. This inertia estimate does not distribute the mass over the beam elements and does not represent axial spin inertia. Engine mass is independent of the elastic beam area and material density.',
@@ -15,6 +18,7 @@
     'The front RBE3 joins the beam midpoint / CG directly to the upper front-spar-cap nodes at the physical ribs immediately inboard and outboard of the selected front rib: two nodes, excluding intermediate mesh nodes and the node on the selected rib. The aft RBE3 joins the aft beam end directly to the corresponding two lower front-spar-cap nodes at the adjacent physical ribs around the selected aft rib, plus the existing lower-surface node on that rib nearest the requested x/c. Both attachments may use the same rib. There are no intermediate rigid mounting arms.',
     'Aft x/c is measured from the leading edge as a fraction of the complete local aerodynamic chord. The point snaps to an existing lower-rib node; a target outside the structural box selects its nearest boundary node. Inspect the aft RBE3 to see requested and actual x/c. Refine the rib mesh if a closer point is needed. Each selected rib needs a physical rib on both sides; choose an interior rib if generation reports insufficient support ribs. Spanwise mesh refinement does not change the selected attachment nodes.',
     'RBE3 interpolation transfers forces and moments without making the wing patch rigid. Cap-node translations are used; a collinear or nearly collinear patch also uses the cap rotation needed to recover rotation about that line. This avoids a singular attachment without adding wing nodes elsewhere. No separate elastic pylon-shell structure is defined.',
+    'An attachment rib left on Automatic, the setting of every new engine, is the rib in line with the engine: the interior physical rib nearest the engine\'s BASIC Y, the engine lying along the line of flight. It follows the engine when its Y position or the rib layout changes; after Create FEM the list names the rib in use. Select a numbered rib to attach elsewhere.',
     'Rib choices follow the numbered physical ribs in the wing. Before a numbered rib list is available, enter the attachment rib number directly. Create FEM verifies the selected numbers against the new layout; existing engine definitions are preserved for review. Selecting a different rib changes its attachment location, while the engine centre stays at its entered coordinates.',
     'Enabled engines contribute mass and inertia to the FE model. Their inertial loads use each load case\'s acceleration when structural inertia is enabled. Disable an engine to omit it from the FEM without deleting its definition. Engine definitions are saved with the Study. Create FEM and rerun the analysis after making changes.'
   ];
@@ -38,7 +42,7 @@
         if (!(row[key] > 0)) throw Error(row.name + ': beam ' + key + ' must be positive.');
       if (row.aft_xc < 0 || row.aft_xc > 1) throw Error(row.name + ': aft attachment x/c must be between 0 and 1.');
       for (const key of ['front_rib', 'aft_rib'])
-        if (!Number.isInteger(row[key]) || row[key] < 1) throw Error(row.name + ': select a positive, whole attachment rib number.');
+        if (!Number.isInteger(row[key]) || row[key] < AUTOMATIC) throw Error(row.name + ': select an attachment rib number, or 0 for the rib in line with the engine.');
       return row;
     });
   }
@@ -51,7 +55,7 @@
     });
   }
 
-  function install(host, { onEdit = () => {}, onHelp, readRibs = () => [], isLocked = () => false, createFEM, onRename = () => {}, onRemove = () => {} } = {}) {
+  function install(host, { onEdit = () => {}, onHelp, readRibs = () => [], readModel = () => null, isLocked = () => false, createFEM, onRename = () => {}, onRemove = () => {} } = {}) {
     const doc = host.ownerDocument, stored = doc.getElementById('p-' + KEY);
     if (!stored) return null;
     const heading = host.querySelector('.parameter-heading h2');
@@ -110,7 +114,7 @@
           const normalized = normalize(drafts()), available = new Set(ribs().map(rib => rib.index));
           if (available.size) for (const row of normalized.filter(row => row.enabled))
             for (const key of ['front_rib', 'aft_rib'])
-              if (!available.has(row[key])) throw Error(row.name + ': selected ' + (key === 'front_rib' ? 'front' : 'aft') + ' attachment R' + row[key] + ' is not in the current FEM. Select an available rib.');
+              if (row[key] !== AUTOMATIC && !available.has(row[key])) throw Error(row.name + ': selected ' + (key === 'front_rib' ? 'front' : 'aft') + ' attachment R' + row[key] + ' is not in the current FEM. Select an available rib.');
         }
       } catch (exception) { message = exception.message; }
       host.dataset.invalidMessage = message; error.textContent = message; error.hidden = !message;
@@ -128,7 +132,7 @@
         input.value = ['E', 'G'].includes(key) ? row.value[key] / 1e9 : row.value[key];
         input.step = key.endsWith('_rib') || key === 'mass' ? '1' : ['A', 'I1', 'I2', 'J'].includes(key) ? 'any' : '.1';
         if (['mass', 'length', 'E', 'G', 'A', 'I1', 'I2', 'J'].includes(key)) input.min = '0.000000000001';
-        if (key.endsWith('_rib')) input.min = '1';
+        if (key.endsWith('_rib')) input.min = String(AUTOMATIC);
         if (key === 'aft_xc') { input.min = '0'; input.max = '1'; }
         wrap.append(input);
       }
@@ -157,6 +161,14 @@
       }
       return input;
     }
+    // The rib that an automatic attachment has in the current FEM, when the model reports it.
+    function automaticRib(row, key) {
+      try {
+        const engine = (readModel()?.engines || []).find(item => item.name === row.committedName);
+        const mount = (engine?.mounts || []).find(item => item.kind === (key === 'front_rib' ? 'front' : 'aft'));
+        return mount?.rib_automatic === true && Number.isInteger(mount.rib) ? mount.rib : null;
+      } catch (_) { return null; }
+    }
     function updateRibChoices(row, catalog) {
       for (const key of ['front_rib', 'aft_rib']) {
         const select = row.selects[key], value = row.inputs[key].value;
@@ -166,7 +178,9 @@
         row.inputs[key].type = catalog.length ? 'hidden' : 'number';
         select.hidden = !catalog.length;
         const options = catalog.map(rib => [String(rib.index), 'R' + rib.index + ' · eta ' + Number(rib.eta.toPrecision(4))]);
-        if (!catalog.some(rib => String(rib.index) === value)) options.unshift([value, 'R' + value + (catalog.length ? ' · unavailable' : ' · awaiting FEM')]);
+        if (value !== String(AUTOMATIC) && !catalog.some(rib => String(rib.index) === value)) options.unshift([value, 'R' + value + (catalog.length ? ' · unavailable' : ' · awaiting FEM')]);
+        const inUse = automaticRib(row, key);
+        options.unshift([String(AUTOMATIC), 'Automatic · rib in line with the engine' + (value === String(AUTOMATIC) && inUse ? ' (R' + inUse + ' in the current FEM)' : '')]);
         const signature = JSON.stringify(options);
         // Ordinary field edits call refresh. Do not rebuild an unchanged
         // native list while the user is choosing a rib with mouse/keyboard.
@@ -208,8 +222,8 @@
         ['J', 'Torsional constant J (m⁴)', 'Saint-Venant torsional constant of the equivalent beam section. Torsional stiffness is G times J, independent of its CG mass inertia.']
       ]) field(stiffnessGrid, row, key, label, tip);
       for (const [key, label, tip] of [
-        ['front_rib', 'Front attachment rib', 'Connect the beam midpoint / CG to the upper front-spar-cap nodes at the immediately adjacent physical ribs inboard and outboard. The nominal rib and intermediate mesh nodes are excluded; choose an interior physical rib.'],
-        ['aft_rib', 'Aft attachment rib', 'Connect the aft beam end to the lower front-spar-cap nodes at the immediately adjacent physical ribs on each side of this rib, plus its lower-surface node nearest the specified aft x/c.']
+        ['front_rib', 'Front attachment rib', 'Automatic (0) uses the rib in line with the engine, nearest its BASIC Y. Connect the beam midpoint / CG to the upper front-spar-cap nodes at the immediately adjacent physical ribs inboard and outboard. The nominal rib and intermediate mesh nodes are excluded; choose an interior physical rib.'],
+        ['aft_rib', 'Aft attachment rib', 'Automatic (0) uses the rib in line with the engine, nearest its BASIC Y. Connect the aft beam end to the lower front-spar-cap nodes at the immediately adjacent physical ribs on each side of this rib, plus its lower-surface node nearest the specified aft x/c.']
       ]) {
         const input = field(attachmentGrid, row, key, label, tip), select = make('select'); input.type = 'hidden';
         select.dataset.engineRib = key; select.setAttribute('aria-label', label); select.title = tip; input.parentElement.append(select); row.selects[key] = select;
@@ -226,7 +240,7 @@
     function updateStatus() {
       const active = drafts().filter(row => row.enabled), count = active.length;
       status.textContent = (count ? count + ' engine' + (count === 1 ? '' : 's') + ' enabled. ' : 'No engines included in the FEM. ') +
-        (ribs().length ? 'Attachment choices use the numbered physical ribs. ' : 'Enter front and aft rib numbers; Create FEM verifies them against the wing layout. ') +
+        (ribs().length ? 'Attachment choices use the numbered physical ribs; Automatic takes the rib in line with the engine. ' : 'Rib 0 is automatic, the rib in line with the engine; or enter front and aft rib numbers, which Create FEM verifies against the wing layout. ') +
         'Create FEM and rerun the analysis after editing.';
     }
     function setCreateAction({hidden=false,disabled=false}={}) {
@@ -246,8 +260,7 @@
       if (isLocked()) return;
       const names = new Set(rows.map(row => row.inputs.name.value.trim())); let index = 1;
       while (names.has('Engine ' + index)) index++;
-      const catalog = ribs(), rib = catalog.find(item => item.index === 2) || catalog[0];
-      selected = append({ ...defaults, name: 'Engine ' + index, front_rib: rib?.index ?? defaults.front_rib, aft_rib: rib?.index ?? defaults.aft_rib });
+      selected = append({ ...defaults, name: 'Engine ' + index });
       sync(); refresh();
     };
     create.onclick = () => {

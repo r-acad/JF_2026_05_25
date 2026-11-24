@@ -39,12 +39,31 @@ function boxer_mcp_tools()
         boxer_mcp_tool("inspect","Inspect an element, node or property using Boxer's inspection behavior and show the corresponding information in the app.",
             merge(mutation,Dict("element_id"=>boxer_mcp_property("integer","Finite element ID."),"node_id"=>boxer_mcp_property("integer","GRID/node ID."),
                 "property_id"=>boxer_mcp_property("integer","Property ID.")));read_only=false),
+        boxer_mcp_tool("get_parameters","Read values of the Study by parameter key: single values and whole tables (load cases, engines, planform points, airfoil sections, materials), in internal SI units. Give keys to narrow the answer: full keys, or a group such as loads for every key that starts with loads. Returns an operation to poll with get_operation.",
+            merge(common,Dict("keys"=>boxer_mcp_property("string","Keys or groups separated by commas, for example: loads, planform.area, output.solution. Empty returns every parameter.")))),
+        boxer_mcp_tool("run_analysis","Start the structural analysis (JFEM) of every enabled load case with the stated solution; the Study's Solution is set to it first. Use 101 for load cases, load factors or g cases, stresses, deflections and reserve factors, and for any run after load cases were generated or changed. Use 103 only for normal modes and 105 for buckling. It starts the job: poll get_operation, then get_state for analysis progress.",
+            merge(mutation,Dict("solution"=>Dict("type"=>"string","enum"=>["101","103","105","106"],"description"=>"101 static, 103 normal modes, 105 buckling, 106 nonlinear static.")));required=["solution"],read_only=false),
+        boxer_mcp_tool("read_view","Read what the current Boxer view shows (a report, summary, table, form or the log) as bounded text and paged tables. Navigate to the view first. Starts no calculation. Returns an operation to poll.",
+            merge(common,Dict("offset"=>Dict("type"=>"integer","minimum"=>0),"limit"=>Dict("type"=>"integer","minimum"=>1,"maximum"=>100)))),
+        boxer_mcp_tool("read_reserve_factors","Read the reserve factors of the cached Stress Report with their assessment and stale/estimate flags. Never calculates them. Returns an operation to poll.",
+            merge(common,Dict("offset"=>Dict("type"=>"integer","minimum"=>0),"limit"=>Dict("type"=>"integer","minimum"=>1,"maximum"=>200),"only_below_one"=>boxer_mcp_property("boolean","List only reserve factors below 1.")))),
+        boxer_mcp_tool("find_airfoils","Search the UIUC airfoil coordinate database (read by the Boxer program) by file name; returns the names that match or come nearest. Use it for every section that is not a NACA 4- or 5-digit code. Changes nothing. Returns an operation to poll.",
+            merge(common,Dict("query"=>boxer_mcp_property("string","Name or a part of it, for example 64a410, naca642415, sc20714, rae2822, b737."),"limit"=>Dict("type"=>"integer","minimum"=>1,"maximum"=>40)));required=["query"]),
+        boxer_mcp_tool("set_airfoil","Set the airfoil of the root, the tip, both, or an intermediate section. Give exactly one of naca, uiuc or coordinates. Never type a designation that is not a NACA 4- or 5-digit code into the airfoil code input. The operation's result gives the measured thickness and camber.",
+            merge(mutation,Dict("section"=>boxer_mcp_property("string","root, tip, both, or the eta of an intermediate section between 0 and 1."),
+                "naca"=>boxer_mcp_property("string","NACA 4- or 5-digit code, for example 2412."),"uiuc"=>boxer_mcp_property("string","File name from find_airfoils, for example sc20714.dat."),
+                "coordinates"=>boxer_mcp_property("string","x z pairs as fractions of the chord, one pair on each line, from the trailing edge over the upper surface to the leading edge and back; at least 12 points on each surface."),
+                "name"=>boxer_mcp_property("string","Name of a profile given by coordinates."),
+                "thickness"=>Dict("description"=>"Optional thickness in percent of the chord. Scales the section and keeps its camber; the other sections keep their thickness.")));required=["section"],read_only=false),
         boxer_mcp_tool("get_operation","Read the queued/delivered/completed/error state and exact result of a previous command. Menu dispatch is distinct from analysis completion; use get_state for analysis progress.",
             Dict("operation_id"=>boxer_mcp_property("string","Operation ID returned by a mutation or complete-catalog search."));required=["operation_id"]),
         boxer_mcp_tool("cancel_operation","Cancel a command that has not been delivered. A delivered action uses its existing Boxer Cancel control to stop an active calculation.",
             Dict("operation_id"=>boxer_mcp_property("string","Queued operation ID."));required=["operation_id"],read_only=false),
     ]
 end
+
+const BOXER_MCP_ACTION_TOOLS=Dict("run_analysis"=>"run_analysis","read_view"=>"read_panel","read_reserve_factors"=>"read_reserve_factors",
+    "find_airfoils"=>"find_airfoils","set_airfoil"=>"set_airfoil")
 
 function boxer_mcp_find_tool(name)
     index=findfirst(tool->tool["name"]==name,boxer_mcp_tools())
@@ -130,6 +149,11 @@ function boxer_mcp_call_tool(st,name::AbstractString,args=Dict{String,Any}())
     name=="get_operation" && return boxer_control_operation(st,String(args["operation_id"]))
     name=="cancel_operation" && return boxer_control_cancel!(st,String(args["operation_id"]))
     payload=Dict{String,Any}(String(key)=>value for (key,value) in args if !(key in ("client_id","request_id","expected_revision")))
+    # Tools that are actions of the application: the same handlers as the chat panel and the menus use.
+    if haskey(BOXER_MCP_ACTION_TOOLS,name)
+        return boxer_control_enqueue!(st,"invoke_action",Dict{String,Any}("action_id"=>BOXER_MCP_ACTION_TOOLS[name],"arguments"=>payload);
+            client_id=String(get(args,"client_id","")),request_id=String(get(args,"request_id","")),expected_revision=get(args,"expected_revision",nothing))
+    end
     name=="inspect" && count(haskey(payload,key) for key in ("element_id","node_id","property_id"))!=1 &&
         throw(BoxerMCPProtocolError(-32602,"Inspect exactly one element_id, node_id or property_id."))
     boxer_control_enqueue!(st,name,payload;client_id=String(get(args,"client_id","")),
@@ -213,7 +237,7 @@ function handle_boxer_mcp(st,req)
             return boxer_mcp_response(id;session_id,result=Dict("protocolVersion"=>protocol,
                 "serverInfo"=>Dict("name"=>"jfem-boxer","title"=>"JFEM-Boxer","version"=>"1.0.0"),
                 "capabilities"=>Dict("tools"=>Dict("listChanged"=>false),"resources"=>Dict("subscribe"=>false,"listChanged"=>false),"prompts"=>Dict("listChanged"=>false)),
-                "instructions"=>"Read list_clients and get_state before acting. Discover existing controls with list_actions/list_inputs. Values in set_input use displayed units; update_parameters uses internal SI units. Mutations return an operation ID: poll get_operation. Dispatched menu actions are not completed analyses. Preserve existing save confirmations and check current progress with get_state. Never invent control IDs or assume an unsaved Study matches the last disk file."))
+                "instructions"=>"Read list_clients and get_state before acting. Discover existing controls with list_actions/list_inputs. Values in set_input use displayed units; update_parameters uses internal SI units. Mutations return an operation ID: poll get_operation. Dispatched menu actions are not completed analyses. Every menu action, view and input is reachable: list_actions also gives the arguments an action takes, get_parameters reads any value or table, read_view reads the report or log that is shown. Start the structural analysis with run_analysis and state the solution: 101 for load cases, load factors, stresses, deflections and reserve factors, and for any run after load cases were generated or changed; 103 only for normal modes; 105 for buckling. Set airfoils with set_airfoil (find_airfoils searches the UIUC database); a designation that is not a NACA 4- or 5-digit code is never typed into the airfoil code input. Preserve existing save confirmations and check current progress with get_state. Never invent control IDs or assume an unsaved Study matches the last disk file."))
         end
         session=lock(BOXER_CONTROL_LOCK) do
             boxer_control_prune!(broker)
@@ -278,7 +302,7 @@ function handle_boxer_mcp(st,req)
         elseif rpc=="prompts/get"
             get(parameters,"name",nothing)=="boxer_workflow" || throw(BoxerMCPProtocolError(-32602,"Unknown Boxer prompt."))
             Dict("description"=>"JFEM-Boxer interactive engineering workflow","messages"=>[Dict("role"=>"user","content"=>Dict("type"=>"text","text"=>
-                "Use JFEM-Boxer to help with the current Study. First list connected clients, select the intended Study and read its state. Discover labels and units before editing. Use existing menu controls, preserve unsaved-change confirmations, poll command results and distinguish dispatched actions from completed analyses. Explain physical assumptions and report numerical values only when returned by the app."))])
+                "Use JFEM-Boxer to help with the current Study. First list connected clients, select the intended Study and read its state. Discover labels and units before editing. Use existing menu controls, preserve unsaved-change confirmations, poll command results and distinguish dispatched actions from completed analyses. To run load cases use run_analysis with solution 101, never the normal modes that a new Study is set to; use 103 only when modes are asked for. Explain physical assumptions and report numerical values only when returned by the app."))])
         else
             throw(BoxerMCPProtocolError(-32601,"Unknown MCP method."))
         end

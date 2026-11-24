@@ -89,6 +89,9 @@ tests=@testset "Elastic engine beam, attachment geometry and native constraints"
     @test_throws ArgumentError W.normalize_engines([Dict("front_rib"=>1.5)])
     @test_throws ArgumentError W.normalize_engines([Dict("x"=>NaN)])
     @test_throws ArgumentError W.normalize_engines([Dict("unknown"=>1)])
+    # The refusal names the fields that do not exist and those that do, so that an assistant can correct its request.
+    refusal=try W.normalize_engines([Dict("name"=>"E","thrust"=>1.,"pylon"=>2)]);"" catch error;sprint(showerror,error) end
+    @test occursin("Engine definition contains unknown fields: pylon, thrust. An engine has only: A, aft_rib, aft_xc, E, enabled, front_rib, G, I1, I2, J, length, mass, name, x, y, z. Thrust is not an engine field",refusal)
     @test_throws ArgumentError W.normalize_engines([Dict("I1"=>0.)])
     @test_throws ArgumentError W.normalize_engines([Dict("E"=>-1.)])
     @test_throws ArgumentError W.normalize_engines([Dict("name"=>"same"),Dict("name"=>"same")])
@@ -208,6 +211,38 @@ tests=@testset "Elastic engine beam, attachment geometry and native constraints"
         invalid=deepcopy(p);invalid["engines.items"][1][key]=rib
         @test_throws ArgumentError W.build_model(invalid)
     end
+    # An attachment rib left automatic (0, the default) is the interior rib in line with the engine:
+    # the one whose front-spar cap point has the BASIC Y nearest the engine's.
+    @test W.ENGINE_DEFAULTS["front_rib"]==0&&W.ENGINE_DEFAULTS["aft_rib"]==0
+    @test only(W.normalize_engines([Dict("name"=>"E")]))["front_rib"]==0
+    @test_throws ArgumentError W.normalize_engines([Dict("front_rib"=>-1)])
+    nearest(model,y,k)=begin
+        g=model.grid;count=length(g.ribs)
+        distances=[abs(W.grid_point(g,0,g.ribs[ri],k)[2]-y) for ri in 2:count-1]
+        1+argmin(distances)
+    end
+    for y in (.5,.02,.31,.74,5.)
+        auto=deepcopy(p);engine=auto["engines.items"][1];engine["y"]=y;engine["front_rib"]=0;engine["aft_rib"]=0
+        @test W.validate_engine_structure(auto)===nothing
+        auto_model=W.build_model(auto);front,aft=only(W.engine_records(auto_model))["mounts"]
+        @test front["rib"]==nearest(auto_model,y,auto_model.grid.nh)
+        @test aft["rib"]==nearest(auto_model,y,0)
+        @test front["rib_automatic"]&&aft["rib_automatic"]
+        @test 1<front["rib"]<length(auto_model.grid.ribs)
+        @test front["cap_ribs"]==[front["rib"]-1,front["rib"]+1]
+        @test startswith(front["patch_note"],"R$(front["rib"]) chosen automatically")
+        if y==.5
+            _,auto_parsed=engine_deck(auto_model,"engine_automatic_rib");engine_rigid_checks(auto_model,auto_parsed)
+        end
+    end
+    # A numbered rib is kept as entered, and only the attachment left at 0 is chosen.
+    mixed=deepcopy(p);mixed["engines.items"][1]["front_rib"]=0;mixed["engines.items"][1]["aft_rib"]=3
+    mixed_front,mixed_aft=only(W.engine_records(W.build_model(mixed)))["mounts"]
+    @test mixed_front["rib_automatic"]&&!mixed_aft["rib_automatic"]&&mixed_aft["rib"]==3
+    @test !first(r["mounts"])["rib_automatic"]&&first(r["mounts"])["rib"]==2
+    # With fewer than three ribs there is no interior rib to choose.
+    few=deepcopy(p);few["engines.items"][1]["front_rib"]=0;few["box.rib_pitch"]=5.
+    @test_throws ArgumentError W.validate_engine_structure(few)
     sparse=deepcopy(p);sparse["mesh.elements_between_ribs"]=1
     @test W.all_checks_pass(W.build_model(sparse))
     for refinement in (1,3,9)

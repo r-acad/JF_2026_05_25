@@ -776,10 +776,12 @@ button[id^="btn-max-"]:hover:not(:disabled),button[data-toml="maximize"]:hover:n
   background:#606060; border-color:#999;
 }
 
-/* Give status messages their own full header row instead of squeezing them
-   between the Live mesh switch and file controls. Long filenames wrap too. */
-#workspace-statuses { display:flex; flex-wrap:wrap; align-items:flex-start; gap:3px 20px; flex:1 0 100%; min-width:0; padding:4px 0 1px; border-top:1px solid var(--line); }
-#workspace-statuses > [role="status"] { flex:0 1 auto; min-width:0; max-width:100%; white-space:normal; overflow:visible; text-overflow:clip; overflow-wrap:anywhere; font-size:12px; line-height:1.45; }
+/* The status messages share the first header row (2026-11-21: one line of the window saved). They take the free
+   space between the file controls and the mesh switches, each on one line; a message that does not fit ends in
+   an ellipsis and its full text is the tooltip. In a narrow window the group wraps to a row of its own. */
+#workspace-statuses { display:flex; flex-wrap:nowrap; align-items:center; gap:4px 16px; flex:1 1 220px; min-width:140px; padding:0; border:0; overflow:hidden; }
+#workspace-statuses > [role="status"] { flex:0 1 auto; min-width:0; max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:12px; line-height:1.45; }
+#workspace-header:has(#workspace-statuses) .workspace-live { margin-left:0; }
 #workspace-statuses:has(#mesh-status:empty):not(:has(#geometry-preview-status:not([hidden]):not(:empty))) { display:none; }
 #workspace-header:has(#jfem-running:not([hidden])) #workspace-statuses:has(#mesh-status[data-state="running"]):not(:has(#geometry-preview-status:not([hidden]):not(:empty))) { display:none; }
 #geometry-preview-status { color:#a6dce8; }

@@ -946,7 +946,7 @@ function make_router(st::AppState)
         HTTP.register!(router,"GET","/api/control/"*action,req->handle_boxer_control(st,req;action))
     end
     HTTP.register!(router,"GET","/api/chat/config",req->handle_boxer_chat(st,req;action="config"))
-    for action in ("message","test","models","transcribe","speech","validate","open_study")
+    for action in ("message","test","models","transcribe","speech","validate","open_study","record")
         HTTP.register!(router,"POST","/api/chat/"*action,req->handle_boxer_chat(st,req;action))
     end
     HTTP.register!(router,"POST","/api/aerodynamics/mesh",req->handle_aerodynamic_study(st,req;action="mesh"))

@@ -2577,6 +2577,56 @@ function coupled_pcomp_projected_enabled(coords,Bmb;is_pcomp=false,isotropic=fal
     return true
 end
 
+"""
+Section data of a CQUAD8 that qualifies for the eight-node stiffness, or
+`nothing`: a flat parallelogram with centred midside nodes whose PSHELL uses
+isotropic MAT1 materials and has no membrane-bending coupling (MID4).
+"""
+function _quad8_native_section(el, pshells, mats, id_vec, node_coords)
+    uppercase(string(get(el, "TYPE", ""))) == "CQUAD8" || return nothing
+    prop = get(pshells, string(el["PID"]), nothing)
+    prop === nothing && return nothing
+    haskey(prop, "BEND_RATIO") && !haskey(prop, "Cm") || return nothing
+    Int(get(prop, "MID4", 0)) == 0 || return nothing
+    nids = el["NODES"]
+    length(nids) == 8 || return nothing
+    xyz = zeros(8, 3)
+    for k in 1:8
+        nid = nids[k]
+        (nid isa Integer && nid >= 1) || return nothing
+        idx = get(id_vec, nid, 0)
+        idx == 0 && return nothing
+        xyz[k, 1] = node_coords[idx, 1]; xyz[k, 2] = node_coords[idx, 2]; xyz[k, 3] = node_coords[idx, 3]
+    end
+    FEM.quad8_shell_parallelogram(xyz) || return nothing
+    t = Float64(get(prop, "T", 0.0))
+    t > 0 || return nothing
+    isotropic(mid) = begin
+        mid == 0 && return nothing
+        mat = get(mats, string(mid), nothing)
+        (mat === nothing || haskey(mat, "TYPE")) && return missing
+        E = Float64(mat["E"]); nu = Float64(mat["NU"])
+        (E > 0 && -1 < nu < 0.5) || return missing
+        return (E/(1 - nu^2)) .* [1.0 nu 0.0; nu 1.0 0.0; 0.0 0.0 (1 - nu)/2]
+    end
+    Qm = isotropic(Int(get(prop, "MID", 0))); Qb = isotropic(Int(get(prop, "MID2", 0)))
+    (Qm === missing || Qb === missing) && return nothing
+    (Qm === nothing && Qb === nothing) && return nothing
+    membrane = Qm === nothing ? nothing : t .* Qm
+    bending = Qb === nothing ? nothing : (Float64(get(prop, "BEND_RATIO", 1.0))*t^3/12) .* Qb
+    shear = Inf
+    mid3 = Int(get(prop, "MID3", 0))
+    if bending !== nothing && mid3 != 0
+        mat3 = get(mats, string(mid3), nothing)
+        (mat3 === nothing || haskey(mat3, "TYPE")) && return nothing
+        G3 = Float64(mat3["G"])
+        G3 > 0 || return nothing
+        shear = G3*Float64(get(prop, "TS_T", 5/6))*t
+    end
+    return (xyz=xyz, membrane=membrane, bending=bending, shear=shear,
+            bending_reference=bending === nothing ? 0.0 : bending[1, 1])
+end
+
 @solver_stage "assembly" "Assemble elastic stiffness" function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only::Bool=false,
                             membrane_incomp::Bool=true, pcomp_membrane_incomp::Bool=false,
                             snorm_angle_override::Union{Nothing,Float64}=nothing,
@@ -3110,8 +3160,20 @@ end
     raw_shells = collect(values(cshells))
     shell_list = []
     n_q8_expanded = 0; n_t6_expanded = 0
+    # Flat parallelogram CQUAD8 with an isotropic PSHELL get their own
+    # eight-node stiffness (FEM.stiffness_quad8_shell); they are assembled with
+    # the other dense elements further down.
+    q8_native = Any[]
+    q8_native_enabled = solver_env_bool("JFEM_CQUAD8_NATIVE", true)
     for el in raw_shells
         nids = el["NODES"]; n = length(nids)
+        if n == 8 && q8_native_enabled
+            section = _quad8_native_section(el, pshells, mats, id_vec, node_coords)
+            if section !== nothing
+                push!(q8_native, (el, section))
+                continue
+            end
+        end
         if n == 8
             # CQUAD8: corners 1-4, midsides 5-8 (5=mid(1-2), 6=mid(2-3), 7=mid(3-4), 8=mid(4-1))
             # → 4 CQUAD4: [1,5,9,8], [5,2,6,9], [9,6,3,7], [8,9,7,4] with center 9
@@ -5825,6 +5887,37 @@ end
     n_solids_total = n_tetra + n_hexa + n_penta
     if n_solids_total > 0
         log_msg("[SOLVER] Solids: $n_tetra CTETRA + $n_hexa CHEXA + $n_penta CPENTA assembled")
+    end
+
+    # --- Eight-node shells with their own stiffness ---
+    if !isempty(q8_native)
+        T_q8 = zeros(48, 48); dofs_q8 = Vector{Int}(undef, 48)
+        for (el, section) in q8_native
+            nids = el["NODES"]
+            Ke_basic = FEM.stiffness_quad8_shell(section.xyz; membrane=section.membrane, bending=section.bending,
+                                                 shear=section.shear, bending_reference=section.bending_reference)
+            fill!(T_q8, 0.0)
+            for k in 1:8
+                idx = id_map[nids[k]]
+                for blk in 0:1
+                    r = 6(k - 1) + 3blk
+                    for a in 1:3, b in 1:3
+                        T_q8[r+a, r+b] = node_R[idx][a, b]
+                    end
+                end
+                for c in 1:6
+                    dofs_q8[6(k - 1)+c] = (idx - 1)*6 + c
+                end
+            end
+            Ke = T_q8' * Ke_basic * T_q8
+            for c in 1:48, r in 1:48
+                v = Ke[r, c]
+                v == 0.0 && continue
+                push!(I_idx, dofs_q8[r]); push!(J_idx, dofs_q8[c]); push!(V_val, v)
+            end
+            element_capture === nothing || element_capture(Int(el["ID"]), el["PID"], copy(dofs_q8), Ke)
+        end
+        log_msg("[SOLVER] Eight-node shells: $(length(q8_native)) CQUAD8 assembled with the eight-node stiffness")
     end
 
     # Save max element stiffness BEFORE constraint processing

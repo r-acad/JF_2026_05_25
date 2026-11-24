@@ -39,20 +39,40 @@ end
     automatic=P.extract_pbarl([card])["1"];explicit=P.extract_pbarl([card];twbrbml=0)["1"]
     legacy=P.extract_pbarl([card];twbrbml=1)["1"]
     @test automatic==explicit
-    for field in ("A","I1","I2","I12","NSM","C1","C2","D1","D2")
+    # The default conversion takes area and inertias from the outline; the legacy equations use the
+    # closed forms of the same outline.
+    for field in ("A","I1","I2")
+        @test automatic[field]≈legacy[field] rtol=1e-12
+    end
+    for field in ("I12","NSM","C1","C2","D1","D2")
         @test automatic[field]==legacy[field]
     end
     @test legacy["TORSION_FORMULATION"]=="legacy_thin_wall"
     @test automatic["TORSION_FORMULATION"]=="saint_venant_2d"
     @test automatic["J"]!=legacy["J"]
     @test legacy["TWBRBML"]==1
-    # Existing circular/solid closed-form routes do not acquire a new guard.
+    # TWBRBML=1 selects the beam library equations for every section; the default is the
+    # finite-element conversion. Both describe the same outline.
     for (shape,ds) in (("ROD",[.01]),("TUBE",[.01,.008]),("BAR",[.02,.03]))
         c=Any["SMALL","PBARL",1,1,"",shape,ds...]
-        @test P.extract_pbarl([c])["1"]==P.extract_pbarl([c];twbrbml=1)["1"]
+        default=P.extract_pbarl([c])["1"];library=P.extract_pbarl([c];twbrbml=1)["1"]
+        @test default["SECTION_METHOD"]=="finite_element"
+        @test library["SECTION_METHOD"]=="library_equations"
+        for field in ("A","I1","I2")
+            @test default[field]≈library[field] rtol=1e-12
+        end
+        @test default["J"]≈library["J"] rtol=.01
     end
-    tcard=Any["SMALL","PBARL",1,1,"","T",.03,.04,.002,.002]
-    @test_throws ArgumentError P.extract_pbarl([tcard];twbrbml=1)
+    # Library equations of T, I and BOX against the values of the reference solver
+    # ("CONVERSION METHOD ... BEAM LIBRARY EQUATIONS", five digits).
+    for (shape,ds,J,K1,K2) in (("T",[.04,.05,.004,.003],1.2853e-9,.46309,.53691),
+            ("I",[.08,.05,.05,.003,.004,.004],2.8173e-9,.35065,.54113),
+            ("BOX",[.06,.04,.003,.003],2.8391e-7,.36170,.57447))
+        library=P.extract_pbarl([Any["SMALL","PBARL",1,1,"",shape,ds...]];twbrbml=1)["1"]
+        @test library["J"]≈J rtol=5e-5
+        @test library["K1"]≈K1 rtol=5e-5
+        @test library["K2"]≈K2 rtol=5e-5
+    end
 end
 
 @testset "MDLPRM name-value pairs and deck/JSON propagation" begin

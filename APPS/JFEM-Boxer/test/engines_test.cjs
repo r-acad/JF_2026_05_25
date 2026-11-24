@@ -5,7 +5,11 @@ let checks = 0;
 assert.deepEqual(E.normalize([]), []); checks++;
 assert.deepEqual(E.normalize([{name:' A '}])[0], {...E.defaults,name:'A'}); checks++;
 assert.equal(E.normalize([{name:'A',front_rib:3,aft_rib:3}])[0].aft_rib,3); checks++;
-for (const edit of [{name:''},{name:null},{enabled:1},{mass:0},{length:0},{mass:NaN},{length:Infinity},{x:null},{y:'1'},{z:Infinity},{front_rib:0},{aft_rib:1.5},{aft_xc:-.1},{aft_xc:1.1},{unknown:1},
+// A new engine attaches automatically: rib 0 is the rib in line with the engine.
+assert.deepEqual([E.defaults.front_rib,E.defaults.aft_rib],[0,0]); checks++;
+assert.deepEqual((({front_rib,aft_rib})=>[front_rib,aft_rib])(E.normalize([{name:'A'}])[0]),[0,0]); checks++;
+assert.equal(E.normalize([{name:'A',front_rib:0,aft_rib:4}])[0].aft_rib,4); checks++;
+for (const edit of [{name:''},{name:null},{enabled:1},{mass:0},{length:0},{mass:NaN},{length:Infinity},{x:null},{y:'1'},{z:Infinity},{front_rib:-1},{aft_rib:1.5},{aft_xc:-.1},{aft_xc:1.1},{unknown:1},
  {E:0},{G:-1},{A:0},{I1:0},{I2:0},{J:0},{E:Infinity},{G:null},{A:'0.01'},{I1:NaN},{I2:Infinity},{J:null}]) {
   assert.throws(() => E.normalize([{...E.defaults,...edit}])); checks++;
 }

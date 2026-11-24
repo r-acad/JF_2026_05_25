@@ -968,7 +968,7 @@ function buildForm(schema, values) {
       onEdit:parameterEdited,readRibs:currentSupportRibs,isLocked:()=>state.parameterLocks?.isLocked("supports.items") || false,
     });
     if (name === "Engines" && typeof WingEngines !== "undefined") state.enginesEditor = WingEngines.install(det, {
-      onEdit:parameterEdited,onHelp:openHelp,readRibs:currentSupportRibs,isLocked:()=>state.parameterLocks?.isLocked("engines.items")||false,
+      onEdit:parameterEdited,onHelp:openHelp,readRibs:currentSupportRibs,readModel:()=>state.data?.engine_structure,isLocked:()=>state.parameterLocks?.isLocked("engines.items")||false,
       onRename:(oldName,newName)=>updateEngineThrustAssignments(oldName,newName),
       onRemove:name=>updateEngineThrustAssignments(name,null),
       createFEM:()=>{const button=document.getElementById("btn-create");if(!button||button.disabled)throw Error("Finish the current operation before creating the FEM.");button.click();},

@@ -2812,10 +2812,20 @@ end
                         buckling_subcase=nothing,
                         static_subcase=nothing,
                         sol105_options=nothing,
+                        zero_lower_window::Bool=true,
+                        dense_residual_scaling::Bool=false,
                         return_diagnostics::Bool=false)
 
     if eigb_request !== nothing
         return _solve_eigb_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, eigb_request;
+            rbe3_map=rbe3_map, max_elem_stiff=max_elem_stiff, orig_diag=orig_diag,
+            eigen_cache=eigen_cache, buckling_subcase=buckling_subcase,
+            static_subcase=static_subcase, sol105_options=sol105_options,
+            return_diagnostics=return_diagnostics)
+    end
+    if zero_lower_window && eigrl_v1_specified && iszero(eigrl_v1) &&
+       !eigrl_v2_specified && eigrl_nd_specified
+        return _solve_buckling_zero_lower_window(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes;
             rbe3_map=rbe3_map, max_elem_stiff=max_elem_stiff, orig_diag=orig_diag,
             eigen_cache=eigen_cache, buckling_subcase=buckling_subcase,
             static_subcase=static_subcase, sol105_options=sol105_options,
@@ -3818,7 +3828,15 @@ end
                     "JFEM_SOL105_EIGENPAIR_RESIDUAL_TOL", 1e-6), 0.0)
                 residuals = [_buckling_original_pencil_residual(
                     Kd, Bgd, view(vecs, :, i), lambdas[i]) for i in eachindex(lambdas)]
-                accepted = findall(r -> isfinite(r) && r <= residual_tol, residuals)
+                # A factor far above the lowest one is known only to about
+                # n*eps*|lambda|/|lambda_min| (theta = 1/lambda carries the
+                # absolute round-off of the whole spectrum), so a fixed residual
+                # test rejects valid far roots. The scaled test is opt-in.
+                lambda_floor = minimum(abs, lambdas)
+                accepted = findall(i -> isfinite(residuals[i]) && residuals[i] <=
+                    (dense_residual_scaling ?
+                        max(residual_tol, 64 * n_free * eps(Float64) * abs(lambdas[i]) / lambda_floor) :
+                        residual_tol), eachindex(residuals))
                 perm = accepted[sortperm(abs.(lambdas[accepted]))]
                 # Dense solves already computed the whole spectrum. For ranged
                 # SOL105 extraction, keep it until the positive/range filter
@@ -5193,9 +5211,9 @@ end
     # lumped mass (PARAM,COUPMASS,-1). The previous coupled-consistent cardless
     # default silently diverged from both the reference and from JFEM's own
     # explicit COUPMASS handling above; on cardless single-element SOL 103
-    # probes it inflated first shell modes by +18..+19% (registry-corpus run
-    # CORPUS_REGISTRY_PARITY_2026_08_05). Forcing lumped reproduces the
-    # reference first modes to full F06 print precision.
+    # probes it inflated first shell modes by +18..+19% (registry-corpus run of
+    # 2026-08-05). Forcing lumped reproduces the
+    # reference first modes to full print precision.
     return solver_env_bool("JFEM_SOL103_SHELL_COUPLED_MASS_DEFAULT", false) ?
         :coupled_consistent : :reference_lumped
 end
@@ -5415,6 +5433,38 @@ assemble_modal_mass(model,id_map,node_coords,node_R,ndof;kwargs...) =
             for c in 1:18, r in 1:18
                 _push_nonzero_triplet!(
                     I_idx, J_idx, V_val, dofs_t3[r], dofs_t3[c], Me18[r, c])
+            end
+
+        elseif n == 8 || n == 6
+            # CQUAD8/CTRIA6: quadratic isoparametric mass on the true mid-surface,
+            # integrated in BASIC and rotated to each GRID's analysis frame.
+            corner_data === nothing || corner_data.uniform || throw(ArgumentError(
+                "$(n == 8 ? "CQUAD8" : "CTRIA6") $(get(el,"ID","?")) nonuniform corner-thickness mass is not implemented"))
+            idxs = [id_vec[nid] for nid in nids]
+            xyz_ho = [node_coords[idx, j] for idx in idxs, j in 1:3]
+            moments_ho = inertia_moments === nothing ?
+                (mass_per_area, 0.0, rho_eff*h^3/12) : inertia_moments
+            Me_basic = FEM.consistent_mass_shell_higher_order(xyz_ho, moments_ho;
+                lumped = shell_mass_formulation !== :coupled_consistent)
+            nd_ho = 6n
+            T_ho = zeros(nd_ho, nd_ho)
+            for k in 1:n
+                base = (k-1)*6
+                TR = node_R[idxs[k]]
+                for rr in 1:3, cc in 1:3
+                    T_ho[base+rr, base+cc] = TR[rr,cc]
+                    T_ho[base+3+rr, base+3+cc] = TR[rr,cc]
+                end
+            end
+            Me_ho = T_ho' * Me_basic * T_ho
+            dofs_ho = Vector{Int}(undef, nd_ho)
+            for k in 1:n
+                b = (idxs[k]-1)*6
+                for d in 1:6; dofs_ho[(k-1)*6+d] = b+d; end
+            end
+            for c in 1:nd_ho, r in 1:nd_ho
+                _push_nonzero_triplet!(
+                    I_idx, J_idx, V_val, dofs_ho[r], dofs_ho[c], Me_ho[r, c])
             end
         end
     end

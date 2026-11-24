@@ -29,7 +29,7 @@ const BOXER_CONTROL_EXECUTION_TTL=600.0
 const BOXER_CONTROL_MAX_CLIENTS=16
 const BOXER_CONTROL_MAX_OPERATIONS=256
 const BOXER_CONTROL_COMMANDS=Set(["invoke_action","set_input","update_parameters","inspect","navigate",
-    "get_state","list_actions","list_inputs"])
+    "get_state","list_actions","list_inputs","get_parameters"])
 
 boxer_control_secret()=bytes2hex(rand(Random.RandomDevice(),UInt8,32))
 
@@ -418,9 +418,15 @@ function boxer_control_configuration(st)
     lock(BOXER_CONTROL_LOCK) do
         root=hasproperty(st,:root) ? st.root : normpath(joinpath(@__DIR__,".."))
         executable=joinpath(Sys.BINDIR,Sys.iswindows() ? "julia.exe" : "julia")
+        # The connection file with the fixed name is rewritten at every start, so a program that was set up once
+        # keeps working after Boxer restarts. The file named after the process serves a second Boxer on its own.
+        stable=hasproperty(st,:deck_store_dir) ? joinpath(st.deck_store_dir,"boxer_mcp.json") : ""
+        discovery=!isempty(stable) && isfile(stable) ? stable : broker.discovery_file
+        # No separator at the end of the project folder: a backslash before a closing quote breaks a pasted command line.
+        project=String(rstrip(normpath(joinpath(root,"..","..")),['/','\\']))
         client_config=Dict("mcpServers"=>Dict("JFEM-Boxer"=>Dict("command"=>executable,
-            "args"=>["--startup-file=no","--project="*normpath(joinpath(root,"..","..")),
-                joinpath(root,"BoxerMCP.jl"),"--discovery",broker.discovery_file])))
+            "args"=>["--startup-file=no","--project="*project,
+                joinpath(root,"BoxerMCP.jl"),"--discovery",discovery])))
         Dict{String,Any}("ok"=>true,"url"=>broker.url,"token"=>broker.token,
             "discovery_file"=>broker.discovery_file,"protocol_versions"=>["2025-11-25","2025-06-18","2024-11-05"],
             "clients"=>boxer_control_clients(st),"mcp_client_config"=>client_config)

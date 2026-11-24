@@ -91,6 +91,10 @@
       <input id="model-file" type="file" accept=".wingfem.json,application/json" hidden>
       <input id="toml-file" type="file" accept=".toml,text/plain,application/toml" hidden>
     </div>
+    <div id="workspace-statuses" role="group" aria-label="Geometry and mesh status">
+      <span id="mesh-status" role="status" aria-live="polite" aria-label="Finite element mesh status">Starting…</span>
+      <span id="geometry-preview-status" role="status" aria-live="polite" aria-label="Geometry preview status" hidden></span>
+    </div>
     <div class="workspace-live">
       <span id="manual-mesh-action" hidden></span>
       <label id="autosave-label" class="live-switch" title="Save settled geometry, property, load, notes and design-variable edits automatically. Enabling chooses the Study file once; view changes alone do not trigger a save."><input id="auto-save" type="checkbox" disabled><span>Autosave</span></label>
@@ -101,10 +105,6 @@
     <label class="background-picker" title="Change the viewport background color">Background<input id="background-color" type="color" value="#0e131a" aria-label="Viewport background color"></label>
     <button id="boxer-chat-toggle" type="button" class="workspace-help" data-boxer-private="chat" aria-controls="boxer-chat" aria-expanded="false" title="Talk to Boxer, find menu commands, or connect an AI assistant through MCP">Chat</button>
     <button id="btn-quick-help" class="workspace-help" title="Define geometry and properties, create the mesh, set cases, then run an analysis. Open this guide for navigation, display controls and saving studies." aria-label="Help: workflow and controls">?</button>
-    <div id="workspace-statuses" role="group" aria-label="Geometry and mesh status">
-      <span id="mesh-status" role="status" aria-live="polite" aria-label="Finite element mesh status">Starting…</span>
-      <span id="geometry-preview-status" role="status" aria-live="polite" aria-label="Geometry preview status" hidden></span>
-    </div>
     <section id="study-information" class="file-status-row" role="region" aria-label="Study and server information" hidden>
       <div class="study-information-heading"><strong>Study information</strong><button id="btn-close-study-information" type="button" aria-label="Close Study information">×</button></div>
       <span id="study-file-status" role="status" aria-live="polite">Study: unsaved · TOML: reading…</span>
@@ -851,6 +851,9 @@
 <script src="fe_edit_viewport.js" defer></script>
 <script src="boxer_commands.js" defer></script>
 <script src="boxer_voice.js" defer></script>
+<script src="boxer_chat_language.js" defer></script>
+<script src="boxer_live.js" defer></script>
+<script src="boxer_airfoil_tools.js" defer></script>
 <script src="boxer_chat.js" defer></script>
 <script src="boxer_app_control.js" defer></script>
 <script src="app.js" defer></script>

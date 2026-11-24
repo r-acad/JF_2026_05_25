@@ -175,9 +175,15 @@ bending moments of area I1/I2 and torsional constant J (m⁴). I1 is about BASIC
 (bending in XY); I2 is about BASIC Y (bending in XZ). Initial stiffness
 values are illustrative and should be replaced with the intended equivalent
 engine section. The beam is centered at the CG and aligned with BASIC X
-(flight direction). Define the front mount by its physical front-spar rib,
-and the aft mount by its physical rib and local airfoil x/c. Both mounts may
-use the same rib. The selectors follow the current draft rib layout even before
+(flight direction). A new engine is attached automatically: both attachment
+ribs are set to **Automatic**, which is the rib in line with the engine, that
+is, the interior physical rib whose front-spar point is nearest the engine's
+BASIC Y. The choice follows the engine when its Y position or the rib layout
+changes, and after Create FEM the list names the rib in use. To attach
+elsewhere, select a numbered rib for the front mount, and a numbered rib and
+local airfoil x/c for the aft mount. In a Study file Automatic is rib number 0,
+and it is also what an engine gets when its attachment ribs are left out.
+Both mounts may use the same rib. The selectors follow the current draft rib layout even before
 creating FEM. If no valid catalog is available, enter the physical rib number
 directly and correct the layout before generating the model. Definitions are
 saved with the Study.
@@ -2513,90 +2519,265 @@ barrel and rod bodies are schematic symbols at the defined attachment endpoints.
 
 ### Chat and MCP control
 
-Click **Chat** in the top bar to request an action or find an input. **Commands**
-mode works locally without an AI account or model installation. Try **Create FEM**,
-**Open Stress Report**, or **Set minimum upper skin thickness to 2 mm**. If several
-controls match, choose the intended item from the displayed suggestions. The chat
-uses the same form controls and handlers as the menus, including their normal
-validation, minimum-gauge behavior and unsaved-change prompts.
+Click **Chat** in the top bar. The panel has a status line, its header buttons (**Key**,
+**Clear**, **Export**, **Voice on**, **Options**, **Help**, close), the conversation, a **Mic** button, a text box and
+**Send**. The assistant is Google Gemini, and the only thing it needs is a Gemini
+API key. The first time, the conversation shows one message with one field,
+**Gemini API key**, and one button, **Connect**. After that the panel connects by
+itself whenever it is opened.
 
-For conversational requests and several-step tasks, open Chat settings, select
-**Google Gemini**, **Ollama** or **OpenAI-compatible**, enter the connection settings and a model,
-then test the connection. Ollama's usual local base URL is
-`http://127.0.0.1:11434`; a compatible local server might use
-`http://127.0.0.1:1234/v1`. Use a model that supports function/tool calling. Boxer
-does not download a model automatically. Messages and compact current-Study
-context are sent only to the connection you explicitly select. **Commands** mode
-makes no AI inference requests. API keys entered in Chat are kept only in that
-browser session and are cleared when the panel is destroyed. Server defaults can
-instead use `BOXER_CHAT_PROVIDER`, `BOXER_CHAT_URL`, `BOXER_CHAT_MODEL` and
-`BOXER_CHAT_API_KEY`. Keys are not written to the Study or connection discovery file.
+Without a key the chat still carries out simple requests such as **set aspect
+ratio to 15** or **open Stress Report** with its built-in commands (described
+below); one line above the text box says so. The chat uses the same form controls
+and handlers as the menus, including their normal validation, minimum-gauge
+behavior and unsaved-change prompts.
 
 #### Connect Google Gemini and use voice
 
-The **Help** button in Chat opens the setup instructions without leaving Boxer.
-Google Gemini uses the same registered actions as the MCP bridge, so it can find
-inputs, edit the current Study, inspect results and request existing menu actions.
-The external MCP connection remains available for other assistants.
+**What the key is.** A Gemini API key is a kind of password that lets this page
+talk to Gemini on your behalf. It is one unbroken line of letters, digits, dashes
+and underscores. Keys made before 2026 start with `AIza` and have 39 characters
+(for example `AIzaSy……`, shown here with dots instead of the rest); keys made in
+2026 or later can instead start with `AQ.` and be longer. Google does not publish
+the format, so this description comes from the keys in use and from user reports;
+Boxer accepts either kind and still tries a key of an unfamiliar shape. A key is
+not your Google password, not your e-mail address, and not a Gemini or Google One
+subscription.
 
-1. Open [Google AI Studio](https://aistudio.google.com/apikey), sign in with your
-   Google account and accept its terms. Create or select a project and create an
-   API key. If a project already exists, import/select it in AI Studio as needed.
-2. Check that the selected project's billing tier is **Free** if you intend to
-   use the free allowance. A Google account alone does not guarantee API access:
-   age, supported region, account restrictions, model availability and quotas
-   apply. AI Studio requires users to be 18 or older. A consumer Gemini
-   subscription and a Gemini API project are separate products.
-3. In Boxer, open **Chat > Settings**, choose **Google Gemini**, and paste the
-   key into **API key**. Use the supplied Google API URL,
-   `https://generativelanguage.googleapis.com/v1beta`. Boxer does not ask for your
-   Google password. Keys stay in session memory and are excluded from Study files,
-   browser storage and copied MCP configuration.
-4. Click **Test connection** to retrieve the available models. Choose a general
-   Gemini model with function calling and audio input, such as a current Flash
-   model available to your project. The model ID remains editable. Listing a
-   model checks the connection; it does not prove a remaining free quota.
-5. Type a simple request such as **Open Loft** or **Set minimum upper skin
-   thickness to 2 mm**, then click **Send**. Review the resulting action messages.
-   Normal save prompts and engineering validation still apply.
-6. To dictate, click **Record voice** and allow microphone access. Speak,
-   then press **Stop recording**. Google transcribes the clip into the message box; review
-   or correct it and press **Send**. Recording is limited to one minute and uses
-   mono 16-bit WAV audio. It does not run continuously in the background.
-7. For spoken replies, choose an available Google TTS model and voice in Settings,
-   then press **Read last reply**. Long replies read the first 2,000 characters,
-   as indicated in the playback status. TTS is a separate API request and
-   has its own availability and quotas. Closing Chat or pressing the voice Stop
-   control stops microphone capture/playback. This is turn-based dictation and
-   speech playback; no always-on Live API session is opened.
+**Get the key in six steps.** The **Help** button repeats them inside Boxer.
 
-Google receives messages, compact current-Study context and any audio you explicitly
-send. The free tier may use submitted content to improve Google's products;
-review Google's current terms before using confidential model information. With a
-paid project, API requests can incur charges. Boxer cannot infer a project's
-billing tier from a key and does not automatically switch models or enable billing.
+1. Open [Google AI Studio · API keys](https://aistudio.google.com/apikey) and sign
+   in with your Google account. The first time, accept Google's terms.
+2. You are on the **API keys** page. If you arrive elsewhere in AI Studio, press
+   **Get API key**, or open **Dashboard** in the left panel and choose **API keys**.
+3. Press **Create API key**. New accounts often already have a first key in the
+   list; you can use that one and skip to step 5.
+4. In the dialog choose a project, or let Google create one, and confirm. A
+   project is only the folder Google files the key under.
+5. Press the copy icon beside the key. Do not type it by hand.
+6. In Boxer's Chat panel paste it into **Gemini API key** and press **Connect**.
 
-For **429 / quota** errors, check AI Studio usage and rate limits, wait or choose
-another available model deliberately. For **401/403**, check the key, project/API
-permissions and account eligibility. For **model not found**, test the connection
-again and choose an available model. Microphone access needs a supported browser
-on `localhost`/`127.0.0.1` or HTTPS, plus browser and operating-system permission.
-Text chat remains available if voice access is denied.
+The button and page names in steps 1 to 4 are those of Google's documentation on
+2026-11-19; the signed-in page itself was not inspected.
 
-Server-side configuration can use `BOXER_CHAT_PROVIDER=google`,
-`BOXER_CHAT_MODEL` and `BOXER_CHAT_API_KEY`; `GEMINI_API_KEY` or `GOOGLE_API_KEY`
-are also supported for Google. Keep keys outside files intended for publication.
-`BOXER_CHAT_TRANSCRIPTION_MODEL` and `BOXER_CHAT_SPEECH_MODEL` can supply optional
-server defaults for the two voice model inputs.
+**Cost and storage.** Creating a key costs nothing. Google offers free use within
+daily limits to eligible accounts (age 18 or older, a supported country, a project
+Google accepts); a Google account alone does not guarantee it, and on the free
+tier Google may use what you send to improve its products. The key is stored only
+in this browser on this computer (`localStorage`), so that you are not asked
+again. It is never written into Study files and never sent to the Boxer program:
+the page sends it straight to Google. **Key → Forget key** removes it.
 
-Account access, model names and allowances change. The setup guide links to
-Google's current [API key instructions](https://ai.google.dev/gemini-api/docs/api-key),
-[pricing](https://ai.google.dev/gemini-api/docs/pricing),
-[rate limits](https://ai.google.dev/gemini-api/docs/rate-limits),
-[supported regions](https://ai.google.dev/gemini-api/docs/available-regions),
-[audio input](https://ai.google.dev/gemini-api/docs/audio?generate-content=true) and
-[speech generation](https://ai.google.dev/gemini-api/docs/speech-generation?generate-content=true).
-These instructions were checked on 2026-11-18.
+**What Connect does.** The browser itself opens a connection to Google's Gemini
+Live service (`wss://generativelanguage.googleapis.com/…BidiGenerateContent`) and
+asks for the model `gemini-3.1-flash-live-preview`. If Google does not offer that
+model to the key, Boxer asks for `gemini-3.8-live` and then for
+`gemini-2.5-flash-native-audio-latest`. The Boxer program takes no part in it. While connecting, the status shows the seconds that have passed; if
+Google has not answered after 15 seconds Boxer says so instead of waiting. Blanks,
+quotes or a line break pasted with the key are removed. Something that is
+certainly not a key (a project number, an OAuth client ID or secret, a web
+address, an e-mail address) is named for what it is and not sent.
+
+**Using it.** Type a request in your own words and press **Send**, or hold **Mic**,
+speak, and release. Gemini answers by voice, the conversation shows the same
+answer as text, and the request is carried out through Boxer's own menus and
+inputs; every action is listed in the conversation, and a name that fits several
+inputs is asked about, not guessed. **Stop** ends the request by closing the
+session; the next message opens a new one, which is handed the last messages of
+the conversation. If you edit the Study by hand while Gemini is working, its
+pending action is refused.
+
+**Gemini works by itself.** Asked to do something, Gemini carries it out in the
+same reply and then reports what it did and which values it assumed. A missing
+detail is filled with a sensible approximate value ("add two engines like those of
+an A380", "make this wing look like a 787 wing", "make the skins a bit thicker");
+the report names the assumption so that it can be corrected. When Boxer refuses a
+table, the refusal carries what the Study holds for it, and Gemini corrects the
+request without asking. A reply that only asks a question where an action was
+requested is sent back once (a **Boxer check** entry says so). Gemini still asks
+before it replaces, opens or deletes a Study or starts an analysis that was not
+requested. To be asked first instead, untick "Gemini decides by itself" in the Key
+view under "Advanced options".
+
+**The record of the conversation.** Boxer keeps what was asked, what Gemini was
+told (its working rules, the Study summary and every message) and what it answered,
+each tool call with the result it was given, the entries Boxer wrote into the
+conversation, and what happened to the connection. **Export** in the panel header
+saves the record as a `.jsonl` file (one JSON entry on each line) for assessment.
+The Boxer program also appends every conversation to
+`output/chat_conversations/boxer_conversation_<date>_<time>_<id>.jsonl`. The record
+stays on this computer, never contains a key (a key typed into a message is
+replaced by `[key]`) and holds no sound. It can be switched off or deleted in the
+Key view under "Advanced options", "Record of the conversation"; files already
+written stay in the folder until they are deleted there.
+
+**When the panel is left idle.** Google closes a Gemini session that has not been
+used for about two minutes. Boxer leaves it closed and the header shows "Gemini ·
+connects when you send a message"; the next message, or the next press of Mic,
+opens a new session, which is handed the last messages of the conversation. Nothing
+is connected while nothing is asked.
+
+**Gemini's voice.** "Voice on" in the panel header switches Gemini's voice off, and
+"Voice off" switches it on again; the choice is remembered in the browser and is the
+same switch as "Speak replies aloud" under "Advanced options". With the voice off
+nothing is played and the reply is shown as text only (the written copy is switched
+on with it). Google's Live models answer by voice only and refuse a text-only
+session, so a silent reply takes as long as a spoken one.
+
+**Airfoils.** Boxer generates NACA 4- and 5-digit sections itself; every other
+section is a table of coordinates. Asked for a section such as "a NACA 64A415 at the
+root", "a supercritical tip, 12 % thick" or "the airfoils of a Boeing 737", Gemini
+searches the UIUC airfoil database by file name (`find_airfoils`) and applies the
+profile, or the nearest one of the same family, with `set_airfoil`, at the root, the
+tip or an intermediate section. When the database holds the profile only in another
+thickness, the section is scaled to the thickness asked for with the Loft thickness
+table and keeps its camber; the other sections are listed in that table with the
+thickness they have, so that only the requested section changes. Coordinates can
+also be dictated or pasted ("x z" pairs from the trailing edge over the upper surface
+to the nose and back, or the two surfaces one after the other); they pass the same
+checks as a coordinate file and are stored in the Study as `typed_<name>.dat`. The
+conversation states the profile that was set with its measured thickness and camber.
+A name that is not a 4- or 5-digit code is not accepted in the airfoil code box,
+because an invalid code there blocks every later change of the Study.
+
+**Tables of points and what Boxer checks.** Gemini is told how the planform is
+built (base trapezoid plus leading- and trailing-edge perturbation points, spar
+points) and changes a table of points as a whole: "add a yehudi to the trailing
+edge, 30 % more chord at the root, kink at 35 % of the semispan", "add a point at
+15 % span, 20 % aft", "remove the point at 15 % span". The conversation shows the
+new table. When Boxer refuses a change, its own reason is shown and passed to
+Gemini (for example that the root and tip rows stay at eta 0 and 1). Boxer also
+compares what Gemini says with what was actually carried out: if a reply announces
+a change but no action ran, a **Boxer check** entry says that nothing changed and
+Gemini is asked once to make the change.
+
+**Facts from outside the Study.** A question about the real world, for example
+"look up the wing planform of a Boeing 777" or "what is the yield strength of
+7075-T6?", is answered in a few seconds from what Gemini remembers. Gemini says that
+such values are from memory and approximate; for well-known aircraft and common
+materials they are usually close, for recent or obscure things they can be wrong.
+
+**Searching the internet.** Gemini searches the web only when you ask for it in so
+many words: "search the web for the wing planform of a Boeing 777", "check that
+online", "google the yield strength of 7075-T6". The search is made from your
+browser with the same key. The conversation
+shows a **Web search** entry with what was found, the Google searches that were made
+(as links) and the sources Google named, and Gemini then tells you the values.
+Neither kind of answer changes the Study; ask for that separately ("set the aspect ratio and
+the sweep to those values"). Check values that matter against the linked searches:
+the answer is a short summary of search results. With a free key a search takes 15
+to 60 seconds, because Google allows searches only on its older voice model: Boxer
+opens a short separate session on that model for each search and asks twice if it
+answers with nothing. A key with a paid allowance is answered in text in a few
+seconds. If the search fails, Gemini answers from its own knowledge and says so.
+
+**When Google drops a session.** Google ends a session by itself after some
+minutes, and its voice service sometimes closes an accepted session in the middle
+of a conversation, answers with nothing, or stops answering. Boxer then connects
+again by itself. A request that had not changed anything yet is sent again, up to
+twice; a request that had already carried out an action is never repeated, and
+Boxer says how many actions were done so that you can check the result and send
+what is missing.
+
+**If it does not connect.** The message states what happened, shows Google's own
+close code and words, and offers one action. **Copy details** copies a short
+report (time, stage reached, close code and reason, model, the length and prefix
+of the key but never the key) that you can send to us.
+
+| Message | Meaning and what to do |
+| --- | --- |
+| Google did not accept this key (close code 1007) | The key was not copied completely or was deleted in AI Studio. Copy it again with the copy icon and paste it again. The rejected key is removed from the browser. |
+| Google refused this key / permission denied (close code 1008) | The key exists but may not use Gemini, or its project needs verification. Create a new key with **Create API key**. |
+| The key's allowance is used up | The free daily limit is reached. Wait; it resets at midnight Pacific time. |
+| The browser could not reach Google (close code 1006) / Google did not answer | Check the internet connection. A firewall, VPN or ad blocker may be blocking Google; try another network. |
+| Google did not accept the assistant model / anything else | Press **Copy details** and send us what it copies. |
+
+Codes 1007 and 1008 with these reasons were recorded from Google's service on
+2026-11-19 with an unknown key and with no key.
+
+#### Without a key: built-in commands
+
+Built-in commands understand everyday phrasings of five kinds of request:
+
+| You want to | Examples |
+| --- | --- |
+| Change an input | **set aspect ratio to 15**, **make the aspect ratio = 15**, **use an aspect ratio of 15**, **put 2,5 mm as upper skin thickness**, **aspect ratio 15**, **I want the sweep to be 25 deg** |
+| Change it relative to now | **increase the sweep by 2 deg**, **reduce upper skin thickness by 10%**, **double the rib pitch** |
+| Switch an option | **hide wake filaments**, **turn wake filaments on** |
+| Run a menu action or open a view | **create FEM**, **run the analysis**, **open Stress Report**, **go to the materials tab** |
+| Read or find | **what is the aspect ratio?**, **find skin thickness inputs**, **show Study status** |
+
+Verbs such as set, make, change, put and use are interchangeable, as are `=`,
+`to`, `of` and `at`. A decimal comma is accepted (`0,3`). A value with a unit is
+converted to the unit the input shows (`0.003 m` becomes `3 mm`, `0.5 rad` becomes
+degrees); a unit that does not fit the input is refused with an explanation.
+`1,200` is refused as ambiguous between 1.2 and 1200. Names may be partial
+(**taper**), plural, abbreviated (**AR**), common synonyms (**rib spacing**,
+**top skin gauge**) or slightly misspelled (**asect ratio**); when a misspelling is
+corrected the reply says how the name was read. Several requests can be joined
+with **and** or **;** when every part names something unambiguously.
+
+Nothing is guessed. If a name fits several inputs or actions, the chat lists them
+with the value already filled in and you choose. If nothing fits, the reply states
+how the request was understood, lists the closest names, shows two requests that
+work in the current Study and changes nothing.
+
+#### Advanced options
+
+**Key → Advanced options** is one folded section. Nothing in it is needed for
+Gemini.
+
+- **Which assistant answers.** *Gemini, directly from this browser* is the
+  standard way described above. *Gemini through the Boxer program* sends text
+  requests through Boxer's server to Google's `generateContent` service, with a
+  choice of model and the **Record voice** / **Read last reply** controls; the key
+  and messages then pass through the Boxer program on this computer. *Ollama on
+  this computer* and *Other AI server* (OpenAI-compatible, for example LM Studio
+  at `http://127.0.0.1:1234/v1`) use a model you run yourself; it must support
+  tool calling. *Built-in commands only* never contacts an AI.
+- **Gemini from this browser.** A model name to use in place of Boxer's own
+  choice (leave it empty), the voice that reads replies, whether replies are
+  spoken at all, and whether replies are also shown as text (on by default). If
+  Google refuses the written copy, Boxer switches it off and connects without it.
+- **Gemini through the Boxer program.** **Connect** lists the models the key may
+  use, selects a current general model and tests it in two short steps: a plain
+  request (12 seconds at most) and a request that carries Boxer's actions (20
+  seconds at most). At most two models are tried. A model that does not answer is
+  reported with the step that was silent; previously this could wait a full
+  minute. A model you select yourself is tested alone and never replaced. Server
+  defaults can be set with `BOXER_CHAT_PROVIDER`, `BOXER_CHAT_URL`,
+  `BOXER_CHAT_MODEL` and `BOXER_CHAT_API_KEY`; `GEMINI_API_KEY` or
+  `GOOGLE_API_KEY` are also read for Google. `BOXER_CHAT_TRANSCRIPTION_MODEL` and
+  `BOXER_CHAT_SPEECH_MODEL` preset the two voice models of this mode.
+
+A key typed for *Other AI server* is kept only in the page's memory. Keys are
+never written to the Study or to the connection discovery file.
+
+The assistant can be checked without opening Boxer. These use local stand-ins for
+Google and never contact it:
+
+```sh
+node APPS/JFEM-Boxer/test/boxer_live_browser_test.cjs
+node APPS/JFEM-Boxer/test/boxer_chat_language_test.cjs
+node APPS/JFEM-Boxer/test/boxer_chat_browser_test.cjs
+node APPS/JFEM-Boxer/test/boxer_google_voice_browser_test.cjs
+julia --project=. APPS/JFEM-Boxer/test/boxer_chat_server_test.jl
+julia --project=. APPS/JFEM-Boxer/test/boxer_google_test.jl
+```
+
+The browser checks need Playwright: `WINGFEGEN_PLAYWRIGHT_MODULE` names its module
+directory, and `CHROME_BIN` selects an installed Chrome or Edge when Playwright's
+own browser is not installed.
+
+Two optional checks talk to the real Google service and are never part of the
+tests. Without a key they only record how Google rejects an unknown key. With a
+key in the named environment variable they make one real exchange, use a little
+of the key's allowance and never print the key:
+
+```sh
+node APPS/JFEM-Boxer/test/boxer_live_real_check.cjs                 # the standard browser-direct path; key in BOXER_GEMINI_LIVE_KEY
+julia --project=. APPS/JFEM-Boxer/test/boxer_google_live_check.jl   # Gemini through the Boxer program; key in BOXER_GOOGLE_LIVE_KEY
+```
 
 Actions appear with progress and elapsed time. **Stop** ends the current chat
 request and prevents subsequent tool calls. A solver or export already started
@@ -2610,13 +2791,48 @@ stale actions stop and the chat asks for a new request. Camera changes remain
 available. Opening a different Study and completing an existing dialog form a
 workflow boundary; send the next request after that action finishes.
 
-To connect an external assistant, keep Boxer and its browser open, then use
-**Chat → Settings → Copy MCP configuration**. Paste that JSON into your MCP client's
-server configuration. It selects the current Julia executable, this repository's
-shared project, `BoxerMCP.jl` and the current server's connection file. It contains
-no bearer token. After restarting Boxer, copy a fresh MCP configuration, replace
-the client's previous entry and reconnect; the copied entry identifies that
-specific Boxer server. The copied configuration starts `BoxerMCP.jl` directly;
+**What an assistant can do.** Gemini in the chat and a program connected through
+MCP have the same tools, and through them everything Boxer offers:
+
+| Tool | What it does |
+| --- | --- |
+| `get_state` | Study, progress of the analysis, results summary |
+| `list_actions`, `invoke_action` | every menu action, view and button; an action lists the arguments it takes |
+| `list_inputs`, `set_input` | every input of every form, in the units it shows |
+| `get_parameters`, `update_parameters` | any value or whole table of the Study by key (load cases, engines, points, sections) |
+| `navigate`, `inspect` | open a view; select an element, node or property |
+| `read_view`, `read_reserve_factors` | the report, table or log that is shown; the calculated reserve factors |
+| `find_airfoils`, `set_airfoil` | UIUC database search; NACA code, database profile or typed coordinates |
+| `run_analysis` | start the structural analysis with a stated solution |
+
+`run_analysis` takes the solution: 101 static, 103 normal modes, 105 buckling, 106
+nonlinear static, and sets the Study's Solution to it before the run. A new Study is
+set to 103, so the solution is never left to that setting: a request about load
+cases, a load factor or g case, stresses, deflections or reserve factors runs 101,
+and so does "run" after load cases were generated or changed. In the chat, a call
+whose solution does not fit the words of the request is refused with the solution
+to use. The MCP bridge adds `list_clients`, `get_operation` and `cancel_operation`;
+Gemini adds `web_search`.
+
+**Connecting Codex, Claude or another AI program (MCP).** Press **Options** in the
+chat header. The view explains the bridge and gives the steps for each program,
+with one Copy button each:
+
+| Program | What the button copies | Where it goes |
+| --- | --- | --- |
+| Claude Desktop | the `mcpServers` JSON entry | Settings, Developer, Edit Config (`claude_desktop_config.json`), then restart |
+| Claude Code | `claude mcp add --scope user jfem-boxer -- ...` | paste into a terminal; `/mcp` then lists it |
+| Codex (OpenAI) | a `[mcp_servers.jfem-boxer]` block | the end of `.codex/config.toml` in the user folder, then restart |
+| Others (Cursor, VS Code, Gemini CLI) | the same JSON | the program's MCP server settings, connection type stdio |
+
+Keep the Boxer program running and its browser tab open: the AI program works
+through that tab. The copied text selects the current Julia executable, this
+repository's shared project, `BoxerMCP.jl` and the connection file
+`output/.wingfegen/boxer_mcp.json`. It contains no bearer token. Boxer rewrites that
+file at every start, so the setup is done once and keeps working after a restart;
+copy again only after moving the Boxer folder or changing the Julia installation.
+With two Boxer programs running, the AI program reaches the one started last. The
+copied configuration starts `BoxerMCP.jl` directly;
 Windows needs no additional MCP batch launcher. Optional manual launchers remain
 at `Linux/JFEM-Boxer-MCP.sh` and `Mac/JFEM-Boxer-MCP.command`. They connect to an
 already running Boxer server. The bridge accepts `--discovery FILE` for a specific

@@ -92,11 +92,12 @@ function run_checks()
                 solved=only(OpenJFEM.solve_model(model)["subcases"])
                 @test solved["nonlinear_diagnostics"]["converged"]
                 @test solved["nonlinear_diagnostics"]["nonlinear_method"]=="corotational_shell"
-                @test solved["u_analysis"][dof]≈target rtol=2e-9 atol=2e-11
+                # The MOMENT magnitude is read in single precision.
+                @test solved["u_analysis"][dof]≈target rtol=1e-7 atol=2e-11
                 coordinates=solved["nonlinear_rotation_coordinates"]
                 @test coordinates["internal"]=="GRID_CD_ROTATION_VECTOR"
                 row=only(r for r in coordinates["grid_cd_rotations"] if r["grid_id"]==4)
-                @test row["angles"]≈[0.,target,0.] atol=3e-10
+                @test row["angles"]≈[0.,target,0.] atol=3e-8
             end
             # LANGLE=2 must remain valid at a gimbal singularity.
             model=fixture(folder;single_axis=true,langle=2)

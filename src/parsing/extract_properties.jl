@@ -118,11 +118,9 @@ function extract_pbarl(cards;twbrbml=0)
         # The actual section formulation is selected by TYPE, not that prefix.
         (isempty(group) || occursin(r"^[A-Z]{3}BML[01]$", group)) || throw(ArgumentError("PBARL $pid: unsupported section GROUP $group"))
         isempty(type) && throw(ArgumentError("PBARL $pid requires a section TYPE"))
-        # CHAN2 and T normally use the converged 2D section problem. Only
-        # CHAN2's legacy alternative is verified here. The other existing
-        # closed-form section routes are unchanged by this new selector.
-        twbrbml==1 && type=="T" && throw(ArgumentError(
-            "MDLPRM TWBRBML=1 legacy T-section conversion is not implemented; use explicit verified PBAR/PBEAM properties"))
+        # Library sections are converted by finite elements on the section
+        # (section_fe.jl). MDLPRM TWBRBML=1 selects the beam
+        # library equations instead; they are the closed forms below.
         numeric_values = Float64[]
         for k in dim_start_idx:length(c)
             val = parse_reference_number(safe_get(c, k), nothing)
@@ -130,7 +128,9 @@ function extract_pbarl(cards;twbrbml=0)
                 push!(numeric_values, Float64(val))
             end
         end
-        expected_dim_count = if type == "ROD"
+        expected_dim_count = if section_library_dimension_count(type) !== nothing
+            section_library_dimension_count(type)
+        elseif type == "ROD"
             1
         elseif type == "TUBE" || type == "TUBE2"
             2
@@ -175,10 +175,51 @@ function extract_pbarl(cards;twbrbml=0)
 
         A, I1, I2, J = 1.0, 1.0, 1.0, 1.0
         K1, K2 = 0.0, 0.0
+        I12 = 0.0
         if type == "CHAN2" && length(dims)!=4
             throw(ArgumentError("PBARL $pid CHAN2 requires exactly four section dimensions"))
         end
-        if type == "ROD" && length(dims) >= 1
+        section = nothing
+        section_fe = twbrbml==1 ? nothing : try
+            section_library_properties(type, dims)
+        catch exception
+            exception isa ArgumentError || rethrow()
+            throw(ArgumentError("PBARL $pid: " * exception.msg))
+        end
+        if section_fe !== nothing
+            A, I1, I2, I12, J = section_fe.A, section_fe.I1, section_fe.I2, section_fe.I12, section_fe.J
+            K1, K2 = section_fe.K1, section_fe.K2
+        elseif twbrbml==1 && type == "T" && length(dims) >= 4
+            # Beam library equations: torsion of the two strips with the web
+            # taken to the middle of the flange; shear areas are the web and
+            # the flange.
+            bf = dims[1]; h_t = dims[2]; tf = dims[3]; tw = dims[4]
+            hw = h_t - tf
+            A = bf*tf + hw*tw
+            yc = (hw*tw*hw/2 + bf*tf*(hw + tf/2)) / A
+            I1 = tw*hw^3/12 + tw*hw*(yc - hw/2)^2 + bf*tf^3/12 + bf*tf*(hw + tf/2 - yc)^2
+            I2 = hw*tw^3/12 + tf*bf^3/12
+            J = (bf*tf^3 + (h_t - tf/2)*tw^3)/3
+            K1 = hw*tw/A; K2 = bf*tf/A
+        elseif twbrbml==1 && type == "I" && length(dims) >= 6
+            H = dims[1]; Bb = dims[2]; Bt = dims[3]; tw = dims[4]; tfb = dims[5]; tft = dims[6]
+            hw = H - tfb - tft
+            A = Bb*tfb + hw*tw + Bt*tft
+            yb = (Bb*tfb*tfb/2 + hw*tw*(tfb+hw/2) + Bt*tft*(H-tft/2)) / A
+            I1 = Bb*tfb^3/12 + Bb*tfb*(yb-tfb/2)^2 + tw*hw^3/12 + tw*hw*(yb-tfb-hw/2)^2 + Bt*tft^3/12 + Bt*tft*(yb-(H-tft/2))^2
+            I2 = tfb*Bb^3/12 + hw*tw^3/12 + tft*Bt^3/12
+            J = (Bb*tfb^3 + Bt*tft^3 + (H - (tfb+tft)/2)*tw^3)/3
+            K1 = hw*tw/A; K2 = (5/6)*(Bb*tfb + Bt*tft)/A
+        elseif twbrbml==1 && type == "BOX" && length(dims) >= 4
+            # DIM3 is the thickness of the top and bottom walls, DIM4 of the sides.
+            w = dims[1]; h = dims[2]; t1 = dims[3]; t2 = dims[4]
+            wi = max(w - 2t2, 0.0); hi = max(h - 2t1, 0.0)
+            A = w*h - wi*hi
+            I1 = (w*h^3 - wi*hi^3)/12
+            I2 = (h*w^3 - hi*wi^3)/12
+            J = 2*t1*t2*(w-t2)^2*(h-t1)^2 / (t2*(w-t2) + t1*(h-t1))
+            K1 = 2*hi*t2/A; K2 = 2*wi*t1/A
+        elseif type == "ROD" && length(dims) >= 1
             R = dims[1]; A = pi*R^2; I1 = pi*R^4/4; I2 = I1; J = pi*R^4/2
         elseif (type == "TUBE" || type == "TUBE2") && length(dims) >= 2
             R_out = dims[1]; R_in = _tube_inner_radius(type, dims)
@@ -293,13 +334,24 @@ function extract_pbarl(cards;twbrbml=0)
         end
         d[string(pid)] = Dict("PID"=>pid, "MID"=>mid, "A"=>A, "I"=>I1, "I1"=>I1, "I2"=>I2, "J"=>J, "TYPE"=>type, "K1"=>K1, "K2"=>K2,
             "C1"=>C1, "C2"=>C2, "D1"=>D1, "D2"=>D2, "E1"=>E1, "E2"=>E2, "F1"=>F1, "F2"=>F2, "DIMS"=>copy(dims), "NSM"=>Float64(nsm))
-        type=="T" && (d[string(pid)]["TORSION_FORMULATION"]="saint_venant_2d")
+        d[string(pid)]["I12"]=I12
+        if section_fe !== nothing
+            # N1, N2: centroid relative to the shear centre (PBEAM convention);
+            # a PBARL keeps them for information, a PBEAML uses them.
+            d[string(pid)]["SECTION_METHOD"]="finite_element"
+            d[string(pid)]["SECTION_N1"]=section_fe.N1
+            d[string(pid)]["SECTION_N2"]=section_fe.N2
+            d[string(pid)]["SECTION_CW"]=section_fe.CW
+            d[string(pid)]["SECTION_ELEMENTS"]=section_fe.elements
+        elseif twbrbml==1
+            d[string(pid)]["SECTION_METHOD"]="library_equations"
+        end
+        type=="T" && twbrbml!=1 && (d[string(pid)]["TORSION_FORMULATION"]="saint_venant_2d")
         if type=="CHAN2"
-            d[string(pid)]["I12"]=0.0
             d[string(pid)]["SECTION_CENTROID_Y"]=chan2_section_geometry(dims...).yc
             d[string(pid)]["TORSION_FORMULATION"]=twbrbml==1 ? "legacy_thin_wall" : "saint_venant_2d"
             twbrbml==1 && (d[string(pid)]["TWBRBML"]=1)
-            d[string(pid)]["SECTION_RELATIVE_CHANGE"]=section.relative_change
+            d[string(pid)]["SECTION_RELATIVE_CHANGE"]=section === nothing ? 0.0 : section.relative_change
         end
     end
     return d
@@ -447,7 +499,7 @@ function extract_pbeam(cards)
         J_avg   = (J_a + J_b) / 2.0
 
         # PBEAM NSM is a line density, independent of material density. The
-        # 2013 QRG (PBEAM remark 7) defaults blank end-B NSM to A and blank
+        # Reference QRG (PBEAM remark 7) defaults blank end-B NSM to A and blank
         # intermediate stations to linear A/B interpolation. Preserve the
         # resolved station values and their exact piecewise-linear integral.
         end_b=findfirst(s->s["X"]==1.0,stations)
@@ -503,12 +555,13 @@ function extract_pbeaml(cards;twbrbml=0)
     properties = extract_pbarl(cards;twbrbml)
     for prop in values(properties)
         prop["LIBRARY_CARD"]="PBEAML"
-        if prop["TYPE"] == "T"
-            section=t_section_warping(prop["DIMS"]...)
-            prop["N1A"]=prop["N1B"]=section.N1
-            prop["N2A"]=prop["N2B"]=0.0
+        if get(prop,"SECTION_METHOD","")=="finite_element"
+            # Offsets of the neutral axis from the shear centre, from the
+            # finite-element section solution (every library section).
+            prop["N1A"]=prop["N1B"]=prop["SECTION_N1"]
+            prop["N2A"]=prop["N2B"]=prop["SECTION_N2"]
         elseif prop["TYPE"] == "CHAN2"
-            section=twbrbml==1 ? chan2_section_legacy(prop["DIMS"]...) : chan2_section_warping(prop["DIMS"]...)
+            section=chan2_section_legacy(prop["DIMS"]...)
             prop["N1A"]=prop["N1B"]=section.N1
             prop["N2A"]=prop["N2B"]=0.0
         end
@@ -521,6 +574,76 @@ function extract_pbeaml(cards;twbrbml=0)
             throw(ArgumentError("PBEAML $pid: additional station fields are unsupported"))
     end
     return properties
+end
+
+"""
+    extract_pbrsect(cards, point_cards, set1_cards)
+
+General bar sections (PBRSECT, FORM=GS). The outline is the outer perimeter `OUTP` and optional
+inner perimeters `INP`, each a SET1 of POINT entries; a POINT gives (X1, X2) = (z, y) of the
+element. The section is converted with the finite-element section solution of `section_fe.jl`,
+the conversion method of these entries. Other forms (OP, CP) and the composite and
+core options are not supported.
+"""
+function extract_pbrsect(cards, point_cards, set1_cards)
+    points = Dict{Int,NTuple{2,Float64}}()
+    for c in point_cards
+        id = to_id(parse_reference_number(safe_get(c, 3)))
+        cp = parse_reference_number(safe_get(c, 4), 0)
+        (cp isa Real && cp == 0) || throw(ArgumentError("POINT $id: a coordinate system other than basic is not supported for section outlines"))
+        points[id] = (Float64(parse_reference_number(safe_get(c, 5), 0.0)), Float64(parse_reference_number(safe_get(c, 6), 0.0)))
+    end
+    sets = Dict{Int,Vector{Int}}()
+    for c in set1_cards
+        sid = to_id(parse_reference_number(safe_get(c, 3)))
+        ids = Int[]; fields = [strip(string(x)) for x in c[4:end]]
+        k = 1
+        while k <= length(fields)
+            f = uppercase(fields[k])
+            if isempty(f) || _is_continuation_marker(f)
+                k += 1
+            elseif f == "THRU"
+                last_id = to_id(parse_reference_number(fields[k+1])); append!(ids, (ids[end]+1):last_id); k += 2
+            else
+                value = parse_reference_number(f, nothing)
+                value isa Real && push!(ids, to_id(value)); k += 1
+            end
+        end
+        sets[sid] = ids
+    end
+    d = Dict()
+    for c in cards
+        pid = to_id(parse_reference_number(safe_get(c, 3)))
+        mid = to_id(parse_reference_number(safe_get(c, 4)))
+        form = uppercase(strip(string(safe_get(c, 5, ""))))
+        form == "GS" || throw(ArgumentError("PBRSECT $pid: FORM=$form is not supported; only the general section GS with OUTP and INP perimeters is"))
+        nsm = parse_reference_number(safe_get(c, 6), 0.0)
+        # The keyword continuation is free text that the fixed-field reader has cut every eight columns.
+        text = uppercase(join(strip(string(x)) for x in c[min(11, length(c)+1):end] if !(x isa AbstractString && _is_continuation_marker(x))))
+        text = replace(text, r"\s" => "")
+        outer = match(r"OUTP=(\d+)", text)
+        outer === nothing && throw(ArgumentError("PBRSECT $pid: the outer perimeter OUTP=set is missing"))
+        unsupported = [m.match for m in eachmatch(r"[A-Z]+(?=[=(])", text) if !(m.match in ("OUTP", "INP"))]
+        isempty(unsupported) || throw(ArgumentError("PBRSECT $pid: keyword $(first(unsupported)) is not supported; only OUTP and INP are"))
+        loops = SectionLoop[]
+        for sid in vcat(parse(Int, outer[1]), [parse(Int, m[1]) for m in eachmatch(r"INP(?:\(\d+\))?=(\d+)", text)])
+            haskey(sets, sid) || throw(ArgumentError("PBRSECT $pid: perimeter set $sid is not a SET1 entry"))
+            missing_points = [p for p in sets[sid] if !haskey(points, p)]
+            isempty(missing_points) || throw(ArgumentError("PBRSECT $pid: perimeter set $sid names POINT $(first(missing_points)), which is not defined"))
+            push!(loops, SectionLoop([points[p] for p in sets[sid]]))
+        end
+        p = try
+            section_properties(loops)
+        catch exception
+            exception isa ArgumentError || rethrow()
+            throw(ArgumentError("PBRSECT $pid: " * exception.msg))
+        end
+        d[string(pid)] = Dict{String,Any}("PID"=>pid, "MID"=>mid, "A"=>p.A, "I"=>p.I1, "I1"=>p.I1, "I2"=>p.I2, "I12"=>p.I12, "J"=>p.J,
+            "TYPE"=>"PBRSECT", "K1"=>p.K1, "K2"=>p.K2, "C1"=>0.0, "C2"=>0.0, "D1"=>0.0, "D2"=>0.0, "E1"=>0.0, "E2"=>0.0, "F1"=>0.0, "F2"=>0.0,
+            "DIMS"=>Float64[], "NSM"=>Float64(nsm), "SECTION_METHOD"=>"finite_element", "SECTION_N1"=>p.N1, "SECTION_N2"=>p.N2,
+            "SECTION_CW"=>p.CW, "SECTION_ELEMENTS"=>p.elements)
+    end
+    return d
 end
 
 function extract_pcomp(cards)

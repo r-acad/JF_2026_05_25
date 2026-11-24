@@ -5,6 +5,136 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Release clean-up and validation rerun
+
+- The public validation suite was run again with this source: 24 analyses and
+  44 quantities give 34 PASS, the two documented coarse-mesh FAIL and 8
+  REGRESSION_PASS, as before; the analytical convergence set gives 98 of 126
+  comparisons within tolerance, the other 28 being its coarse meshes, as
+  recorded. `validation/comparison.csv` and `comparison.md` now hold this run
+  (the earlier files dated from 19 October and predated later element
+  corrections), and `validation/VALIDATION_SUMMARY.md` lists the present values
+  beside the recorded ones. Case cards and per-case result files keep their
+  recorded revisions.
+- Source comments, tests and this changelog describe comparisons against "the
+  reference solver" throughout; the input format keeps its name where a file
+  format is meant.
+- Removed the unreferenced `utils/julia_tools/build_boxer_sysimage.jl`
+  (applications share the repository image). The release test index now
+  includes the section-conversion and eight-node shell tests.
+- Three tests compared responses to loads at double precision; their
+  tolerances now allow for FORCE and MOMENT fields being read in single
+  precision. `shell_reference_offset_test.jl` still fails as it did before
+  this release: the stiffness of a CQUAD4 with ZOFFS differs from the exact
+  offset transform by 4e-6 of its norm.
+
+### Eight-node shell stiffness and loads of the quadratic shells
+
+- A flat parallelogram CQUAD8 with centred midside nodes and an isotropic
+  PSHELL now has its own eight-node stiffness instead of the six-triangle
+  subdivision. Membrane, bending and transverse shear follow integration rules
+  measured on single-element stiffness matrices of the reference solver
+  (squares, 2:1 and 5:1 rectangles, a 60 degree rhombus, thin and thick,
+  Poisson ratio 0 and 0.33, with and without MID2/MID3) and reproduce those
+  matrices to the printed digits. The element has no stiffness about its
+  normal. Other CQUAD8 (curved, tapered, off-centre midside nodes, laminates,
+  MID4) keep the subdivision. `JFEM_CQUAD8_NATIVE=0` restores the subdivision
+  everywhere.
+- PLOAD4 on CQUAD8 and CTRIA6 now gives the consistent nodal forces of the
+  quadratic surface. A CQUAD8 previously received half of its pressure, shared
+  equally between the eight nodes.
+- PLOAD4 with different corner pressures P1-P4 is accepted on CQUAD8 and
+  CTRIA6 (bilinear between the corners of the quadrilateral, linear on the
+  triangle). On other elements it is still rejected, now when the load set is
+  selected instead of when the deck is read.
+- GRAV on CQUAD8 and CTRIA6 follows the element mass matrix: consistent forces
+  with `PARAM,COUPMASS`, the diagonal mass otherwise. The CTRIA6 area was
+  previously taken from a corner and a midside node.
+- The diagonal (lumped) mass of CQUAD8 and CTRIA6 now sits on the midside
+  nodes only, a quarter of the element mass on each midside node of a
+  parallelogram CQUAD8 and none at the corners. This reproduces the first six
+  frequencies of a lumped-mass CQUAD8 cantilever of the reference solver; the
+  earlier diagonal scaling was up to 12 % off. The CTRIA6 rule (a third on
+  each midside node) follows the same idea and is not separately confirmed.
+- Temperature loads on CQUAD8 and CTRIA6 (isotropic PSHELL): a temperature
+  set selected with `TEMPERATURE(LOAD)` now produces the consistent forces of
+  the thermal membrane force, and `TEMPP1` is read for these elements: its
+  mean temperature replaces the average of the grid temperatures and its
+  gradient through the thickness produces the consistent thermal moments.
+  Before, these elements received no temperature load. `TEMPP1` on CQUAD4,
+  CTRIA3 and CQUADR is still not applied.
+- Still open for these elements: geometric stiffness, CTRIA6 bending and
+  CQUADR.
+
+### Beam section conversion by finite elements
+
+- PBARL and PBEAML sections are converted by finite elements, as the reference
+  solver converts them: the outline is meshed with six-node triangles and the
+  torsion constant and shear factors come from the warping and shear-stress
+  solutions on that mesh; area and moments of inertia are exact for the outline. Converted
+  sections: ROD, TUBE, TUBE2, BAR, BOX, BOX1, T, T1, T2, I, I1, CHAN, CHAN1,
+  CHAN2, Z, L, H, CROSS, HAT and HEXA. The torsion constant agrees with the
+  reference conversion within 0.43 % over 85 non-circular sections (0.17 %
+  rms); the earlier closed-form values differed by up to tens of percent on
+  thick-walled open sections.
+- The product of inertia, the offset of the centroid from the shear centre
+  (PBEAML N1/N2) and the warping constant come from the same solution.
+  Symmetric outlines give exact zeros.
+- `MDLPRM,TWBRBML,1` selects the beam-library equations for T, I and BOX.
+- PBRSECT with `FORM=GS` and outlines given by `OUTP`/`INP` point sets is
+  read and converted by the same method, including hollow sections.
+- Boxer uses the same converted torsion constants for its stringer and
+  spar-cap sections, and its analytic sensitivities are scaled to them.
+
+### Sliver CTRIA3 bending
+
+- The residual bending flexibility of a CTRIA3 is limited in both of its work
+  directions: the second term may not fall below 1/10000 of the first. This
+  reproduces the transverse deflection of eleven single-element sliver cases
+  of the reference solver to six digits; elements of ordinary shape are
+  unchanged.
+
+### Boxer engines attach to the rib in line with them
+
+- A new engine is attached by default to the rib in line with it: the interior
+  physical rib whose front-spar point is nearest the engine's BASIC Y, the
+  engine lying along the line of flight (BASIC X). The attachment rib lists
+  have a new first choice, **Automatic**, which is rib number 0 in a Study
+  file and the value of `front_rib` and `aft_rib` when they are left out.
+  It follows the engine when its Y position or the rib layout changes; after
+  Create FEM the list, the mount record and Inspect name the rib in use.
+- Numbered ribs keep working as before, so saved Studies are unchanged. The
+  earlier default was rib 2 whatever the engine position.
+- The assistants (Gemini and MCP) are told to leave the attachment ribs out
+  unless the user names a rib.
+
+### Load-reversal buckling factors and higher-order shell mass
+
+- `EIGRL` with `V1 = 0.`, blank `V2` and an `ND` count now returns the ND lowest
+  positive buckling factors together with the load-reversal (negative) factors
+  in a window below zero, ordered by magnitude. The window is 0.9 times the
+  lowest positive factor, or 0.9 times the largest positive factor when the
+  model has fewer positive factors than ND. An inertia count is made first, so
+  an empty window adds one factorization and no eigen-solve. Requests with an
+  explicit `V2`, a non-zero `V1` or blank bounds are unchanged.
+- Small models that run out of positive factors before ND are completed from
+  the dense pencil, so far finite factors are no longer missed.
+- For the same request, a buckling factor is reported as finite only up to
+  2^23 * max|K| / max|Kg|. Above that the geometric stiffness in that direction
+  is below one single-precision unit of the elastic stiffness and the factor is
+  round-off. Valid far factors below the ceiling are no longer rejected by a
+  fixed eigenpair-residual test in the dense completion.
+- CQUAD8 and CTRIA6 now contribute mass: a consistent mass integrated over the
+  quadratic, possibly curved, mid-surface with `PARAM,COUPMASS`, and a diagonal
+  mass otherwise. Their stiffness and their diagonal mass are described under
+  "Eight-node shell stiffness and loads of the quadratic shells" above.
+- FORCE and MOMENT magnitudes and direction components are now held in single
+  precision, as the reference solver stores them. A direction typed with seven
+  digits is not exactly in the plane of a rotated flat panel; the tiny
+  out-of-plane residue drives a bending response that previously differed from
+  the reference by up to 33 % of that (very small) response.
+- Add regression tests for these changes.
+
 ### Buckling differential work and signed extraction
 
 - Complete the projected geometric-stiffness operator for ordinary warped
@@ -23,6 +153,142 @@ Versions follow [Semantic Versioning](https://semver.org/).
 - Verify each retried member and retain complete-model closure, positive-volume
   and save/reopen checks. Stop safely if rollback or recovery cannot be confirmed.
 - Add regression coverage for rotating rib planes and curved spar-web profiles.
+
+### Boxer chat: one-button Gemini connection and plain-language commands
+
+- Gemini now connects directly from the browser to Google's Live service, the
+  way the OpenFLIGHT aircraft-model creator does: one fixed model, typed and
+  spoken requests, spoken replies, and Boxer's registered actions as tools. The
+  Boxer program takes no part in the connection and never sees the key.
+- The panel is reduced to a status line, Key, Clear, Help and close buttons, the
+  conversation, a hold-to-talk Mic button, a text box and Send. First use shows
+  one message with one field, "Gemini API key", and one Connect button; later
+  the panel connects by itself. Every other choice is under one folded section,
+  "Advanced options": Gemini through the Boxer program with a choice of model,
+  Ollama, another AI server, commands only, voice choices and MCP.
+- The Gemini key is remembered in the browser's local storage (not in Study
+  files, never sent to the Boxer program) with a Forget key control. This
+  replaces the earlier session-only rule for this key.
+- Connecting shows the seconds passed and gives up after 15 seconds. A failure
+  states what happened, Google's close code and words, and one action; "Copy
+  details" copies a report that never contains the key. Text that is certainly
+  not a key (project number, OAuth client ID, web address) is named and not sent.
+- Help explains what a key is and looks like, the six steps to get one, cost,
+  where it is stored and what each failure message means.
+- Gemini through the Boxer program (advanced): the connection test now uses a
+  plain request (12 s limit) and a request carrying Boxer's actions (20 s limit)
+  on at most two models, and names the silent step instead of waiting a minute.
+- Settings open as a separate view instead of a strip above the conversation.
+  Every option states what it is, whether it is required and what to enter, and
+  a status line reads Not connected, Connected to the model, or the exact
+  problem and its remedy.
+- Pasted keys are cleaned of spaces, quotes and line breaks. A wrong key (which
+  Google reports as HTTP 400), key restrictions, verification, country or
+  billing conditions, quota and rate limits, an unknown model, an overloaded
+  service, a blocked or offline network and a timeout each produce a
+  plain-language message with the next step. An overloaded reply is repeated
+  once; nothing else is retried and the model is never switched mid-conversation.
+- Gemini replies with unknown part types, an empty answer, a blocked prompt or a
+  length stop are handled explicitly. Rejected tool declarations fall back once
+  to a conservative schema. Voice transcription no longer sends sampling
+  parameters that current models reject.
+- Built-in commands (no AI) understand everyday phrasings such as "make the
+  aspect ratio = 15", "use an aspect ratio of 15" or "put 2,5 mm as upper skin
+  thickness": interchangeable verbs, "=", "to" and "of", decimal commas, unit
+  conversion, synonyms, partial and plural names, small typos, relative changes
+  and several requests in one sentence. Ambiguous names ask for a choice. A
+  request that cannot be resolved is restated with the closest names and two
+  working examples, and changes nothing.
+- While an AI option is selected but unusable, simple requests are still carried
+  out by the built-in commands and a notice says so.
+- Add `boxer_live_browser_test.cjs` (a local WebSocket stand-in for the Live
+  service), `boxer_chat_language_test.cjs` and the opt-in real-service checks
+  `boxer_live_real_check.cjs` and `boxer_google_live_check.jl`, and extend the
+  chat, Google and voice tests.
+
+- Boxer chat, Gemini from the browser: the connection now asks for
+  `gemini-3.1-flash-live-preview`, then `gemini-3.8-live`, then
+  `gemini-2.5-flash-native-audio-latest`. With a working key the last one closed
+  accepted sessions with code 1007 "The audio content type (CONTENT_TYPE_AUDIO) is
+  not supported for this model configuration", returned empty answers and stopped
+  answering in two of six test sessions; the first two completed all six.
+- Boxer chat: a session that Google drops, leaves empty or leaves silent is
+  replaced without a message, and a request that had not changed anything is sent
+  again (twice at most). A request that already carried out an action is never
+  repeated; Boxer reports how many actions were done. A new session is handed the
+  last messages of the conversation.
+- Boxer chat: questions about the world outside the Study (an existing aircraft, a
+  material property) are answered from Gemini's own knowledge, marked as approximate.
+  When the user explicitly asks to search the web, Gemini uses a new `web_search`
+  action (Google Search with the user's key, made from the browser). What was
+  searched and found is shown in the conversation with links; a lookup never changes
+  the Study. Keys without a search allowance on the current models are served by a
+  short search-only session on `gemini-2.5-flash-native-audio-latest`; if no search
+  answers, Gemini uses its own knowledge and says so. The instructions no longer make
+  Gemini refuse questions about the world outside the Study.
+- Boxer chat: the conversation is recorded for later assessment: requests, the rules
+  and messages given to Gemini, its replies and working notes, every tool call with
+  its result, Boxer's own entries and connection events. `Export` saves it as a
+  `.jsonl` file; the Boxer program appends each conversation to
+  `output/chat_conversations/` through the new `POST /api/chat/record`. No key is
+  kept, the record can be switched off and deleted, and it stays on the computer.
+- Boxer chat: Gemini is told to work by itself: fill missing details with sensible
+  approximate values, carry the request out, report the assumptions and not close
+  with a question. A reply that asks instead of doing the requested action is sent
+  back once ("Boxer check"); the option "Gemini decides by itself" switches this
+  off. A refused `update_parameters` returns the current value of the keys so that
+  the call can be corrected without the user, and an unrequested web search now
+  tells Gemini to carry on with the request from its own knowledge.
+- Boxer: the refusal of an engine with unknown fields names those fields and the
+  ones that exist; the assistant's guide describes the engine table, engine thrust
+  and airfoil codes.
+- Boxer assistants: Gemini and the MCP bridge now have the same complete tool set. New for
+  both: `get_parameters` (any Study value or table by key), `run_analysis` with a
+  stated solution, `read_view`, `read_reserve_factors`; new for the MCP bridge:
+  `find_airfoils` and `set_airfoil` (moved into `web/boxer_airfoil_tools.js` and
+  registered as Boxer actions); new for Gemini: `inspect`, and the arguments an action
+  takes in `list_actions`. `run_analysis` requires the solution and sets it before the
+  run: load cases run SOL 101 instead of the 103 a new Study is set to, also when the
+  request is "run" after load cases were generated. A name that is not a NACA code is
+  refused at the airfoil code input through every bridge.
+- Boxer: the mesh and geometry status messages are in the first header row, between the
+  file controls and the mesh switches, which frees one line of the window. A message
+  that does not fit ends in an ellipsis and shows in full as a tooltip.
+- Boxer chat: a new `Options` button opens the MCP bridge for other AI programs, with
+  step-by-step instructions and a Copy button each for Claude Desktop, Claude Code,
+  Codex and other programs. The copied configuration now names the connection file
+  with the fixed name (`boxer_mcp.json`), so a program is set up once and keeps
+  working after Boxer restarts. The section left the Key view's advanced options.
+- Boxer chat: a Gemini session that Google closes while nothing is being asked is no
+  longer replaced at once; the next message or the next press of Mic opens a new one.
+  An idle panel used to open a new session every two minutes. Holding Mic on a
+  closed session now connects and listens in the same press.
+- Boxer chat: a `Voice on` / `Voice off` button in the panel header switches
+  Gemini's spoken replies off and on. With the voice off nothing is played and the
+  reply is shown as text; the choice is remembered, and the conversation record
+  notes whether each reply was played.
+- Boxer chat: Gemini can set airfoils that are not NACA 4- or 5-digit codes. The new
+  tool `find_airfoils` searches the UIUC catalogue by file name and returns the
+  nearest names; `set_airfoil` applies a NACA code, a UIUC profile or typed
+  coordinates at the root, the tip or an intermediate section, answers with the
+  measured thickness and camber, and can scale the section to a requested thickness
+  through `loft.thickness_stations` while the other sections keep theirs. A
+  designation such as "NACA 64A415" is no longer typed into the airfoil code box,
+  where it left the Airfoils form invalid and blocked every later change; a form
+  already in that state is repaired when the section is set.
+- Boxer chat: Gemini is given a short description of how the planform and spar
+  point tables work and changes them as whole lists with `update_parameters`;
+  `list_inputs` puts such tables first with their meaning, current list and how to
+  change them. A refused input now carries Boxer's own reason (for example "Root and
+  tip remain at eta 0 and 1") to the user and to Gemini, and a table change is
+  described in the conversation by name and rows.
+- Boxer chat: a reply that announces a change although no action was carried out is
+  caught ("Boxer check"), the user is told that nothing changed, and Gemini is asked
+  once to make the change. A web search is made only when the words of the request
+  ask for one; "look up" is answered from Gemini's own knowledge.
+- Boxer chat: replies are shown as text by default (a written copy of the spoken
+  answer), microphone sound uses the current `realtimeInput.audio` message, and
+  the model field under Advanced options is empty unless a name is typed.
 
 ### Google Gemini and voice in Boxer
 
@@ -3025,7 +3291,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
   eigensolve request, deterministic threading, allocation-free hot paths)
   with their opt-out flags and the two research opt-ins; corrected the
   public-suite description to the current 19-row state (all rows pass
-  parity against the commercial reference; two classical-plate analytical
+  parity against the reference solver; two classical-plate analytical
   rows documented as reference-defect exceptions).
 
 ### Performance

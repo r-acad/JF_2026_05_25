@@ -46,8 +46,12 @@ const F=BoxerControlFixture
         @test JSON.parsefile(path)["token"]==F.boxer_control_broker(st).token
         configuration=F.boxer_control_configuration(st)
         launch=configuration["mcp_client_config"]["mcpServers"]["JFEM-Boxer"]
-        @test last(launch["args"])==path
+        # The copied configuration names the connection file with the fixed name, which every start rewrites.
+        @test last(launch["args"])==joinpath(st.deck_store_dir,"boxer_mcp.json")
+        @test JSON.parsefile(last(launch["args"]))==JSON.parsefile(path)
         @test endswith(launch["args"][3],"BoxerMCP.jl")
+        # A project folder ending in a separator would break the quoted command line that the Options view offers.
+        @test startswith(launch["args"][2],"--project=") && !endswith(launch["args"][2],"/") && !endswith(launch["args"][2],"\\")
         @test !occursin(configuration["token"],JSON.json(configuration["mcp_client_config"]))
         @test_throws ArgumentError F.configure_boxer_mcp!(st,"http://remote.example:8080/")
         @test_throws ArgumentError F.boxer_control_snapshot(st)
@@ -136,8 +140,9 @@ end
         @test F.rpc(st,Dict();session,method="GET").status==405
         @test F.rpc(st,F.message(3,"tools/list");session,version="2099-01-01").status==400
         tools=JSON.parse(String(F.rpc(st,F.message(3,"tools/list");session).body))["result"]["tools"]
-        @test length(tools)==11
-        @test Set(tool["name"] for tool in tools)==Set(["list_clients","get_state","list_actions","list_inputs","invoke_action","set_input","update_parameters","inspect","navigate","get_operation","cancel_operation"])
+        @test length(tools)==17
+        @test Set(tool["name"] for tool in tools)==Set(["list_clients","get_state","list_actions","list_inputs","invoke_action","set_input","update_parameters","inspect","navigate","get_operation","cancel_operation",
+            "get_parameters","run_analysis","read_view","read_reserve_factors","find_airfoils","set_airfoil"])
         listed=JSON.parse(String(F.rpc(st,F.message(4,"tools/call",Dict("name"=>"list_actions","arguments"=>Dict("query"=>"mesh")));session).body))["result"]
         @test !listed["isError"] && listed["structuredContent"]["total"]==1
         @test only(listed["structuredContent"]["items"])["id"]=="create-fem"
@@ -264,7 +269,7 @@ end
         op=F.boxer_control_enqueue!(st,"set_input",Dict("input_id"=>"skin-mm","value"=>2.5);expected_revision=1)
         F.boxer_control_poll!(st,auth)
         fresh=Dict("title"=>"JFEM-Boxer generic document","revision"=>2,
-            "study"=>Dict("title"=>"Sized NC212 wing","name"=>"NC212.wingfem.json","path"=>raw"C:\Studies\NC212.wingfem.json"),
+            "study"=>Dict("title"=>"Sized Regional wing","name"=>"Regional.wingfem.json","path"=>raw"C:\Studies\Regional.wingfem.json"),
             "parameters"=>Dict("properties.upper_skin_thickness"=>.0025))
         response=F.browser_request(st,"result",merge(auth,Dict("id"=>op["id"],"state"=>fresh,
             "result"=>Dict("ok"=>true,"status"=>"updated"))))
@@ -274,11 +279,11 @@ end
         @test immediate["state"]["parameters"]["properties.upper_skin_thickness"]==.0025
         @test immediate["state"]["revision"]==2
         @test immediate["client"]["revision"]==2
-        @test immediate["client"]["title"]=="Sized NC212 wing"
-        @test only(F.boxer_control_clients(st))["title"]=="Sized NC212 wing"
+        @test immediate["client"]["title"]=="Sized Regional wing"
+        @test only(F.boxer_control_clients(st))["title"]=="Sized Regional wing"
         resources=F.boxer_mcp_resources(st)
-        @test only(filter(resource->endswith(resource["uri"],"/state"),resources))["name"]=="Sized NC212 wing current state"
-        @test only(filter(resource->endswith(resource["uri"],"/interface"),resources))["name"]=="Sized NC212 wing menu and input catalog"
+        @test only(filter(resource->endswith(resource["uri"],"/state"),resources))["name"]=="Sized Regional wing current state"
+        @test only(filter(resource->endswith(resource["uri"],"/interface"),resources))["name"]=="Sized Regional wing menu and input catalog"
         duplicate=F.boxer_control_result!(st,merge(auth,Dict("id"=>op["id"],"state"=>original,"result"=>Dict())))
         @test duplicate["duplicate"]
         @test F.boxer_control_snapshot(st)["state"]["revision"]==2

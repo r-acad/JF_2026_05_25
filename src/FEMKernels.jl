@@ -9259,14 +9259,24 @@ end
 
 Regularize the two residual bending channels in orthogonal work coordinates
 after eliminating the third tying channel. The native legacy algorithm uses
-a dimensionless first-diagonal floor of 1/10000 and a squared-correlation
-limit of 85/100. These are reconstructed element stability conventions,
-not constitutive constants or eigenvalue tolerances. The latter bound leaves
-at least 15 percent of the uncoupled determinant in this two-channel block.
+a dimensionless first-diagonal floor of 1/10000, a floor of the second
+diagonal at 1/10000 of the first, and a squared-correlation limit of 85/100.
+These are reconstructed element stability conventions, not constitutive
+constants or eigenvalue tolerances. The last bound leaves at least 15 percent
+of the uncoupled determinant in this two-channel block.
 
-The second orthogonal diagonal and the third tying channel are preserved.
-Return true only when a bound changes the flexibility. Inactive cells remain
-bitwise unchanged, and transverse-shear flexibility is not modified.
+The floor of the second diagonal acts on sliver triangles, whose flexibility
+across edge 1-2 would otherwise vanish with the square of the smallest angle.
+It was measured on eleven single-element slivers of the reference solver
+(height 0.05 to 0.0005 of the base, three apex positions, thickness
+0.0003 to 0.03, isotropic and laminated, two unit systems): with it the
+deflection of the apex under a normal force agrees with the reference to
+six digits in every case; without it the element is up to three times
+too stiff, and every other response of those elements already agreed.
+
+The third tying channel is preserved. Return true only when a bound changes
+the flexibility. Inactive cells remain bitwise unchanged, and
+transverse-shear flexibility is not modified.
 """
 @inline function tria3_guard_bending_flexibility!(Zb, La, Lb, cosine_angle, sine_angle, Dnormal)
     T = eltype(Zb)
@@ -9282,13 +9292,14 @@ bitwise unchanged, and transverse-shear flexibility is not modified.
     isfinite(p22) && p22 > zero(T) || throw(ArgumentError(
         "Triangle residual normal flexibility must be positive"))
     a = max(p11,one(T)/10000)
-    limit = sqrt((T(85)/100)*a*p22)
+    q = max(p22,a/10000)
+    limit = sqrt((T(85)/100)*a*q)
     b = clamp(p12,-limit,limit)
-    a == p11 && b == p12 && return false
+    a == p11 && b == p12 && q == p22 && return false
     # Inverse congruence: both edge-coordinate diagonals generally change.
     new_h11 = a
     new_h12 = c*a+s*b
-    new_h22 = c*c*a+2c*s*b+s*s*p22
+    new_h22 = c*c*a+2c*s*b+s*s*q
     Zb[1,1] += (new_h11-h11)*La^2/scale
     Zb[1,2] += (new_h12-h12)*La*Lb/scale
     Zb[2,1] = Zb[1,2]
@@ -11566,6 +11577,118 @@ function reference_lumped_mass_tria3(coords::AbstractMatrix, rho::Float64, h::Fl
     return Me
 end
 
+"""Shape functions and natural derivatives of the eight-node serendipity
+quadrilateral, in CQUAD8 order: corners G1-G4, then midsides G5 (G1-G2),
+G6 (G2-G3), G7 (G3-G4), G8 (G4-G1)."""
+function shape_quad8(r::Float64, s::Float64)
+    rc = (-1.0, 1.0, 1.0, -1.0); sc = (-1.0, -1.0, 1.0, 1.0)
+    N = zeros(8); dr = zeros(8); ds = zeros(8)
+    @inbounds for k in 1:4
+        a = 1 + rc[k]*r; b = 1 + sc[k]*s; c = rc[k]*r + sc[k]*s - 1
+        N[k] = 0.25*a*b*c
+        dr[k] = 0.25*rc[k]*b*(c + a)
+        ds[k] = 0.25*sc[k]*a*(c + b)
+    end
+    N[5] = 0.5*(1 - r^2)*(1 - s); dr[5] = -r*(1 - s);       ds[5] = -0.5*(1 - r^2)
+    N[6] = 0.5*(1 + r)*(1 - s^2); dr[6] = 0.5*(1 - s^2);    ds[6] = -s*(1 + r)
+    N[7] = 0.5*(1 - r^2)*(1 + s); dr[7] = -r*(1 + s);       ds[7] = 0.5*(1 - r^2)
+    N[8] = 0.5*(1 - r)*(1 - s^2); dr[8] = -0.5*(1 - s^2);   ds[8] = -s*(1 - r)
+    return N, dr, ds
+end
+
+"""Shape functions and area-coordinate derivatives (with respect to L1, L2;
+L3 = 1-L1-L2) of the six-node triangle, in CTRIA6 order: corners G1-G3, then
+midsides G4 (G1-G2), G5 (G2-G3), G6 (G3-G1)."""
+function shape_tria6(L1::Float64, L2::Float64)
+    L3 = 1 - L1 - L2
+    N = [L1*(2L1 - 1), L2*(2L2 - 1), L3*(2L3 - 1), 4L1*L2, 4L2*L3, 4L3*L1]
+    d1 = [4L1 - 1, 0.0, -(4L3 - 1), 4L2, -4L2, 4(L3 - L1)]
+    d2 = [0.0, 4L2 - 1, -(4L3 - 1), 4L1, 4(L3 - L2), -4L1]
+    return N, d1, d2
+end
+
+# (natural coordinates, weight) rules: 3x3 Gauss on the square; the 7-point
+# degree-5 rule on the unit triangle (weights sum to 1/2).
+function _higher_order_shell_rule(n::Int)
+    if n == 8
+        g = sqrt(0.6); pts = (-g, 0.0, g); w = (5/9, 8/9, 5/9)
+        return [(pts[i], pts[j], w[i]*w[j]) for i in 1:3 for j in 1:3]
+    elseif n == 6
+        a1 = (6 - sqrt(15))/21; a2 = (6 + sqrt(15))/21
+        w1 = (155 - sqrt(15))/2400; w2 = (155 + sqrt(15))/2400
+        return [(1/3, 1/3, 9/80),
+                (a1, a1, w1), (1 - 2a1, a1, w1), (a1, 1 - 2a1, w1),
+                (a2, a2, w2), (1 - 2a2, a2, w2), (a2, 1 - 2a2, w2)]
+    end
+    throw(ArgumentError("higher-order shell rule supports 6 or 8 nodes, received $n"))
+end
+
+"""
+    consistent_mass_shell_higher_order(xyz, mass_moments; lumped=false) -> 6n×6n Matrix
+
+Mass matrix of a CQUAD8 (n=8) or CTRIA6 (n=6) shell in the frame of `xyz`
+(n×3 node coordinates, normally BASIC). It integrates the quadratic
+isoparametric interpolation over the true, possibly curved, mid-surface.
+
+`mass_moments=(∫ρ dz, ∫ρ z dz, ∫ρ z² dz)` are about the reference surface. The
+velocity of a point at height z is `u + θ × (z n)`, so the zeroth moment loads
+the translations, the second loads the rotations tangent to the surface, and
+the first couples them; rotation about the normal carries no mass.
+
+`lumped=true` returns the diagonal mass of the reference solver: the whole
+element mass sits on the midside nodes (a quarter each on a parallelogram
+CQUAD8, a third each on a straight CTRIA6) and the corners carry none; on other
+shapes the midside shares follow the consistent diagonal. No rotary terms. The
+CQUAD8 rule reproduces the first six frequencies of a lumped-mass cantilever of
+the reference solver; the CTRIA6 rule is the same idea, not separately confirmed.
+"""
+function consistent_mass_shell_higher_order(xyz::AbstractMatrix, mass_moments; lumped::Bool=false)
+    n = size(xyz, 1)
+    n in (6, 8) || throw(ArgumentError("expected 6 or 8 shell nodes, received $n"))
+    m0, m1, m2 = mass_moments
+    Me = zeros(6n, 6n)
+    area = 0.0
+    for (a, b, w) in _higher_order_shell_rule(n)
+        N, da, db = n == 8 ? shape_quad8(a, b) : shape_tria6(a, b)
+        ga = zeros(3); gb = zeros(3)
+        @inbounds for k in 1:n, c in 1:3
+            ga[c] += da[k]*xyz[k, c]; gb[c] += db[k]*xyz[k, c]
+        end
+        nx = ga[2]*gb[3] - ga[3]*gb[2]; ny = ga[3]*gb[1] - ga[1]*gb[3]; nz = ga[1]*gb[2] - ga[2]*gb[1]
+        dA = sqrt(nx^2 + ny^2 + nz^2)
+        dA < 1e-300 && continue
+        nrm = (nx/dA, ny/dA, nz/dA)
+        wA = w*dA; area += wA
+        # u·(θ×n) = -uᵀ[n]×θ ; |θ×n|² = θᵀ(I - nnᵀ)θ
+        C = (( 0.0,  nrm[3], -nrm[2]), (-nrm[3], 0.0,  nrm[1]), ( nrm[2], -nrm[1], 0.0))
+        @inbounds for j in 1:n, i in 1:n
+            f = wA*N[i]*N[j]; bi = 6(i - 1); bj = 6(j - 1)
+            for c in 1:3
+                Me[bi+c, bj+c] += m0*f
+            end
+            lumped && continue
+            for p in 1:3, q in 1:3
+                iszero(m2) || (Me[bi+3+p, bj+3+q] += m2*f*((p == q ? 1.0 : 0.0) - nrm[p]*nrm[q]))
+                if !iszero(m1)
+                    Me[bi+p, bj+3+q] += m1*f*C[p][q]
+                    Me[bi+3+q, bj+p] += m1*f*C[p][q]
+                end
+            end
+        end
+    end
+    if lumped
+        diagonal = [Me[6(k - 1)+1, 6(k - 1)+1] for k in 1:n]
+        first_midside = div(n, 2) + 1
+        total = sum(diagonal[first_midside:n])
+        fill!(Me, 0.0)
+        total > 0 || return Me
+        @inbounds for k in first_midside:n, c in 1:3
+            Me[6(k - 1)+c, 6(k - 1)+c] = m0*area*diagonal[k]/total
+        end
+    end
+    return Me
+end
+
 """
     consistent_mass_frame3d(L, rho, A, Iy, Iz) -> 12×12 Matrix
 
@@ -12695,7 +12818,7 @@ matrices and per-subcase stress output on a 46-geometry extraction corpus
     field relative to the naive int(s) = int(r) = 1/6; Dss, Drr, Drs the
     second-moment defects (one exactly-snapping gauge). With both corrections
     every straight wedge of the 70-geometry extraction corpus reproduces the
-    reference K to F06 print precision (~2e-7 relF; previously 5.6e-2 worst).
+    reference K to print precision (~2e-7 relF; previously 5.6e-2 worst).
   - when the element axis is TILTED relative to the mid-plane normal, the whole
     construction above is applied in the frame perpendicular to the recovered
     director `_cpenta6_director` (stage 30, 2026-08-06), which takes the tilted
@@ -12812,7 +12935,7 @@ function _cpenta6_reference_stiffness(coords::AbstractMatrix{Float64}, E::Float6
         # closed form, 2026-08-05 stage 23-26: first-/second-moment defects of the
         # c-mode influence field, homogeneous in the mid-plane edge lengths).
         # With this term every straight (vertical or tapered-base-prism) wedge in
-        # the 70-geometry extraction corpus reproduces the reference K to F06
+        # the 70-geometry extraction corpus reproduces the reference K to
         # print precision (~2e-7 relF); tilted directors remain a documented
         # open refinement.
         La = sqrt(dot(a, a)); Lb = sqrt(dot(b, b)); Lc = norm(b .- a)
@@ -13181,5 +13304,6 @@ end
 
 include("tetra10.jl")
 include("quad4_corner_thickness.jl")
+include("quad8_shell.jl")
 
 end

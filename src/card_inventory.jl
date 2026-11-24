@@ -10,7 +10,7 @@ function _report_card_inventory(cards)
         "SPC1", "SPC", "SPCADD", "SPCD", "MPC", "MPCADD", "LOAD",
         "CONM2", "CONM1", "CMASS1", "CMASS2", "PMASS",
         "CTETRA", "CHEXA", "CPENTA",
-        "EIGRL", "EIGB", "NLPARM", "TEMP", "TEMPD", "DMIG", "PARAM", "MDLPRM"])
+        "EIGRL", "EIGB", "NLPARM", "TEMP", "TEMPD", "TEMPP1", "DMIG", "PARAM", "MDLPRM", "PBRSECT", "POINT"])
     unprocessed = Dict{String,Int}()
     for (cname, clist) in cards
         if cname=="MDLPRM"
